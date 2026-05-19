@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.egg
+
+# Project runtime output
+runs/
+logs/
+
+# Harness summary JSONs written to repo root
+*.json
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+
+# HuggingFace dataset cache
+~/.cache/huggingface/
