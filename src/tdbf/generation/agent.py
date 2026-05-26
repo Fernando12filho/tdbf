@@ -37,7 +37,7 @@ not merely that some exception is raised.
 
 USER_TEMPLATE = """\
 Repository: {repo}
-Base commit (buggy): {base_commit}
+Base commit (buggy): {base_commit}\
 
 ## Issue / bug report
 {problem_statement}
@@ -90,16 +90,25 @@ def _extract_code(text: str) -> str | None:
 
 
 class TestGenerationAgent:
-    def __init__(self, client: LLMClient, use_fewshot: bool = True) -> None:
+    def __init__(
+        self,
+        client: LLMClient,
+        use_fewshot: bool = True,
+        max_problem_chars: int = 6000,
+    ) -> None:
         self.client = client
         self.use_fewshot = use_fewshot
+        self.max_problem_chars = max_problem_chars
 
     def build_user_prompt(self, inst: SWEBenchInstance) -> str:
         ctx = inst.context_safe_dict()
+        problem = ctx["problem_statement"].strip()
+        if len(problem) > self.max_problem_chars:
+            problem = problem[: self.max_problem_chars] + "\n...[truncated]"
         body = USER_TEMPLATE.format(
             repo=ctx["repo"],
             base_commit=ctx["base_commit"],
-            problem_statement=ctx["problem_statement"].strip(),
+            problem_statement=problem,
         )
         if self.use_fewshot:
             body = FEWSHOT_EXEMPLAR + "\n" + body

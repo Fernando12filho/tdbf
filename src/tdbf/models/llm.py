@@ -122,11 +122,92 @@ class OpenAIClient:
         return LLMResponse(text=text, model=self.name, raw=resp)
 
 
+class OllamaClient:
+    """Local Ollama instance via its OpenAI-compatible API.
+
+    Ollama does not require an API key. Pass base_url pointing at the
+    machine running Ollama, e.g. 'http://192.168.1.192:11434'.
+
+    num_ctx caps the KV-cache window. On an 8 GB card with Q4_K_M keep
+    this at 8192 — pushing higher spills to system RAM and kills decode
+    speed.
+    """
+
+    def __init__(
+        self,
+        model: str = "qwen3.5:9b",
+        base_url: str = "http://localhost:11434",
+        num_ctx: int = 8192,
+        timeout: float = 300.0,
+        think: bool = False,
+    ) -> None:
+        self.model = model
+        self.name = f"ollama:{model}"
+        self._base_url = base_url.rstrip("/")
+        self._num_ctx = num_ctx
+        self._timeout = timeout
+        self._think = think
+        self._client = None
+
+    def _ensure(self):
+        if self._client is None:
+            from openai import OpenAI  # lazy — reuses the openai SDK
+
+            self._client = OpenAI(
+                base_url=f"{self._base_url}/v1",
+                api_key="ollama",  # required by SDK; ignored by Ollama
+                timeout=self._timeout,
+            )
+        return self._client
+
+    def complete(
+        self, system: str, user: str, *, max_tokens: int = 2048
+    ) -> LLMResponse:
+        client = self._ensure()
+        # /no_think disables Qwen3's extended reasoning mode — much faster
+        # and avoids read timeouts caused by long silent thinking phases.
+        # With think=True the model reasons first; raise max_tokens accordingly.
+        if not self._think:
+            user = "/no_think\n" + user
+        else:
+            max_tokens = max(max_tokens, 4096)
+
+        # Stream to avoid ReadTimeout during the silent first-token phase.
+        stream = client.chat.completions.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            extra_body={"options": {"num_ctx": self._num_ctx}},
+            stream=True,
+        )
+        chunks: list[str] = []
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                chunks.append(delta)
+        text = "".join(chunks)
+        return LLMResponse(text=text, model=self.name, raw=None)
+
+
 def build_client(spec: str) -> LLMClient:
-    """`spec` like 'anthropic:claude-opus-4-7' or 'openai:gpt-4-turbo'."""
-    vendor, _, model = spec.partition(":")
+    """`spec` formats:
+      'ollama:qwen3.5:9b@http://192.168.1.192:11434'
+      'anthropic:claude-opus-4-7'
+      'openai:gpt-4-turbo'
+    """
+    vendor, _, rest = spec.partition(":")
+    if vendor == "ollama":
+        # rest is '<model>@<base_url>' or just '<model>'
+        model, _, base_url = rest.partition("@")
+        return OllamaClient(
+            model=model or "qwen3.5:9b",
+            base_url=base_url or "http://localhost:11434",
+        )
     if vendor == "anthropic":
-        return AnthropicClient(model=model or "claude-opus-4-7")
+        return AnthropicClient(model=rest or "claude-opus-4-7")
     if vendor == "openai":
-        return OpenAIClient(model=model or "gpt-4-turbo")
+        return OpenAIClient(model=rest or "gpt-4-turbo")
     raise ValueError(f"Unknown vendor in spec {spec!r}")
