@@ -50,6 +50,7 @@ def main() -> int:
         instance_id=inst.instance_id,
         model_name_or_path="GOLD",
         model_patch=inst.gold_patch,
+        
     )
     preds = write_predictions(
         [rec], Path("runs") / args.run_id / "predictions.jsonl"

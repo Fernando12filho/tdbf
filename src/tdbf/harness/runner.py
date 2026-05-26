@@ -26,12 +26,6 @@ from pathlib import Path
 
 
 def make_test_patch(test_path: str, test_code: str) -> str:
-    """Build a unified diff that ADDS a new test file.
-
-    Using /dev/null as the old file makes this a pure addition, so it
-    applies cleanly on both the buggy tree and the gold-patched tree
-    (the gold patch touches product code, not this new file).
-    """
     body = test_code if test_code.endswith("\n") else test_code + "\n"
     lines = body.split("\n")
     if lines and lines[-1] == "":
@@ -69,6 +63,7 @@ def write_predictions(
         for rec in records:
             f.write(json.dumps(rec.to_json()) + "\n")
     return path
+    
 
 
 @dataclass
@@ -83,6 +78,7 @@ class HarnessResult:
     error: str | None = None
 
 
+
 def run_harness(
     predictions_path: Path,
     dataset_split: str,
@@ -92,12 +88,7 @@ def run_harness(
     max_workers: int = 1,
     build_locally: bool = True,
 ) -> int:
-    """Invoke the official harness. Returns the process exit code.
 
-    `build_locally=True` adds `--namespace ''`, which the SWE-bench docs
-    specify to build evaluation images locally instead of pulling the
-    prebuilt registry images.
-    """
     dataset_name = {
         "lite": "princeton-nlp/SWE-bench_Lite",
         "verified": "princeton-nlp/SWE-bench_Verified",
@@ -132,18 +123,34 @@ def read_report(
     model_name: str,
     instance: "object",
 ) -> HarnessResult:
-    """Parse the harness's per-instance report.
+    instance_id: str = instance.instance_id  # type: ignore[attr-defined]
+    report_path = (
+        Path("logs") / "run_evaluation" / run_id / model_name / instance_id / "report.json"
+    )
 
-    The harness writes a run-level report and per-instance logs under
-    `logs/run_evaluation/<run_id>/<model>/<instance_id>/`. The exact
-    schema has shifted across harness versions, so this reads defensively
-    and records what it could and could not find rather than assuming a
-    fixed layout. Wire to the concrete path after the first real run
-    (scripts/01_validate_gold.py exercises this and prints the tree).
-    """
-    raise NotImplementedError(
-        "Implement against the real report tree after the first "
-        "harness run. scripts/01_validate_gold.py is built to surface "
-        "that tree so this is filled in against ground truth, not a "
-        "guessed schema."
+    if not report_path.exists():
+        return HarnessResult(
+            instance_id=instance_id,
+            resolved=False,
+            fail_to_pass_passed=[],
+            fail_to_pass_failed=[],
+            pass_to_pass_passed=[],
+            pass_to_pass_failed=[],
+            applied=False,
+            error=f"report not found: {report_path}",
+        )
+
+    data = json.loads(report_path.read_text())
+    inst = data[instance_id]
+    ftp = inst.get("tests_status", {}).get("FAIL_TO_PASS", {})
+    ptp = inst.get("tests_status", {}).get("PASS_TO_PASS", {})
+
+    return HarnessResult(
+        instance_id=instance_id,
+        resolved=inst.get("resolved", False),
+        fail_to_pass_passed=ftp.get("success", []),
+        fail_to_pass_failed=ftp.get("failure", []),
+        pass_to_pass_passed=ptp.get("success", []),
+        pass_to_pass_failed=ptp.get("failure", []),
+        applied=inst.get("patch_successfully_applied", False),
     )
