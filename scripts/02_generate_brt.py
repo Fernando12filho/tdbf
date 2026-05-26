@@ -31,6 +31,7 @@ from tdbf.harness.runner import (
     BRT_TEST_PATH,
     fetch_relevant_code,
     make_test_patch,
+    run_snippet_in_container,
     run_test_in_container,
 )
 from tdbf.models.llm import OllamaClient, build_client
@@ -57,6 +58,10 @@ def main() -> int:
     ap.add_argument(
         "--attempts", type=int, default=1, metavar="N",
         help="Max generation attempts; stops early on first L4 (default: 1)",
+    )
+    ap.add_argument(
+        "--observe", action="store_true",
+        help="Two-phase: run probe in container to observe buggy output, then generate test",
     )
     args = ap.parse_args()
 
@@ -97,7 +102,16 @@ def main() -> int:
             print(f"\n--- Attempt {attempt}/{args.attempts} ---")
 
         print(f"\nGenerating BRT with {client.name} ...")
-        generated = agent.generate(inst, code_context=code_context)
+        if args.observe:
+            generated, probe_code, observed_output = agent.generate_with_observation(
+                inst,
+                run_snippet_fn=run_snippet_in_container,
+                code_context=code_context,
+            )
+            if probe_code:
+                print(f"Probe ({len(probe_code)} chars), observed output ({len(observed_output)} chars)")
+        else:
+            generated = agent.generate(inst, code_context=code_context)
 
         if not generated.extracted:
             print("  No code block extracted — skipping attempt.")

@@ -197,6 +197,54 @@ def read_report(
     )
 
 
+def run_snippet_in_container(
+    instance: "object",
+    snippet: str,
+    timeout: int = 60,
+) -> str | None:
+    """Run an arbitrary Python snippet inside the instance's Docker image.
+
+    Returns stdout (up to 2000 chars) or None if the container errors out.
+    Used in Phase 1 of two-phase generation to observe the buggy output.
+    """
+    instance_id: str = instance.instance_id  # type: ignore[attr-defined]
+    image_name = f"sweb.eval.x86_64.{instance_id}:latest"
+
+    with tempfile.TemporaryDirectory(dir=str(Path.home())) as tmpdir:
+        tmp = Path(tmpdir)
+        (tmp / "probe.py").write_text(snippet)
+
+        script = "\n".join([
+            "source /opt/miniconda3/bin/activate",
+            "conda activate testbed",
+            "cd /testbed",
+            "python /patches/probe.py",
+        ])
+
+        cmd = [
+            "docker", "run", "--rm",
+            "-v", f"{tmpdir}:/patches:ro",
+            image_name,
+            "bash", "-c", script,
+        ]
+        try:
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=timeout
+            )
+        except subprocess.TimeoutExpired:
+            return None
+
+        output = proc.stdout.strip()
+        if output:
+            return output[:2000]
+        # Non-zero exit with no stdout means the probe crashed — return the
+        # traceback so Phase 2 knows the bug manifests as an exception.
+        if proc.returncode != 0:
+            err = (proc.stdout + proc.stderr).strip()
+            return err[:2000] if err else None
+        return None
+
+
 def _parse_pytest_outcome(returncode: int, output: str) -> str:
     # git apply failure — patch couldn't be applied to the tree
     if "error: patch failed" in output or "patch does not apply" in output:

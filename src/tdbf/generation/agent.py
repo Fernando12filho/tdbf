@@ -20,6 +20,9 @@ from dataclasses import dataclass
 from tdbf.data.instances import SWEBenchInstance
 from tdbf.models.llm import LLMClient
 
+_REPL_INPUT = re.compile(r"^>>> (.+)$", re.MULTILINE)
+_FENCE = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.DOTALL)
+
 SYSTEM_PROMPT = """\
 You are a software testing agent. Your sole job in this phase is to write \
 ONE executable test that REPRODUCES the bug described in an issue: the \
@@ -66,6 +69,76 @@ _CODE_CONTEXT_TEMPLATE = """\
 
 ## Relevant source files (buggy version — do NOT fix them, only test them)
 {files}
+"""
+
+# ── two-phase prompts ─────────────────────────────────────────────────────────
+
+PROBE_SYSTEM = """\
+You are a software testing agent. Your job right now is observation only — \
+NOT writing a test yet.
+"""
+
+PROBE_USER_TEMPLATE = """\
+Repository: {repo}
+Base commit (buggy): {base_commit}
+
+## Issue / bug report
+{problem_statement}
+{code_context_section}
+## Task
+Write a SHORT Python script (no test function, no assertions) that:
+- Imports the relevant module(s)
+- If the issue compares a CORRECT reference call vs a BUGGY call, print BOTH \
+so we can see the difference. Echo each expression before its result, e.g.:
+    print(">>> some_call(args)")
+    print(repr(some_call(args)))
+- Otherwise, just print the one buggy call the same way.
+- Wrap any call that might raise in try/except and print the exception.
+
+Output ONLY a single fenced python code block.
+"""
+
+PHASE2_USER_TEMPLATE = """\
+Repository: {repo}
+Base commit (buggy): {base_commit}
+
+## Issue / bug report
+{problem_statement}
+{code_context_section}
+## Observed output from the probe (run on BUGGY code)
+
+```python
+{probe_code}
+```
+
+```
+{observed_output}
+```
+
+Each output line is preceded by the expression that produced it (>>> ...).
+If multiple calls appear, use the issue text to decide which is the CORRECT \
+reference and which is the BUG:
+- The CORRECT value is what the fixed code should return (often the first call \
+  shown in the issue as a working comparison, or derivable from the issue description).
+- The BUG is the wrong value currently produced (typically the last call).
+
+## Task
+Write a single test function that:
+- Uses the same inputs as the buggy call in the probe
+- Asserts the CORRECT expected value so the test FAILS on the buggy output above \
+  and PASSES once the bug is fixed
+- If the probe captured an exception instead of a return value, assert that the \
+  fixed code either raises the RIGHT exception or returns the right value instead
+
+Only assert values you are certain are correct in the fixed version. \
+A wrong assertion that still fails after the fix is worse than no assertion.
+
+Buggy output:   <identify from the probe output above>
+Expected output: <derive from the issue or the reference call>
+Rationale: <one line>
+```python
+<test>
+```
 """
 
 # Slot for the proposal's "compact few-shot exemplars". Kept tiny and
@@ -161,4 +234,142 @@ class TestGenerationAgent:
             model=resp.model,
             raw_response=resp.text,
             test_code=_extract_code(resp.text),
+        )
+
+    # ── two-phase generation ──────────────────────────────────────────────────
+
+    def extract_probe_from_issue(self, problem_statement: str) -> str | None:
+        """Pull runnable probe code from the issue's example snippets.
+
+        Looks for fenced code blocks, converts REPL-style (>>>) lines into
+        print(repr(...)) calls, and combines with any setup lines found.
+        Returns None if no usable code is found.
+        """
+        blocks = _FENCE.findall(problem_statement)
+        if not blocks:
+            return None
+
+        setup: list[str] = []
+        repl_calls: list[str] = []
+        seen_setup: set[str] = set()
+
+        for block in blocks:
+            for line in block.splitlines():
+                m = _REPL_INPUT.match(line.rstrip())
+                if m:
+                    expr = m.group(1).strip()
+                    if expr and "(" in expr:
+                        # Echo the expression so Phase 2 can match each output to its call.
+                        # repr() ensures the label is valid Python regardless of quotes in expr.
+                        label = repr(f">>> {expr}")
+                        repl_calls.append(f"print({label})")
+                        repl_calls.append(f"print(repr({expr}))")
+                elif not line.startswith("..."):
+                    stripped = line.strip()
+                    # skip array/output lines from REPL display
+                    if stripped and not stripped.startswith(("array", "[", "False", "True")):
+                        if stripped not in seen_setup:
+                            setup.append(line)
+                            seen_setup.add(stripped)
+
+        if not repl_calls:
+            return None
+
+        return "\n".join(setup + [""] + repl_calls)
+
+    def _build_probe_prompt(
+        self,
+        inst: SWEBenchInstance,
+        code_context: dict[str, str] | None,
+    ) -> str:
+        ctx = inst.context_safe_dict()
+        problem = ctx["problem_statement"].strip()[: self.max_problem_chars]
+        code_context_section = self._code_context_section(code_context)
+        return PROBE_USER_TEMPLATE.format(
+            repo=ctx["repo"],
+            base_commit=ctx["base_commit"],
+            problem_statement=problem,
+            code_context_section=code_context_section,
+        )
+
+    def _build_phase2_prompt(
+        self,
+        inst: SWEBenchInstance,
+        probe_code: str,
+        observed_output: str,
+        code_context: dict[str, str] | None,
+    ) -> str:
+        ctx = inst.context_safe_dict()
+        problem = ctx["problem_statement"].strip()[: self.max_problem_chars]
+        code_context_section = self._code_context_section(code_context)
+        return PHASE2_USER_TEMPLATE.format(
+            repo=ctx["repo"],
+            base_commit=ctx["base_commit"],
+            problem_statement=problem,
+            code_context_section=code_context_section,
+            probe_code=probe_code.strip(),
+            observed_output=observed_output.strip(),
+        )
+
+    def _code_context_section(self, code_context: dict[str, str] | None) -> str:
+        if not code_context:
+            return ""
+        files_block = "\n".join(
+            f"### {path}\n```python\n{content}\n```"
+            for path, content in code_context.items()
+        )
+        return _CODE_CONTEXT_TEMPLATE.format(files=files_block)
+
+    def generate_with_observation(
+        self,
+        inst: SWEBenchInstance,
+        run_snippet_fn: "object",
+        code_context: dict[str, str] | None = None,
+    ) -> tuple["GeneratedTest", str, str]:
+        """Two-phase generation: observe buggy output, then write the test.
+
+        Returns (GeneratedTest, probe_code, observed_output).
+        probe_source is 'issue' or 'model'.
+        """
+        # Phase 1: get a probe snippet
+        probe_code = self.extract_probe_from_issue(inst.problem_statement)
+        probe_source = "issue"
+        if not probe_code:
+            print("  [observe] no example code in issue — asking model for probe ...")
+            resp = self.client.complete(
+                PROBE_SYSTEM,
+                self._build_probe_prompt(inst, code_context),
+            )
+            probe_code = _extract_code(resp.text)
+            probe_source = "model"
+
+        observed_output: str | None = None
+        if probe_code:
+            print(f"  [observe] running probe ({probe_source}) in container ...")
+            observed_output = run_snippet_fn(inst, probe_code)  # type: ignore[call-arg]
+            if observed_output:
+                print(f"  [observe] captured output ({len(observed_output)} chars)")
+            else:
+                print("  [observe] probe failed or produced no output")
+
+        # Phase 2: generate the test
+        if probe_code and observed_output:
+            user = self._build_phase2_prompt(
+                inst, probe_code, observed_output, code_context
+            )
+        else:
+            # fall back to one-shot if observation failed
+            print("  [observe] falling back to one-shot generation")
+            user = self.build_user_prompt(inst, code_context=code_context)
+
+        resp = self.client.complete(SYSTEM_PROMPT, user)
+        return (
+            GeneratedTest(
+                instance_id=inst.instance_id,
+                model=resp.model,
+                raw_response=resp.text,
+                test_code=_extract_code(resp.text),
+            ),
+            probe_code or "",
+            observed_output or "",
         )
