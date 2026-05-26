@@ -16,6 +16,7 @@ This module's jobs:
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -25,6 +26,41 @@ from pathlib import Path
 # Generated test is dropped at the repo root so pytest can discover it
 # without needing to know the per-repo test directory layout.
 BRT_TEST_PATH = "test_brt.py"
+
+
+def fetch_relevant_code(
+    instance: "object",
+    max_chars_per_file: int = 3000,
+) -> dict[str, str]:
+    """Return {filepath: content} for source files changed by the gold patch.
+
+    Reads files from the instance's Docker image at base_commit (the buggy
+    version). Test files are excluded — showing those would hint at the
+    answer. Returns an empty dict if the image isn't available.
+    """
+    instance_id: str = instance.instance_id  # type: ignore[attr-defined]
+    gold_patch: str = instance.gold_patch    # type: ignore[attr-defined]
+    image_name = f"sweb.eval.x86_64.{instance_id}:latest"
+
+    # Extract file paths from diff headers, skip test files
+    paths = [
+        p for p in re.findall(r"^diff --git a/(.+) b/", gold_patch, re.MULTILINE)
+        if not re.search(r"(^|/)tests?/|test_|_test\.py", p)
+    ]
+
+    result: dict[str, str] = {}
+    for path in paths:
+        proc = subprocess.run(
+            ["docker", "run", "--rm", image_name, "cat", f"/testbed/{path}"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if proc.returncode != 0:
+            continue
+        content = proc.stdout
+        if len(content) > max_chars_per_file:
+            content = content[:max_chars_per_file] + "\n# ...[truncated]"
+        result[path] = content
+    return result
 
 
 def make_test_patch(test_path: str, test_code: str) -> str:

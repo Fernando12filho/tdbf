@@ -10,16 +10,10 @@ Requires:
   - For Anthropic/OpenAI: API key env var set
 
 Usage:
-  # Local Qwen via Ollama on another machine
-  python scripts/02_generate_brt.py \\
-      --model ollama:qwen3.5:9b@http://192.168.1.192:11434
-
-  # Specific instance
   python scripts/02_generate_brt.py \\
       --model ollama:qwen3.5:9b@http://192.168.1.192:11434 \\
-      --id astropy__astropy-12907
+      --think --context --attempts 3
 
-  # Cloud model (needs API key)
   python scripts/02_generate_brt.py --model anthropic:claude-opus-4-7
 """
 
@@ -33,8 +27,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from tdbf.data.instances import InstanceStore
 from tdbf.generation.agent import TestGenerationAgent
-from tdbf.harness.runner import BRT_TEST_PATH, make_test_patch, run_test_in_container
-from tdbf.models.llm import build_client
+from tdbf.harness.runner import (
+    BRT_TEST_PATH,
+    fetch_relevant_code,
+    make_test_patch,
+    run_test_in_container,
+)
+from tdbf.models.llm import OllamaClient, build_client
 from tdbf.validation.brt_levels import classify
 
 
@@ -47,6 +46,18 @@ def main() -> int:
         default="ollama:qwen3.5:9b@http://192.168.1.192:11434",
         help="Model spec: ollama:<model>@<url>, anthropic:<model>, openai:<model>",
     )
+    ap.add_argument(
+        "--think", action="store_true",
+        help="Enable Qwen3 thinking mode (slower, higher quality)",
+    )
+    ap.add_argument(
+        "--context", action="store_true",
+        help="Include buggy source files in the prompt",
+    )
+    ap.add_argument(
+        "--attempts", type=int, default=1, metavar="N",
+        help="Max generation attempts; stops early on first L4 (default: 1)",
+    )
     args = ap.parse_args()
 
     # --- Load instance ---
@@ -55,47 +66,87 @@ def main() -> int:
     print(f"Instance:  {inst.instance_id}")
     print(f"Repo:      {inst.repo}")
 
-    # --- Generate test ---
+    # --- Build client ---
     client = build_client(args.model)
-    agent = TestGenerationAgent(client)
-    print(f"\nGenerating BRT with {client.name} ...")
-    generated = agent.generate(inst)
+    if args.think and isinstance(client, OllamaClient):
+        client._think = True
+        print(f"Model:     {client.name}  [thinking=on]")
+    else:
+        print(f"Model:     {client.name}")
 
-    if not generated.extracted:
-        print("FAILED: model returned no Python code block.")
-        print("--- raw response ---")
-        print(generated.raw_response[:1000])
+    # --- Fetch code context (once, reused across attempts) ---
+    code_context: dict[str, str] | None = None
+    if args.context:
+        print("Fetching source context from Docker image ...")
+        code_context = fetch_relevant_code(inst)
+        if code_context:
+            for path, content in code_context.items():
+                print(f"  {path}  ({len(content)} chars)")
+        else:
+            print("  (no context found — proceeding without)")
+
+    agent = TestGenerationAgent(client)
+
+    # --- Attempt loop ---
+    best_result = None
+    best_generated = None
+    best_outcomes = (None, None)
+
+    for attempt in range(1, args.attempts + 1):
+        if args.attempts > 1:
+            print(f"\n--- Attempt {attempt}/{args.attempts} ---")
+
+        print(f"\nGenerating BRT with {client.name} ...")
+        generated = agent.generate(inst, code_context=code_context)
+
+        if not generated.extracted:
+            print("  No code block extracted — skipping attempt.")
+            continue
+
+        print(f"Test extracted ({len(generated.test_code)} chars)")
+        print("--- generated test ---")
+        print(generated.test_code)
+        print("--- end ---\n")
+
+        test_patch = make_test_patch(BRT_TEST_PATH, generated.test_code)
+
+        print("Running on BUGGY code ...")
+        outcome_buggy = run_test_in_container(inst, test_patch)
+        print(f"  outcome_on_buggy:  {outcome_buggy}")
+
+        print("Running on FIXED code ...")
+        outcome_fixed = run_test_in_container(
+            inst, test_patch, gold_patch=inst.gold_patch
+        )
+        print(f"  outcome_on_fixed:  {outcome_fixed}")
+
+        result = classify(outcome_buggy, outcome_fixed)
+        print(f"  → {result.level.name}")
+
+        if best_result is None or result.level > best_result.level:
+            best_result = result
+            best_generated = generated
+            best_outcomes = (outcome_buggy, outcome_fixed)
+
+        if result.is_valid_brt:
+            print("  L4 reached — stopping early.")
+            break
+
+    # --- Final report ---
+    if best_result is None:
+        print("\nNo test was successfully extracted in any attempt.")
         return 1
 
-    print(f"Test extracted ({len(generated.test_code)} chars)")
-    print("--- generated test ---")
-    print(generated.test_code)
-    print("--- end ---\n")
-
-    # --- Build patch ---
-    test_patch = make_test_patch(BRT_TEST_PATH, generated.test_code)
-
-    # --- Evaluate on buggy tree ---
-    print("Running on BUGGY code (no patch applied) ...")
-    outcome_buggy = run_test_in_container(inst, test_patch)
-    print(f"  outcome_on_buggy:  {outcome_buggy}")
-
-    # --- Evaluate on fixed tree ---
-    print("Running on FIXED code (gold patch applied) ...")
-    outcome_fixed = run_test_in_container(
-        inst, test_patch, gold_patch=inst.gold_patch
-    )
-    print(f"  outcome_on_fixed:  {outcome_fixed}")
-
-    # --- Classify ---
-    result = classify(outcome_buggy, outcome_fixed)
     print(f"\n{'='*50}")
-    print(f"BRT Level:  {result.level.name}  (L{result.level.value})")
-    print(f"Valid BRT:  {result.is_valid_brt}")
-    print(f"Rationale:  {result.rationale}")
+    if args.attempts > 1:
+        print(f"Best result across {args.attempts} attempt(s):")
+    print(f"BRT Level:  {best_result.level.name}  (L{best_result.level.value})")
+    print(f"Valid BRT:  {best_result.is_valid_brt}")
+    print(f"Outcomes:   buggy={best_outcomes[0]}  fixed={best_outcomes[1]}")
+    print(f"Rationale:  {best_result.rationale}")
     print(f"{'='*50}")
 
-    return 0 if result.is_valid_brt else 1
+    return 0 if best_result.is_valid_brt else 1
 
 
 if __name__ == "__main__":
