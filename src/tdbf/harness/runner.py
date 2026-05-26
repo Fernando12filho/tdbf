@@ -300,7 +300,7 @@ def run_test_in_container(
             (tmp / "gold.patch").write_text(gold_patch)
             script_lines.append("git apply /patches/gold.patch")
         script_lines.append("git apply /patches/test.patch")
-        script_lines.append(f"pytest {BRT_TEST_PATH} -x --tb=short -q")
+        script_lines.append(f"python -m pytest {BRT_TEST_PATH} -x --tb=short -q")
         script = "\n".join(script_lines)
 
         cmd = [
