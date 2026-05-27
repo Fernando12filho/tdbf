@@ -23,9 +23,56 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-# Generated test is dropped at the repo root so pytest can discover it
-# without needing to know the per-repo test directory layout.
-BRT_TEST_PATH = "test_brt.py"
+BRT_TEST_FILENAME = "test_brt.py"
+BRT_TEST_PATH = BRT_TEST_FILENAME  # backward-compat alias (repo root default)
+
+# Repos whose tests live in a subdirectory that provides the right imports /
+# environment automatically (conftest, settings, fixtures).
+_REPO_TEST_SUBDIRS: dict[str, str] = {
+    "django/django": "tests",
+    "django/django-rest-framework": "tests",
+}
+
+# Setup preamble injected at the top of the generated test for repos that
+# need framework bootstrapping the model shouldn't have to write.
+_REPO_PREAMBLES: dict[str, str] = {
+    "django/django": (
+        "import sys, os, django\n"
+        "sys.path.insert(0, '/testbed/tests')\n"
+        "os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'test_sqlite')\n"
+        "django.setup()\n"
+    ),
+    "django/django-rest-framework": (
+        "import django\n"
+        "from django.conf import settings\n"
+        "if not settings.configured:\n"
+        "    settings.configure(DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': ':memory:'}}, INSTALLED_APPS=['rest_framework'])\n"
+        "django.setup()\n"
+    ),
+}
+
+
+def brt_test_path(repo: str) -> str:
+    """Return the repo-relative path where the BRT file should be placed."""
+    subdir = _REPO_TEST_SUBDIRS.get(repo, "")
+    return f"{subdir}/{BRT_TEST_FILENAME}" if subdir else BRT_TEST_FILENAME
+
+
+def inject_setup_preamble(repo: str, test_code: str) -> str:
+    """Prepend framework setup boilerplate so the model doesn't have to."""
+    preamble = _REPO_PREAMBLES.get(repo, "")
+    return preamble + test_code if preamble else test_code
+
+
+def repo_test_hint(repo: str) -> str:
+    """One-line hint for the generation prompt about the test environment."""
+    if repo in _REPO_PREAMBLES:
+        return (
+            f"Note: Django is already configured in the test environment "
+            f"(DJANGO_SETTINGS_MODULE=test_sqlite, django.setup() already called). "
+            f"Do NOT call settings.configure() or django.setup() in your test."
+        )
+    return ""
 
 
 def fetch_relevant_code(
@@ -268,6 +315,7 @@ def run_test_in_container(
     gold_patch: str | None = None,
     timeout: int = 120,
     verbose: bool = False,
+    test_path: str = BRT_TEST_PATH,
 ) -> str:
     """Apply test_patch inside the instance's Docker image and run pytest.
 
@@ -300,7 +348,7 @@ def run_test_in_container(
             (tmp / "gold.patch").write_text(gold_patch)
             script_lines.append("git apply /patches/gold.patch")
         script_lines.append("git apply /patches/test.patch")
-        script_lines.append(f"python -m pytest {BRT_TEST_PATH} -x --tb=short -q")
+        script_lines.append(f"python -m pytest {test_path} -x --tb=short -q")
         script = "\n".join(script_lines)
 
         cmd = [

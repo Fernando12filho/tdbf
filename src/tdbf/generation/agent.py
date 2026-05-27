@@ -195,28 +195,21 @@ class TestGenerationAgent:
         self,
         inst: SWEBenchInstance,
         code_context: dict[str, str] | None = None,
+        env_hint: str = "",
     ) -> str:
         ctx = inst.context_safe_dict()
         problem = ctx["problem_statement"].strip()
         if len(problem) > self.max_problem_chars:
             problem = problem[: self.max_problem_chars] + "\n...[truncated]"
 
-        if code_context:
-            files_block = "\n".join(
-                f"### {path}\n```python\n{content}\n```"
-                for path, content in code_context.items()
-            )
-            code_context_section = _CODE_CONTEXT_TEMPLATE.format(
-                files=files_block
-            )
-        else:
-            code_context_section = ""
+        code_context_section = self._code_context_section(code_context)
+        env_hint_section = f"\n## Environment note\n{env_hint}\n" if env_hint else ""
 
         body = USER_TEMPLATE.format(
             repo=ctx["repo"],
             base_commit=ctx["base_commit"],
             problem_statement=problem,
-            code_context_section=code_context_section,
+            code_context_section=code_context_section + env_hint_section,
         )
         if self.use_fewshot:
             body = FEWSHOT_EXEMPLAR + "\n" + body
@@ -226,8 +219,9 @@ class TestGenerationAgent:
         self,
         inst: SWEBenchInstance,
         code_context: dict[str, str] | None = None,
+        env_hint: str = "",
     ) -> GeneratedTest:
-        user = self.build_user_prompt(inst, code_context=code_context)
+        user = self.build_user_prompt(inst, code_context=code_context, env_hint=env_hint)
         resp = self.client.complete(SYSTEM_PROMPT, user)
         return GeneratedTest(
             instance_id=inst.instance_id,
@@ -298,10 +292,12 @@ class TestGenerationAgent:
         probe_code: str,
         observed_output: str,
         code_context: dict[str, str] | None,
+        env_hint: str = "",
     ) -> str:
         ctx = inst.context_safe_dict()
         problem = ctx["problem_statement"].strip()[: self.max_problem_chars]
-        code_context_section = self._code_context_section(code_context)
+        env_hint_section = f"\n## Environment note\n{env_hint}\n" if env_hint else ""
+        code_context_section = self._code_context_section(code_context) + env_hint_section
         return PHASE2_USER_TEMPLATE.format(
             repo=ctx["repo"],
             base_commit=ctx["base_commit"],
@@ -325,6 +321,7 @@ class TestGenerationAgent:
         inst: SWEBenchInstance,
         run_snippet_fn: "object",
         code_context: dict[str, str] | None = None,
+        env_hint: str = "",
     ) -> tuple["GeneratedTest", str, str]:
         """Two-phase generation: observe buggy output, then write the test.
 
@@ -355,12 +352,12 @@ class TestGenerationAgent:
         # Phase 2: generate the test
         if probe_code and observed_output:
             user = self._build_phase2_prompt(
-                inst, probe_code, observed_output, code_context
+                inst, probe_code, observed_output, code_context, env_hint=env_hint
             )
         else:
             # fall back to one-shot if observation failed
             print("  [observe] falling back to one-shot generation")
-            user = self.build_user_prompt(inst, code_context=code_context)
+            user = self.build_user_prompt(inst, code_context=code_context, env_hint=env_hint)
 
         resp = self.client.complete(SYSTEM_PROMPT, user)
         return (

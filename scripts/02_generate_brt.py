@@ -28,9 +28,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from tdbf.data.instances import InstanceStore
 from tdbf.generation.agent import TestGenerationAgent
 from tdbf.harness.runner import (
-    BRT_TEST_PATH,
+    brt_test_path,
     fetch_relevant_code,
+    inject_setup_preamble,
     make_test_patch,
+    repo_test_hint,
     run_snippet_in_container,
     run_test_in_container,
 )
@@ -90,6 +92,11 @@ def main() -> int:
         else:
             print("  (no context found — proceeding without)")
 
+    test_path = brt_test_path(inst.repo)
+    env_hint = repo_test_hint(inst.repo)
+    if test_path != "test_brt.py":
+        print(f"Test path: {test_path}")
+
     agent = TestGenerationAgent(client)
 
     # --- Attempt loop ---
@@ -107,30 +114,35 @@ def main() -> int:
                 inst,
                 run_snippet_fn=run_snippet_in_container,
                 code_context=code_context,
+                env_hint=env_hint,
             )
             if probe_code:
                 print(f"Probe ({len(probe_code)} chars), observed output ({len(observed_output)} chars)")
         else:
-            generated = agent.generate(inst, code_context=code_context)
+            generated = agent.generate(inst, code_context=code_context, env_hint=env_hint)
 
         if not generated.extracted:
             print("  No code block extracted — skipping attempt.")
             continue
 
-        print(f"Test extracted ({len(generated.test_code)} chars)")
+        # Inject framework setup preamble (e.g. django.setup()) so the model
+        # doesn't have to write it and can't get it wrong.
+        test_code = inject_setup_preamble(inst.repo, generated.test_code)
+
+        print(f"Test extracted ({len(test_code)} chars)")
         print("--- generated test ---")
-        print(generated.test_code)
+        print(test_code)
         print("--- end ---\n")
 
-        test_patch = make_test_patch(BRT_TEST_PATH, generated.test_code)
+        test_patch = make_test_patch(test_path, test_code)
 
         print("Running on BUGGY code ...")
-        outcome_buggy = run_test_in_container(inst, test_patch)
+        outcome_buggy = run_test_in_container(inst, test_patch, test_path=test_path)
         print(f"  outcome_on_buggy:  {outcome_buggy}")
 
         print("Running on FIXED code ...")
         outcome_fixed = run_test_in_container(
-            inst, test_patch, gold_patch=inst.gold_patch
+            inst, test_patch, gold_patch=inst.gold_patch, test_path=test_path
         )
         print(f"  outcome_on_fixed:  {outcome_fixed}")
 
