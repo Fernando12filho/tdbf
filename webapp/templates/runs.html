@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Runs — TDBF{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">Runs</h1>
+</div>
+
+<!-- filters -->
+<form method="get" class="row g-2 mb-4">
+  <div class="col-auto">
+    <select name="model" class="form-select form-select-sm">
+      <option value="">All models</option>
+      {% for m in models %}
+      <option value="{{ m }}" {% if m == selected_model %}selected{% endif %}>{{ m }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <select name="level" class="form-select form-select-sm">
+      <option value="">All levels</option>
+      {% for lvl in range(5) %}
+      <option value="{{ lvl }}" {% if selected_level == lvl|string %}selected{% endif %}>
+        {{ level_names[lvl] }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+    <a href="/runs" class="btn btn-sm btn-outline-secondary">Clear</a>
+  </div>
+</form>
+
+{% if runs %}
+<div class="table-responsive">
+  <table class="table table-hover table-sm align-middle">
+    <thead class="table-light">
+      <tr>
+        <th>Instance</th>
+        <th>Repo</th>
+        <th>Model</th>
+        <th>Flags</th>
+        <th>Best Level</th>
+        <th>Attempts</th>
+        <th>Timestamp</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}
+      <tr>
+        <td class="font-monospace small">{{ run.instance_id }}</td>
+        <td class="text-muted small">{{ run.repo }}</td>
+        <td class="small text-truncate model-cell" title="{{ run.model }}">{{ run.model }}</td>
+        <td class="small">
+          {% if run.think %}<span class="badge bg-secondary me-1">think</span>{% endif %}
+          {% if run.context %}<span class="badge bg-secondary me-1">ctx</span>{% endif %}
+          {% if run.observe %}<span class="badge bg-secondary me-1">obs</span>{% endif %}
+        </td>
+        <td>
+          {% if run.best_level is not none %}
+          <span class="badge bg-{{ level_colors[run.best_level] }}">
+            L{{ run.best_level }}
+          </span>
+          {% else %}
+          <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+        <td class="text-center">{{ run.total_attempts }}</td>
+        <td class="text-muted small text-nowrap">{{ run.timestamp[:19].replace('T', ' ') }}</td>
+        <td><a href="/runs/{{ run.id }}" class="btn btn-outline-secondary btn-sm py-0">View</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="alert alert-secondary">No runs match the current filter.</div>
+{% endif %}
+
+{% endblock %}

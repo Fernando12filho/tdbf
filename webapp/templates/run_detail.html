@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}{{ run.instance_id }} — TDBF{% endblock %}
+{% block content %}
+
+<div class="mb-3">
+  <a href="/runs" class="text-muted small">← All runs</a>
+</div>
+
+<!-- header -->
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-start">
+      <div>
+        <h2 class="h4 font-monospace mb-1">{{ run.instance_id }}</h2>
+        <div class="text-muted small">{{ run.repo }}</div>
+      </div>
+      {% if run.best_level is not none %}
+      <span class="badge bg-{{ level_colors[run.best_level] }} fs-6">
+        {{ level_names[run.best_level] }}
+      </span>
+      {% endif %}
+    </div>
+    <hr class="my-3">
+    <div class="row g-2 small">
+      <div class="col-md-4"><span class="text-muted">Model:</span> {{ run.model }}</div>
+      <div class="col-md-4"><span class="text-muted">Split:</span> {{ run.split }}</div>
+      <div class="col-md-4"><span class="text-muted">Timestamp:</span> {{ run.timestamp[:19].replace('T', ' ') }}</div>
+      <div class="col-md-4">
+        <span class="text-muted">Flags:</span>
+        {% if run.think %}<span class="badge bg-secondary me-1">think</span>{% endif %}
+        {% if run.context %}<span class="badge bg-secondary me-1">context</span>{% endif %}
+        {% if run.observe %}<span class="badge bg-secondary me-1">observe</span>{% endif %}
+        {% if not run.think and not run.context and not run.observe %}
+        <span class="text-muted">none</span>
+        {% endif %}
+      </div>
+      <div class="col-md-4">
+        <span class="text-muted">Best attempt:</span>
+        {{ run.best_attempt }} / {{ run.total_attempts }}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- attempts -->
+<h3 class="h5 mb-3">Attempts</h3>
+
+{% if run.attempts %}
+<div class="accordion mb-4" id="attempts-accordion">
+  {% for a in run.attempts %}
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button {% if not loop.last %}collapsed{% endif %}"
+              type="button"
+              data-bs-toggle="collapse"
+              data-bs-target="#attempt-{{ a.id }}">
+        <span class="me-3">Attempt {{ a.attempt_number }}</span>
+        {% if a.level is not none %}
+        <span class="badge bg-{{ level_colors[a.level] }} me-2">{{ level_names[a.level] }}</span>
+        {% endif %}
+        <span class="text-muted small ms-2 me-3">
+          buggy: <strong>{{ a.outcome_buggy or '—' }}</strong>
+          &nbsp;·&nbsp;
+          fixed: <strong>{{ a.outcome_fixed or '—' }}</strong>
+        </span>
+        <!-- token / timing stats inline -->
+        {% if a.input_tokens or a.output_tokens or a.duration_seconds %}
+        <span class="text-muted small ms-auto me-3 d-flex gap-3">
+          {% if a.input_tokens is not none %}
+          <span title="Input tokens">↑{{ a.input_tokens }}</span>
+          {% endif %}
+          {% if a.output_tokens is not none %}
+          <span title="Output tokens">↓{{ a.output_tokens }}</span>
+          {% endif %}
+          {% if a.duration_seconds is not none %}
+          <span title="LLM time">⏱ {{ "%.1f"|format(a.duration_seconds) }}s</span>
+          {% endif %}
+        </span>
+        {% endif %}
+      </button>
+    </h2>
+    <div id="attempt-{{ a.id }}"
+         class="accordion-collapse collapse {% if loop.last %}show{% endif %}"
+         data-bs-parent="#attempts-accordion">
+      <div class="accordion-body">
+
+        <!-- stats row -->
+        {% if a.input_tokens is not none or a.output_tokens is not none or a.duration_seconds is not none %}
+        <div class="d-flex gap-4 mb-3 small text-muted">
+          {% if a.input_tokens is not none %}
+          <span><strong>Input tokens:</strong> {{ a.input_tokens }}</span>
+          {% endif %}
+          {% if a.output_tokens is not none %}
+          <span><strong>Output tokens:</strong> {{ a.output_tokens }}</span>
+          {% endif %}
+          {% if a.input_tokens is not none and a.output_tokens is not none %}
+          <span><strong>Total tokens:</strong> {{ a.input_tokens + a.output_tokens }}</span>
+          {% endif %}
+          {% if a.duration_seconds is not none %}
+          <span><strong>LLM time:</strong> {{ "%.2f"|format(a.duration_seconds) }}s</span>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        {% if a.test_code %}
+        <h6 class="text-muted">Generated test</h6>
+        <pre class="code-block"><code>{{ a.test_code }}</code></pre>
+        {% endif %}
+
+        {% if a.probe_code %}
+        <h6 class="text-muted mt-3">Probe script</h6>
+        <pre class="code-block"><code>{{ a.probe_code }}</code></pre>
+        {% endif %}
+
+        {% if a.observed_output %}
+        <h6 class="text-muted mt-3">Observed output (buggy container)</h6>
+        <pre class="code-block output-block"><code>{{ a.observed_output }}</code></pre>
+        {% endif %}
+
+        <!-- prompts — collapsible since they can be large -->
+        {% if a.probe_prompt %}
+        <div class="mt-3">
+          <a class="text-muted small" data-bs-toggle="collapse"
+             href="#probe-prompt-{{ a.id }}">▶ Probe generation prompt</a>
+          <div class="collapse" id="probe-prompt-{{ a.id }}">
+            <pre class="code-block mt-2"><code>{{ a.probe_prompt }}</code></pre>
+          </div>
+        </div>
+        {% endif %}
+
+        {% if a.prompt_sent %}
+        <div class="mt-3">
+          <a class="text-muted small" data-bs-toggle="collapse"
+             href="#test-prompt-{{ a.id }}">▶ Test generation prompt</a>
+          <div class="collapse" id="test-prompt-{{ a.id }}">
+            <pre class="code-block mt-2"><code>{{ a.prompt_sent }}</code></pre>
+          </div>
+        </div>
+        {% endif %}
+
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="text-muted">No attempt data stored.</p>
+{% endif %}
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+{% endblock %}

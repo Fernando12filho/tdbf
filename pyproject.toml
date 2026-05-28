@@ -8,5 +8,9 @@ requires-python = ">=3.10"
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
+[project.optional-dependencies]
+dev = ["swebench", "datasets", "anthropic", "openai"]
+webapp = ["flask"]
+
 [tool.setuptools.packages.find]
 where = ["src"]

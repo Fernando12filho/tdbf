@@ -18,7 +18,7 @@ import re
 from dataclasses import dataclass
 
 from tdbf.data.instances import SWEBenchInstance
-from tdbf.models.llm import LLMClient
+from tdbf.models.llm import LLMClient, LLMResponse
 
 _REPL_INPUT = re.compile(r"^>>> (.+)$", re.MULTILINE)
 _FENCE = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.DOTALL)
@@ -165,6 +165,11 @@ class GeneratedTest:
     model: str
     raw_response: str
     test_code: str | None  # None if no code block could be extracted
+    prompt_sent: str | None = None       # final test-generation user prompt
+    probe_prompt: str | None = None      # probe-generation prompt (observe mode only)
+    input_tokens: int | None = None      # total across all LLM calls for this attempt
+    output_tokens: int | None = None
+    duration_seconds: float | None = None
 
     @property
     def extracted(self) -> bool:
@@ -228,6 +233,10 @@ class TestGenerationAgent:
             model=resp.model,
             raw_response=resp.text,
             test_code=_extract_code(resp.text),
+            prompt_sent=user,
+            input_tokens=resp.input_tokens,
+            output_tokens=resp.output_tokens,
+            duration_seconds=resp.duration_seconds,
         )
 
     # ── two-phase generation ──────────────────────────────────────────────────
@@ -328,17 +337,28 @@ class TestGenerationAgent:
         Returns (GeneratedTest, probe_code, observed_output).
         probe_source is 'issue' or 'model'.
         """
+        total_input_tokens = 0
+        total_output_tokens = 0
+        total_duration = 0.0
+
+        def _add(r: LLMResponse) -> None:
+            nonlocal total_input_tokens, total_output_tokens, total_duration
+            total_input_tokens += r.input_tokens or 0
+            total_output_tokens += r.output_tokens or 0
+            total_duration += r.duration_seconds or 0.0
+
         # Phase 1: get a probe snippet
         probe_code = self.extract_probe_from_issue(inst.problem_statement)
         probe_source = "issue"
+        probe_prompt_stored: str | None = None
         if not probe_code:
             print("  [observe] no example code in issue — asking model for probe ...")
-            resp = self.client.complete(
-                PROBE_SYSTEM,
-                self._build_probe_prompt(inst, code_context),
-            )
-            probe_code = _extract_code(resp.text)
+            probe_prompt_text = self._build_probe_prompt(inst, code_context)
+            probe_resp = self.client.complete(PROBE_SYSTEM, probe_prompt_text)
+            _add(probe_resp)
+            probe_code = _extract_code(probe_resp.text)
             probe_source = "model"
+            probe_prompt_stored = probe_prompt_text
 
         observed_output: str | None = None
         if probe_code:
@@ -355,17 +375,22 @@ class TestGenerationAgent:
                 inst, probe_code, observed_output, code_context, env_hint=env_hint
             )
         else:
-            # fall back to one-shot if observation failed
             print("  [observe] falling back to one-shot generation")
             user = self.build_user_prompt(inst, code_context=code_context, env_hint=env_hint)
 
         resp = self.client.complete(SYSTEM_PROMPT, user)
+        _add(resp)
         return (
             GeneratedTest(
                 instance_id=inst.instance_id,
                 model=resp.model,
                 raw_response=resp.text,
                 test_code=_extract_code(resp.text),
+                prompt_sent=user,
+                probe_prompt=probe_prompt_stored,
+                input_tokens=total_input_tokens or None,
+                output_tokens=total_output_tokens or None,
+                duration_seconds=total_duration or None,
             ),
             probe_code or "",
             observed_output or "",

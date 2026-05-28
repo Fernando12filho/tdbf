@@ -37,6 +37,7 @@ from tdbf.harness.runner import (
     run_test_in_container,
 )
 from tdbf.models.llm import OllamaClient, build_client
+from tdbf.results import save_run
 from tdbf.validation.brt_levels import classify
 
 
@@ -103,11 +104,14 @@ def main() -> int:
     best_result = None
     best_generated = None
     best_outcomes = (None, None)
+    best_attempt_number = None
+    attempts_log: list[dict] = []
 
     for attempt in range(1, args.attempts + 1):
         if args.attempts > 1:
             print(f"\n--- Attempt {attempt}/{args.attempts} ---")
 
+        probe_code = observed_output = ""
         print(f"\nGenerating BRT with {client.name} ...")
         if args.observe:
             generated, probe_code, observed_output = agent.generate_with_observation(
@@ -123,6 +127,18 @@ def main() -> int:
 
         if not generated.extracted:
             print("  No code block extracted — skipping attempt.")
+            attempts_log.append({
+                "attempt": attempt, "level": None,
+                "outcome_buggy": None, "outcome_fixed": None,
+                "test_code": None, "probe_code": probe_code,
+                "observed_output": observed_output,
+                "raw_response": generated.raw_response,
+                "prompt_sent": generated.prompt_sent,
+                "probe_prompt": generated.probe_prompt,
+                "input_tokens": generated.input_tokens,
+                "output_tokens": generated.output_tokens,
+                "duration_seconds": generated.duration_seconds,
+            })
             continue
 
         # Inject framework setup preamble (e.g. django.setup()) so the model
@@ -149,10 +165,27 @@ def main() -> int:
         result = classify(outcome_buggy, outcome_fixed)
         print(f"  → {result.level.name}")
 
+        attempts_log.append({
+            "attempt": attempt,
+            "level": result.level.value,
+            "outcome_buggy": outcome_buggy,
+            "outcome_fixed": outcome_fixed,
+            "test_code": test_code,
+            "probe_code": probe_code,
+            "observed_output": observed_output,
+            "raw_response": generated.raw_response,
+            "prompt_sent": generated.prompt_sent,
+            "probe_prompt": generated.probe_prompt,
+            "input_tokens": generated.input_tokens,
+            "output_tokens": generated.output_tokens,
+            "duration_seconds": generated.duration_seconds,
+        })
+
         if best_result is None or result.level > best_result.level:
             best_result = result
             best_generated = generated
             best_outcomes = (outcome_buggy, outcome_fixed)
+            best_attempt_number = attempt
 
         if result.is_valid_brt:
             print("  L4 reached — stopping early.")
@@ -171,6 +204,17 @@ def main() -> int:
     print(f"Outcomes:   buggy={best_outcomes[0]}  fixed={best_outcomes[1]}")
     print(f"Rationale:  {best_result.rationale}")
     print(f"{'='*50}")
+
+    save_run({
+        "instance_id": inst.instance_id,
+        "repo": inst.repo,
+        "model": client.name,
+        "split": args.split,
+        "flags": {"think": args.think, "context": args.context, "observe": args.observe},
+        "best_level": best_result.level.value,
+        "best_attempt": best_attempt_number,
+        "attempts": attempts_log,
+    })
 
     return 0 if best_result.is_valid_brt else 1
 

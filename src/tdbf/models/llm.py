@@ -16,7 +16,8 @@ can import this module with no SDKs and no keys.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 
@@ -24,6 +25,9 @@ from typing import Protocol, runtime_checkable
 class LLMResponse:
     text: str
     model: str
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    duration_seconds: float | None = None
     raw: object = None  # provider-native response, kept for logging
 
 
@@ -67,18 +71,27 @@ class AnthropicClient:
         self, system: str, user: str, *, max_tokens: int = 4096
     ) -> LLMResponse:
         client = self._ensure()
+        t0 = time.perf_counter()
         resp = client.messages.create(
             model=self.model,
             max_tokens=max_tokens,
             system=system,
             messages=[{"role": "user", "content": user}],
         )
+        duration = time.perf_counter() - t0
         text = "".join(
             block.text
             for block in resp.content
             if getattr(block, "type", None) == "text"
         )
-        return LLMResponse(text=text, model=self.name, raw=resp)
+        return LLMResponse(
+            text=text,
+            model=self.name,
+            input_tokens=getattr(resp.usage, "input_tokens", None),
+            output_tokens=getattr(resp.usage, "output_tokens", None),
+            duration_seconds=duration,
+            raw=resp,
+        )
 
 
 class OpenAIClient:
@@ -110,6 +123,7 @@ class OpenAIClient:
         self, system: str, user: str, *, max_tokens: int = 4096
     ) -> LLMResponse:
         client = self._ensure()
+        t0 = time.perf_counter()
         resp = client.chat.completions.create(
             model=self.model,
             max_tokens=max_tokens,
@@ -118,8 +132,17 @@ class OpenAIClient:
                 {"role": "user", "content": user},
             ],
         )
+        duration = time.perf_counter() - t0
         text = resp.choices[0].message.content or ""
-        return LLMResponse(text=text, model=self.name, raw=resp)
+        usage = getattr(resp, "usage", None)
+        return LLMResponse(
+            text=text,
+            model=self.name,
+            input_tokens=getattr(usage, "prompt_tokens", None),
+            output_tokens=getattr(usage, "completion_tokens", None),
+            duration_seconds=duration,
+            raw=resp,
+        )
 
 
 class OllamaClient:
@@ -173,6 +196,8 @@ class OllamaClient:
             max_tokens = max(max_tokens, 4096)
 
         # Stream to avoid ReadTimeout during the silent first-token phase.
+        # stream_options includes usage so the final chunk carries token counts.
+        t0 = time.perf_counter()
         stream = client.chat.completions.create(
             model=self.model,
             max_tokens=max_tokens,
@@ -182,14 +207,25 @@ class OllamaClient:
             ],
             extra_body={"options": {"num_ctx": self._num_ctx}},
             stream=True,
+            stream_options={"include_usage": True},
         )
         chunks: list[str] = []
+        usage = None
         for chunk in stream:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                chunks.append(delta)
+            if chunk.choices and chunk.choices[0].delta.content:
+                chunks.append(chunk.choices[0].delta.content)
+            if getattr(chunk, "usage", None):
+                usage = chunk.usage
+        duration = time.perf_counter() - t0
         text = "".join(chunks)
-        return LLMResponse(text=text, model=self.name, raw=None)
+        return LLMResponse(
+            text=text,
+            model=self.name,
+            input_tokens=getattr(usage, "prompt_tokens", None),
+            output_tokens=getattr(usage, "completion_tokens", None),
+            duration_seconds=duration,
+            raw=None,
+        )
 
 
 def build_client(spec: str) -> LLMClient:
