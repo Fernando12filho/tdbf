@@ -15,6 +15,9 @@ logs/
 # Harness summary JSONs written to repo root
 *.json
 
+# Secrets
+.env
+
 # macOS
 .DS_Store
 
@@ -24,3 +27,5 @@ logs/
 
 # HuggingFace dataset cache
 ~/.cache/huggingface/
+figures/
+docs/

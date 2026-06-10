@@ -145,6 +145,63 @@ class OpenAIClient:
         )
 
 
+class GeminiClient:
+    """Google Gemini via its OpenAI-compatible endpoint.
+
+    Reads GOOGLE_API_KEY from the environment. Use model names like
+    'gemini-2.0-flash', 'gemini-1.5-pro', or 'gemma-3-27b-it'.
+    """
+
+    _BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
+    def __init__(
+        self,
+        model: str = "gemini-2.0-flash",
+        api_key_env: str = "GOOGLE_API_KEY",
+    ) -> None:
+        self.model = model
+        self.name = f"gemini:{model}"
+        self._api_key_env = api_key_env
+        self._client = None
+
+    def _ensure(self):
+        if self._client is None:
+            from openai import OpenAI  # lazy — reuses the openai SDK
+
+            key = os.environ.get(self._api_key_env)
+            if not key:
+                raise RuntimeError(
+                    f"{self._api_key_env} not set; cannot call Gemini."
+                )
+            self._client = OpenAI(base_url=self._BASE_URL, api_key=key)
+        return self._client
+
+    def complete(
+        self, system: str, user: str, *, max_tokens: int = 4096
+    ) -> LLMResponse:
+        client = self._ensure()
+        t0 = time.perf_counter()
+        resp = client.chat.completions.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        )
+        duration = time.perf_counter() - t0
+        text = resp.choices[0].message.content or ""
+        usage = getattr(resp, "usage", None)
+        return LLMResponse(
+            text=text,
+            model=self.name,
+            input_tokens=getattr(usage, "prompt_tokens", None),
+            output_tokens=getattr(usage, "completion_tokens", None),
+            duration_seconds=duration,
+            raw=resp,
+        )
+
+
 class OllamaClient:
     """Local Ollama instance via its OpenAI-compatible API.
 
@@ -246,4 +303,6 @@ def build_client(spec: str) -> LLMClient:
         return AnthropicClient(model=rest or "claude-opus-4-7")
     if vendor == "openai":
         return OpenAIClient(model=rest or "gpt-4-turbo")
+    if vendor == "gemini":
+        return GeminiClient(model=rest or "gemini-2.0-flash")
     raise ValueError(f"Unknown vendor in spec {spec!r}")

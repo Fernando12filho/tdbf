@@ -36,6 +36,14 @@ Hard rules:
 - The test must assert on the SPECIFIC incorrect behavior in the issue, \
 not merely that some exception is raised.
 - No network, no nondeterminism (no real time, no random without a seed).
+- Import discipline: only import names that are visible in the provided \
+source files or are Python standard library. Never assume an import path \
+exists — if you cannot see it in the context, do not use it. Verify module \
+paths against the source files shown.
+- Exception discipline: if the bug involves a function that should raise an \
+exception (e.g. a validator), use pytest.raises() to assert the exception IS \
+raised on the fixed code, and assert it is NOT raised on the buggy code — \
+do not assert on the return value of such functions (validators return None).
 """
 
 USER_TEMPLATE = """\
@@ -141,11 +149,41 @@ Rationale: <one line>
 ```
 """
 
+# ── probe-assertion consistency check ────────────────────────────────────────
+
+CONSISTENCY_SYSTEM = """\
+You are a code analysis assistant. Answer with exactly one word.
+- "consistent"   — the test FAILS on the buggy output shown (its assertion targets the FIXED behavior)
+- "inconsistent" — the test PASSES on the buggy output shown (its assertion matches the buggy behavior)
+"""
+
+CONSISTENCY_USER_TEMPLATE = """\
+A probe script was run on BUGGY code and produced this output:
+
+Probe:
+```python
+{probe_code}
+```
+
+Observed output (buggy):
+```
+{observed_output}
+```
+
+Generated test:
+```python
+{test_code}
+```
+
+Would this test FAIL when run against the buggy code that produced the output above?
+One word: "consistent" or "inconsistent".
+"""
+
 # Slot for the proposal's "compact few-shot exemplars". Kept tiny and
 # generic on purpose; per-repo exemplars are an RQ2/RQ3 tuning knob, not
 # a Phase 1 scaffold concern.
 FEWSHOT_EXEMPLAR = """\
-## Example of the expected format (illustrative only)
+## Example A — return value bug
 Buggy output: take([1, 2, 3], 3) returns [1, 2] — drops the last element.
 Expected output: should return [1, 2, 3].
 Rationale: off-by-one in the slice upper bound excludes index N.
@@ -153,6 +191,23 @@ Rationale: off-by-one in the slice upper bound excludes index N.
 def test_includes_last_element():
     from mypkg.slicer import take
     assert take([1, 2, 3], 3) == [1, 2, 3]
+```
+
+## Example B — validator / raises bug
+Buggy output: validator("user\\n") returns None (no exception) — silently accepts invalid input.
+Expected output: should raise ValidationError on "user\\n" once fixed.
+Rationale: regex uses $ which matches before \\n; fix uses \\Z which rejects it.
+```python
+import pytest
+
+def test_validator_rejects_trailing_newline():
+    from django.core.exceptions import ValidationError
+    from django.contrib.auth.validators import ASCIIUsernameValidator
+    v = ASCIIUsernameValidator()
+    # buggy code: no exception raised (test fails)
+    # fixed code: ValidationError raised (test passes)
+    with pytest.raises(ValidationError):
+        v("user\\n")
 ```
 """
 
@@ -170,6 +225,7 @@ class GeneratedTest:
     input_tokens: int | None = None      # total across all LLM calls for this attempt
     output_tokens: int | None = None
     duration_seconds: float | None = None
+    consistency: str | None = None       # "consistent" | "inconsistent" | "unknown" | None
 
     @property
     def extracted(self) -> bool:
@@ -325,6 +381,31 @@ class TestGenerationAgent:
         )
         return _CODE_CONTEXT_TEMPLATE.format(files=files_block)
 
+    def _check_consistency(
+        self,
+        probe_code: str,
+        observed_output: str,
+        test_code: str,
+    ) -> str:
+        """LLM judge: does the test assertion contradict the probe's buggy output?
+
+        Returns "consistent" (test would fail on buggy code — good),
+        "inconsistent" (test would pass on buggy code — bad), or "unknown".
+        """
+        user = CONSISTENCY_USER_TEMPLATE.format(
+            probe_code=probe_code.strip(),
+            observed_output=observed_output.strip(),
+            test_code=test_code.strip(),
+        )
+        try:
+            resp = self.client.complete(CONSISTENCY_SYSTEM, user)
+            verdict = resp.text.strip().lower().split()[0]
+            if verdict in ("consistent", "inconsistent"):
+                return verdict
+            return "unknown"
+        except Exception:
+            return "unknown"
+
     def generate_with_observation(
         self,
         inst: SWEBenchInstance,
@@ -380,17 +461,24 @@ class TestGenerationAgent:
 
         resp = self.client.complete(SYSTEM_PROMPT, user)
         _add(resp)
+        test_code = _extract_code(resp.text)
+
+        consistency: str | None = None
+        if probe_code and observed_output and test_code:
+            consistency = self._check_consistency(probe_code, observed_output, test_code)
+
         return (
             GeneratedTest(
                 instance_id=inst.instance_id,
                 model=resp.model,
                 raw_response=resp.text,
-                test_code=_extract_code(resp.text),
+                test_code=test_code,
                 prompt_sent=user,
                 probe_prompt=probe_prompt_stored,
                 input_tokens=total_input_tokens or None,
                 output_tokens=total_output_tokens or None,
                 duration_seconds=total_duration or None,
+                consistency=consistency,
             ),
             probe_code or "",
             observed_output or "",

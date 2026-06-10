@@ -43,6 +43,7 @@ class BRTClassification:
     outcome_on_buggy: Outcome
     outcome_on_fixed: Outcome
     rationale: str
+    l3_subtype: str | None = None  # "runtime" | "wrong_assertion" | None (L3 only)
 
     @property
     def is_valid_brt(self) -> bool:
@@ -54,9 +55,16 @@ class BRTClassification:
         # buggy code (L3 or L4). The C2P rate is L4 / (L3 + L4).
         return self.level >= BRTLevel.L3_CANDIDATE
 
+    @property
+    def level_label(self) -> str:
+        """Human-readable level name, with L3 sub-type when available."""
+        if self.level == BRTLevel.L3_CANDIDATE and self.l3_subtype:
+            return f"L3_{self.l3_subtype.upper()}"
+        return self.level.name
+
 
 def classify(
-    outcome_on_buggy: Outcome, outcome_on_fixed: Outcome
+    outcome_on_buggy: "Outcome | object", outcome_on_fixed: "Outcome | object"
 ) -> BRTClassification:
     """Map the (buggy, fixed) outcome pair to a BRT level.
 
@@ -64,8 +72,12 @@ def classify(
     fixed-side outcome only matters once the test actually reproduces a
     failure, and is what separates a real BRT (L4) from a test that fails
     for the wrong reason (L3).
+
+    Accepts plain strings or ContainerResult objects (duck-typed via str()).
     """
-    b, f = outcome_on_buggy, outcome_on_fixed
+    b = str(outcome_on_buggy)
+    f = str(outcome_on_fixed)
+    failure_reason: str | None = getattr(outcome_on_buggy, "failure_reason", None)
 
     if b == "absent":
         return BRTClassification(
@@ -92,10 +104,17 @@ def classify(
             "Fail->pass under the gold patch: a validated BRT (C2P). "
             "This is the only scientifically valid case.",
         )
+    l3_subtype: str | None = None
+    if failure_reason == "runtime":
+        l3_subtype = "runtime"
+    elif failure_reason == "assertion":
+        l3_subtype = "wrong_assertion"
+
     return BRTClassification(
         BRTLevel.L3_CANDIDATE, b, f,
         f"Fails on buggy code but is '{f}' under the gold patch: "
         "reproduces a failure, but not the one the human fix targets.",
+        l3_subtype=l3_subtype,
     )
 
 

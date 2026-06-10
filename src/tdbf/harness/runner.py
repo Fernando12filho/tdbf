@@ -20,8 +20,17 @@ import re
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+
+# Matches exception class names on pytest "E " traceback lines, e.g.:
+#   E   AssertionError: assert 'BEGIN' not in ...
+#   E   django.core.exceptions.ImproperlyConfigured: ...
+#   E   ImportError: cannot import name 'X'
+_EXCEPTION_LINE_RE = re.compile(
+    r"^E\s+([\w][\w.]*(?:Error|Exception|Configured|Warning)):",
+    re.MULTILINE,
+)
 
 BRT_TEST_FILENAME = "test_brt.py"
 BRT_TEST_PATH = BRT_TEST_FILENAME  # backward-compat alias (repo root default)
@@ -64,13 +73,42 @@ def inject_setup_preamble(repo: str, test_code: str) -> str:
     return preamble + test_code if preamble else test_code
 
 
-def repo_test_hint(repo: str) -> str:
-    """One-line hint for the generation prompt about the test environment."""
+def fetch_python_version(instance: "object") -> str | None:
+    """Return the Python minor version (e.g. '3.6') from the instance's testbed env."""
+    instance_id: str = instance.instance_id  # type: ignore[attr-defined]
+    image_name = f"sweb.eval.x86_64.{instance_id}:latest"
+    proc = subprocess.run(
+        ["docker", "run", "--rm", image_name,
+         "bash", "-c",
+         "source /opt/miniconda3/bin/activate && conda activate testbed && python --version"],
+        capture_output=True, text=True, timeout=15,
+    )
+    output = proc.stdout + proc.stderr
+    m = re.search(r"Python (\d+\.\d+)", output)
+    return m.group(1) if m else None
+
+
+def repo_test_hint(repo: str, python_version: str | None = None) -> str:
+    """Hint for the generation prompt about the test environment."""
     if repo in _REPO_PREAMBLES:
+        py_note = ""
+        if python_version:
+            py_note = (
+                f"CRITICAL: The testbed runs Python {python_version}. "
+                f"Only use syntax and stdlib features available in Python {python_version}. "
+                "Avoid f-strings, walrus operator (:=), positional-only parameters, "
+                "and any other syntax added after that version. "
+            )
         return (
-            f"Note: Django is already configured in the test environment "
-            f"(DJANGO_SETTINGS_MODULE=test_sqlite, django.setup() already called). "
-            f"Do NOT call settings.configure() or django.setup() in your test."
+            py_note +
+            "Django is already configured (DJANGO_SETTINGS_MODULE=test_sqlite, "
+            "django.setup() already called). "
+            "Do NOT call settings.configure() or django.setup() in your test. "
+            "Do NOT use django.test.TestCase — it requires a migrated database. "
+            "Write plain pytest functions instead. "
+            "Validators return None on success and raise ValidationError on failure — "
+            "use pytest.raises(ValidationError) to test them, not return-value assertions. "
+            "Only import names you can see in the provided source files."
         )
     return ""
 
@@ -257,9 +295,12 @@ def run_snippet_in_container(
     instance_id: str = instance.instance_id  # type: ignore[attr-defined]
     image_name = f"sweb.eval.x86_64.{instance_id}:latest"
 
+    repo: str = getattr(instance, "repo", "")
+    preamble = _REPO_PREAMBLES.get(repo, "")
+
     with tempfile.TemporaryDirectory(dir=str(Path.home())) as tmpdir:
         tmp = Path(tmpdir)
-        (tmp / "probe.py").write_text(snippet)
+        (tmp / "probe.py").write_text(preamble + snippet)
 
         script = "\n".join([
             "source /opt/miniconda3/bin/activate",
@@ -292,6 +333,54 @@ def run_snippet_in_container(
         return None
 
 
+@dataclass
+class ContainerResult:
+    """Outcome of running a test inside the Docker container.
+
+    Behaves like a plain string (via __str__ / __eq__) so existing code
+    that compares against "pass"/"fail"/etc. needs no changes.
+    """
+    outcome: str               # "pass" | "fail" | "error" | "absent"
+    failure_reason: str | None = None  # "assertion" | "runtime" | None
+
+    def __str__(self) -> str:
+        return self.outcome
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, str):
+            return self.outcome == other
+        if isinstance(other, ContainerResult):
+            return self.outcome == other.outcome
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash(self.outcome)
+
+
+def _parse_failure_reason(output: str) -> str | None:
+    """Inspect pytest output to distinguish how a 'fail' outcome occurred.
+
+    Returns:
+      "assertion" — only AssertionError found; the test reached and fired
+                    its assertion (wrong expected value or direction).
+      "runtime"   — a non-assertion exception was raised before or instead
+                    of an AssertionError (import error, Django mis-config,
+                    attribute error, etc.).
+      None        — output is empty or no recognisable exception lines.
+    """
+    if not output:
+        return None
+    exc_types = {
+        m.group(1).split(".")[-1]
+        for m in _EXCEPTION_LINE_RE.finditer(output)
+    }
+    if not exc_types:
+        return None
+    if exc_types == {"AssertionError"}:
+        return "assertion"
+    return "runtime"
+
+
 def _parse_pytest_outcome(returncode: int, output: str) -> str:
     # git apply failure — patch couldn't be applied to the tree
     if "error: patch failed" in output or "patch does not apply" in output:
@@ -316,14 +405,16 @@ def run_test_in_container(
     timeout: int = 120,
     verbose: bool = False,
     test_path: str = BRT_TEST_PATH,
-) -> str:
+) -> ContainerResult:
     """Apply test_patch inside the instance's Docker image and run pytest.
 
     Runs twice from the pipeline:
       - gold_patch=None  → buggy tree  → expected "fail"
       - gold_patch=<str> → fixed tree  → expected "pass"
 
-    Returns one of: "pass", "fail", "error", "absent".
+    Returns a ContainerResult whose .outcome is one of:
+      "pass", "fail", "error", "absent"
+    and whose .failure_reason is "assertion", "runtime", or None.
 
     The Docker image must already exist (built by run_harness / gold
     validation). Colima users: ensure DOCKER_HOST is set in the shell
@@ -343,6 +434,9 @@ def run_test_in_container(
             "source /opt/miniconda3/bin/activate",
             "conda activate testbed",
             "cd /testbed",
+            # Some testbed envs (e.g. Django) ship without pytest.
+            # Install it silently; pip's local cache makes this ~instant on repeat runs.
+            "python -m pytest --version > /dev/null 2>&1 || pip install pytest -q",
         ]
         if gold_patch is not None:
             (tmp / "gold.patch").write_text(gold_patch)
@@ -363,7 +457,7 @@ def run_test_in_container(
                 cmd, capture_output=True, text=True, timeout=timeout
             )
         except subprocess.TimeoutExpired:
-            return "error"
+            return ContainerResult("error")
 
         if "Unable to find image" in proc.stderr:
             raise RuntimeError(
@@ -371,14 +465,15 @@ def run_test_in_container(
                 "Run scripts/01_validate_gold.py first to build it."
             )
 
-        outcome = _parse_pytest_outcome(
-            proc.returncode, proc.stdout + proc.stderr
-        )
+        full_output = proc.stdout + proc.stderr
+        outcome = _parse_pytest_outcome(proc.returncode, full_output)
+        failure_reason = _parse_failure_reason(full_output) if outcome == "fail" else None
+
         if verbose or outcome == "error":
             label = "FIXED" if gold_patch is not None else "BUGGY"
             sys.stderr.write(
                 f"\n--- container output [{label}] (rc={proc.returncode}) ---\n"
-                + (proc.stdout + proc.stderr)[-3000:]
+                + full_output[-3000:]
                 + "\n---\n"
             )
-        return outcome
+        return ContainerResult(outcome, failure_reason)

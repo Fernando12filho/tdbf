@@ -163,13 +163,16 @@ def main() -> int:
         print(f"  outcome_on_fixed:  {outcome_fixed}")
 
         result = classify(outcome_buggy, outcome_fixed)
-        print(f"  → {result.level.name}")
+        print(f"  → {result.level_label}")
 
         attempts_log.append({
             "attempt": attempt,
             "level": result.level.value,
-            "outcome_buggy": outcome_buggy,
-            "outcome_fixed": outcome_fixed,
+            "l3_subtype": result.l3_subtype,
+            "outcome_buggy": str(outcome_buggy),
+            "outcome_fixed": str(outcome_fixed),
+            "failure_reason_buggy": outcome_buggy.failure_reason,
+            "failure_reason_fixed": outcome_fixed.failure_reason,
             "test_code": test_code,
             "probe_code": probe_code,
             "observed_output": observed_output,
