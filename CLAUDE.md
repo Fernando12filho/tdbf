@@ -130,16 +130,25 @@ export DOCKER_HOST=unix://${HOME}/.colima/default/docker.sock
 # and Windows Firewall inbound rule for TCP 11434
 ```
 
-## Next steps
+## Next steps — pivot to a real multi-agent system
 
-The natural next step is a **batch runner** (`scripts/03_batch_brt.py`) that:
-- Iterates N instances from the split
-- Calls `01_validate_gold.py` logic to build missing Docker images
-- Runs `generate_with_observation` on each
-- Writes an incremental `results.jsonl` (resume-safe)
-- Prints running C2P rate
+**Read `docs/agent_plan.md` first.** The project is moving from the current
+code-driven *workflow* (Phase 1 BRT generation with `--attempts`/`--repair`) to
+**real agents**: LLMs that autonomously choose tools and decide when they're done.
+The paper is about *using agents* to do test-driven bug fixing
+(reproduce → write BRT → fix until BRT passes).
 
-Before scaling to batch runs, consider switching to `anthropic:claude-opus-4-7` to establish a quality baseline, then compare with Qwen3 to answer RQ1.
+The batch runner (`scripts/03_batch_brt.py`) and the `--repair` loop already exist
+and serve as the **non-agentic baseline**. The existing harness functions
+(`run_snippet_in_container`, `run_test_in_container`, `fetch_relevant_code`,
+`classify`) become the **tools** the agents call.
+
+Foundational task: an agent runtime (vendor-agnostic tool-use loop over the
+`LLMClient` protocol, so Claude vs qwen stays a clean RQ1 comparison). Then a
+single BRT agent (Phase A), a fix agent (Phase B), multi-agent (Phase C). Keep the
+**gold-free invariant**: no agent gets a tool that runs on the gold-fixed tree;
+`gold_patch`/`test_patch` are offline scoring only. Budget is ~$500 — see
+`docs/cost_estimate.md`. Full detail and phase checklists in `docs/agent_plan.md`.
 
 ## Adding support for a new repo type
 

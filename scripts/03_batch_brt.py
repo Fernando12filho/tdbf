@@ -174,6 +174,31 @@ def process_instance(
             print(f"  consistency: {generated.consistency}")
 
         outcome_buggy = run_test_in_container(inst, test_patch, test_path=test_path)
+
+        # repair sub-loop: test errored before reaching its assertion
+        # (NameError / ImportError / shape mismatch) — feed the traceback back.
+        repair_rounds = 0
+        while (args.repair and repair_rounds < args.repair
+               and (outcome_buggy == "error"
+                    or (outcome_buggy == "fail"
+                        and outcome_buggy.failure_reason == "runtime"))):
+            repair_rounds += 1
+            print(f"  [repair {repair_rounds}/{args.repair}] runtime error — retrying")
+            repaired = agent.repair(
+                inst,
+                test_code=test_code,
+                traceback=outcome_buggy.output or "",
+                observed_output=observed_output,
+                code_context=code_context,
+                env_hint=env_hint,
+            )
+            if not repaired.extracted:
+                break
+            generated = repaired
+            test_code = inject_setup_preamble(inst.repo, repaired.test_code)
+            test_patch = make_test_patch(test_path, test_code)
+            outcome_buggy = run_test_in_container(inst, test_patch, test_path=test_path)
+
         outcome_fixed = run_test_in_container(
             inst, test_patch, gold_patch=inst.gold_patch, test_path=test_path
         )
@@ -183,6 +208,7 @@ def process_instance(
         attempts_log.append({
             "attempt": attempt,
             "level": result.level.value,
+            "repair_rounds": repair_rounds,
             "outcome_buggy": str(outcome_buggy),
             "outcome_fixed": str(outcome_fixed),
             "test_code": test_code,
@@ -219,6 +245,7 @@ def process_instance(
             "think": getattr(args, "think", False),
             "context": args.context,
             "observe": args.observe,
+            "repair": getattr(args, "repair", 0),
         },
         "best_level": best_level,
         "best_attempt": best_attempt_number,
@@ -248,6 +275,11 @@ def main() -> int:
     ap.add_argument(
         "--attempts", type=int, default=1, metavar="N",
         help="Max attempts per instance (default: 1)",
+    )
+    ap.add_argument(
+        "--repair", type=int, default=0, metavar="N",
+        help="Max repair turns when a test errors at runtime (feeds traceback back). "
+             "Default 0 (off).",
     )
     ap.add_argument(
         "--build", action="store_true",

@@ -66,6 +66,11 @@ def main() -> int:
         "--observe", action="store_true",
         help="Two-phase: run probe in container to observe buggy output, then generate test",
     )
+    ap.add_argument(
+        "--repair", type=int, default=0, metavar="N",
+        help="Max repair turns when a test errors at runtime (feeds the traceback "
+             "back to the model). Default 0 (off).",
+    )
     args = ap.parse_args()
 
     # --- Load instance ---
@@ -156,6 +161,37 @@ def main() -> int:
         outcome_buggy = run_test_in_container(inst, test_patch, test_path=test_path)
         print(f"  outcome_on_buggy:  {outcome_buggy}")
 
+        # --- repair sub-loop: the test errored before reaching its assertion
+        # (NameError / ImportError / shape mismatch). Feed the traceback back. ---
+        repair_rounds = 0
+        while (args.repair and repair_rounds < args.repair
+               and (outcome_buggy == "error"
+                    or (outcome_buggy == "fail"
+                        and outcome_buggy.failure_reason == "runtime"))):
+            repair_rounds += 1
+            print(f"  [repair {repair_rounds}/{args.repair}] test errored at runtime "
+                  f"({outcome_buggy.failure_reason or outcome_buggy}) — feeding traceback back ...")
+            repaired = agent.repair(
+                inst,
+                test_code=test_code,
+                traceback=outcome_buggy.output or "",
+                observed_output=observed_output,
+                code_context=code_context,
+                env_hint=env_hint,
+            )
+            if not repaired.extracted:
+                print("  [repair] model returned no code — keeping previous test.")
+                break
+            generated = repaired
+            test_code = inject_setup_preamble(inst.repo, repaired.test_code)
+            print("--- repaired test ---")
+            print(test_code)
+            print("--- end ---")
+            test_patch = make_test_patch(test_path, test_code)
+            print("Running repaired test on BUGGY code ...")
+            outcome_buggy = run_test_in_container(inst, test_patch, test_path=test_path)
+            print(f"  outcome_on_buggy:  {outcome_buggy}")
+
         print("Running on FIXED code ...")
         outcome_fixed = run_test_in_container(
             inst, test_patch, gold_patch=inst.gold_patch, test_path=test_path
@@ -169,6 +205,7 @@ def main() -> int:
             "attempt": attempt,
             "level": result.level.value,
             "l3_subtype": result.l3_subtype,
+            "repair_rounds": repair_rounds,
             "outcome_buggy": str(outcome_buggy),
             "outcome_fixed": str(outcome_fixed),
             "failure_reason_buggy": outcome_buggy.failure_reason,

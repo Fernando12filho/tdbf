@@ -179,6 +179,43 @@ Would this test FAIL when run against the buggy code that produced the output ab
 One word: "consistent" or "inconsistent".
 """
 
+# ── repair prompts ────────────────────────────────────────────────────────────
+
+REPAIR_SYSTEM = """\
+You are a software testing agent. A test you wrote failed to RUN: it raised an \
+error (e.g. NameError, ImportError, a shape/type mismatch) BEFORE it could reach \
+and evaluate its assertion. Fix ONLY what's needed to make it run and assert.
+
+Hard rules:
+- Keep the original intent: the test must still FAIL on the buggy code by \
+asserting the CORRECT (fixed) behavior, and would PASS once the bug is fixed.
+- Do NOT weaken, delete, or invert the assertion to make the error disappear.
+- The test runs standalone — include EVERY import it needs (the module under \
+test, numpy, pytest, etc.). Never assume a name is already in scope.
+- Output exactly one corrected, self-contained test in a single fenced code block.
+"""
+
+REPAIR_USER_TEMPLATE = """\
+Repository: {repo}
+{code_context_section}
+## The test you wrote
+```python
+{test_code}
+```
+{observed_section}
+## Error when this test was run on the BUGGY code
+```
+{traceback}
+```
+
+## Task
+The test errored before asserting. Fix the cause shown in the traceback — most \
+often a missing import or an undefined name, sometimes a wrong array shape. \
+Change as little as possible. Keep the assertion targeting the CORRECT value so \
+the test still FAILS on the buggy code above. Output one corrected test in a \
+single fenced python block.
+"""
+
 # Slot for the proposal's "compact few-shot exemplars". Kept tiny and
 # generic on purpose; per-repo exemplars are an RQ2/RQ3 tuning knob, not
 # a Phase 1 scaffold concern.
@@ -482,4 +519,49 @@ class TestGenerationAgent:
             ),
             probe_code or "",
             observed_output or "",
+        )
+
+    def repair(
+        self,
+        inst: SWEBenchInstance,
+        test_code: str,
+        traceback: str,
+        observed_output: str = "",
+        code_context: dict[str, str] | None = None,
+        env_hint: str = "",
+    ) -> GeneratedTest:
+        """One repair turn: feed back the runtime traceback and get a fixed test.
+
+        Used when a generated test errors before reaching its assertion
+        (NameError, ImportError, shape mismatch). Returns a GeneratedTest
+        with the corrected code.
+        """
+        ctx = inst.context_safe_dict()
+        code_context_section = self._code_context_section(code_context)
+        if env_hint:
+            code_context_section += f"\n## Environment note\n{env_hint}\n"
+        observed_section = ""
+        if observed_output:
+            observed_section = (
+                "\n## Observed BUGGY output (from the probe)\n```\n"
+                + observed_output.strip()
+                + "\n```\n"
+            )
+        user = REPAIR_USER_TEMPLATE.format(
+            repo=ctx["repo"],
+            code_context_section=code_context_section,
+            test_code=test_code.strip(),
+            observed_section=observed_section,
+            traceback=(traceback or "").strip()[:2000],
+        )
+        resp = self.client.complete(REPAIR_SYSTEM, user)
+        return GeneratedTest(
+            instance_id=inst.instance_id,
+            model=resp.model,
+            raw_response=resp.text,
+            test_code=_extract_code(resp.text),
+            prompt_sent=user,
+            input_tokens=resp.input_tokens,
+            output_tokens=resp.output_tokens,
+            duration_seconds=resp.duration_seconds,
         )

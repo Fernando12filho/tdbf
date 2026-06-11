@@ -342,6 +342,7 @@ class ContainerResult:
     """
     outcome: str               # "pass" | "fail" | "error" | "absent"
     failure_reason: str | None = None  # "assertion" | "runtime" | None
+    output: str | None = None  # tail of captured pytest output (for repair/debug)
 
     def __str__(self) -> str:
         return self.outcome
@@ -457,7 +458,7 @@ def run_test_in_container(
                 cmd, capture_output=True, text=True, timeout=timeout
             )
         except subprocess.TimeoutExpired:
-            return ContainerResult("error")
+            return ContainerResult("error", output="timeout")
 
         if "Unable to find image" in proc.stderr:
             raise RuntimeError(
@@ -476,4 +477,4 @@ def run_test_in_container(
                 + full_output[-3000:]
                 + "\n---\n"
             )
-        return ContainerResult(outcome, failure_reason)
+        return ContainerResult(outcome, failure_reason, full_output[-3000:])
