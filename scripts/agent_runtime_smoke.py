@@ -1,0 +1,288 @@
+"""Smoke test for the Phase 0 agent runtime.
+
+Offline by default (no API keys, no Docker): a scripted FakeClient drives the
+loop to verify the mechanics that matter — terminal-tool submission, natural
+stop, malformed-argument recovery, unknown-tool recovery, the iteration cap, and
+token accumulation — plus the vendor message converters.
+
+Optionally, pass --model to drive a *real* agent over the same tiny tool set on a
+live model, proving the same loop runs unchanged across providers:
+
+    export DOCKER_HOST=unix://${HOME}/.colima/default/docker.sock  # not needed here
+    python3 scripts/agent_runtime_smoke.py
+    python3 scripts/agent_runtime_smoke.py --model anthropic:claude-opus-4-8
+    python3 scripts/agent_runtime_smoke.py --model ollama:qwen2.5-coder@http://192.168.1.192:11434
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from types import SimpleNamespace
+
+from tdbf.agent import Agent, FunctionTool, ToolResult
+from tdbf.models.llm import _parse_openai_response, _to_anthropic_messages, _to_openai_messages
+from tdbf.models.messages import Message, ToolCall, ToolSchema, ToolUseResponse
+
+
+# --------------------------------------------------------------------------- #
+# Tools shared by the offline and live paths.                                 #
+# --------------------------------------------------------------------------- #
+
+ADD = FunctionTool(
+    name="add",
+    description="Add two integers and return their sum.",
+    input_schema={
+        "type": "object",
+        "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
+        "required": ["a", "b"],
+    },
+    func=lambda args: str(int(args["a"]) + int(args["b"])),
+)
+
+SUBMIT = FunctionTool(
+    name="submit_answer",
+    description="Submit the final numeric answer and finish.",
+    input_schema={
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+    },
+    func=lambda args: ToolResult(str(args["answer"])),
+    terminal=True,
+)
+
+
+# --------------------------------------------------------------------------- #
+# A scripted client: yields a predetermined sequence of ToolUseResponses,     #
+# ignoring its input. Exercises loop mechanics with zero network.             #
+# --------------------------------------------------------------------------- #
+
+
+class FakeClient:
+    name = "fake:scripted"
+
+    def __init__(self, responses: list[ToolUseResponse]) -> None:
+        self._responses = list(responses)
+        self.calls = 0
+
+    def run_tools(self, *, system, messages, tools, max_tokens=4096) -> ToolUseResponse:
+        self.calls += 1
+        # If the script runs out, mimic a model that keeps requesting tools so
+        # the iteration cap is what stops the loop.
+        if not self._responses:
+            return ToolUseResponse(
+                text="still working",
+                tool_calls=[ToolCall(id=f"x{self.calls}", name="add", arguments={"a": 1, "b": 1})],
+                stop_reason="tool_use",
+                input_tokens=5,
+                output_tokens=3,
+            )
+        return self._responses.pop(0)
+
+
+def _r(text, tool_calls, stop="tool_use", it=10, ot=7):
+    return ToolUseResponse(text=text, tool_calls=tool_calls, stop_reason=stop, input_tokens=it, output_tokens=ot)
+
+
+def test_submit_terminates() -> None:
+    client = FakeClient([
+        _r("let me add", [ToolCall("c1", "add", {"a": 17, "b": 25})]),
+        _r("done", [ToolCall("c2", "submit_answer", {"answer": "42"})]),
+    ])
+    agent = Agent(client, [ADD, SUBMIT], "calc agent", max_iterations=6)
+    res = agent.run("What is 17 + 25?")
+    assert res.stop_cause == "submit", res.stop_cause
+    assert res.submission == "42", res.submission
+    assert res.iterations == 2, res.iterations
+    # tokens accumulated across both turns (10+7)*2
+    assert res.total_input_tokens == 20 and res.total_output_tokens == 14
+    assert res.total_tokens == 34
+    # add tool result threaded back as a tool message
+    tool_msgs = [m for m in res.messages if m.role == "tool"]
+    assert tool_msgs[0].content == "42" or any(m.content == "42" for m in tool_msgs)
+    assert any(m.content == "42" for m in tool_msgs)
+
+
+def test_natural_stop() -> None:
+    client = FakeClient([_r("the answer is 42, no tools needed", [], stop="end_turn")])
+    res = Agent(client, [ADD, SUBMIT], "calc agent").run("trivial")
+    assert res.stop_cause == "natural", res.stop_cause
+    assert res.submission is None
+    assert res.final_text.endswith("no tools needed")
+
+
+def test_malformed_args_recovery() -> None:
+    bad = ToolCall("b1", "add", arguments={}, raw_arguments="{a:17, b:", malformed=True)
+    client = FakeClient([
+        _r("oops bad json", [bad]),
+        _r("fixed", [ToolCall("c2", "submit_answer", {"answer": "99"})]),
+    ])
+    res = Agent(client, [ADD, SUBMIT], "calc agent").run("x")
+    assert res.stop_cause == "submit"
+    corrective = next(m.content for m in res.messages if m.role == "tool")
+    assert "valid JSON" in corrective, corrective
+
+
+def test_unknown_tool_recovery() -> None:
+    client = FakeClient([
+        _r("call ghost", [ToolCall("g1", "nonexistent", {"x": 1})]),
+        _r("submit", [ToolCall("c2", "submit_answer", {"answer": "7"})]),
+    ])
+    res = Agent(client, [ADD, SUBMIT], "calc agent").run("x")
+    assert res.stop_cause == "submit"
+    err = next(m.content for m in res.messages if m.role == "tool")
+    assert "Unknown tool" in err, err
+
+
+def test_iteration_cap() -> None:
+    client = FakeClient([])  # always requests a non-terminal tool
+    res = Agent(client, [ADD, SUBMIT], "calc agent", max_iterations=3).run("loop forever")
+    assert res.stop_cause == "max_iterations", res.stop_cause
+    assert res.iterations == 3
+
+
+def test_tool_raises_is_recoverable() -> None:
+    boom = FunctionTool(
+        "boom", "always raises", {"type": "object", "properties": {}},
+        func=lambda args: (_ for _ in ()).throw(ValueError("kaboom")),
+    )
+    client = FakeClient([
+        _r("trigger", [ToolCall("e1", "boom", {})]),
+        _r("submit", [ToolCall("c2", "submit_answer", {"answer": "0"})]),
+    ])
+    res = Agent(client, [boom, SUBMIT], "x").run("x")
+    assert res.stop_cause == "submit"
+    err = next(m.content for m in res.messages if m.role == "tool")
+    assert "kaboom" in err and "ValueError" in err, err
+
+
+def test_anthropic_converter_merges_tool_results() -> None:
+    msgs = [
+        Message(role="user", content="task"),
+        Message(role="assistant", content="calling", tool_calls=[
+            ToolCall("t1", "add", {"a": 1, "b": 2}),
+            ToolCall("t2", "add", {"a": 3, "b": 4}),
+        ]),
+        Message(role="tool", tool_call_id="t1", content="3"),
+        Message(role="tool", tool_call_id="t2", content="7"),
+    ]
+    out = _to_anthropic_messages(msgs)
+    # user, assistant(text+2 tool_use), then ONE merged user with 2 tool_result
+    assert out[1]["role"] == "assistant"
+    assert [b["type"] for b in out[1]["content"]] == ["text", "tool_use", "tool_use"]
+    assert out[2]["role"] == "user"
+    assert [b["type"] for b in out[2]["content"]] == ["tool_result", "tool_result"]
+    assert out[2]["content"][0]["tool_use_id"] == "t1"
+
+
+def test_openai_converter_one_message_per_result() -> None:
+    msgs = [
+        Message(role="user", content="task"),
+        Message(role="assistant", content="calling", tool_calls=[ToolCall("t1", "add", {"a": 1, "b": 2})]),
+        Message(role="tool", tool_call_id="t1", content="3"),
+    ]
+    out = _to_openai_messages("sys", msgs)
+    assert out[0]["role"] == "system"
+    assert out[2]["role"] == "assistant"
+    assert out[2]["tool_calls"][0]["function"]["name"] == "add"
+    assert out[3]["role"] == "tool" and out[3]["tool_call_id"] == "t1"
+
+
+def _fake_openai_resp(content, *, tool_calls=None, finish="stop"):
+    msg = SimpleNamespace(content=content, tool_calls=tool_calls)
+    choice = SimpleNamespace(message=msg, finish_reason=finish)
+    usage = SimpleNamespace(prompt_tokens=100, completion_tokens=20)
+    return SimpleNamespace(choices=[choice], usage=usage)
+
+
+def test_text_fallback_recovers_known_tool_call() -> None:
+    # qwen-style: tool call written into content, structured field empty.
+    content = 'Let me look:\n```json\n{"name": "read_file", "arguments": {"path": "a/b.py"}}\n```'
+    resp = _fake_openai_resp(content, tool_calls=None, finish="stop")
+    out = _parse_openai_response(resp, "ollama:qwen", 0.0, {"read_file", "run_python"})
+    assert out.stop_reason == "tool_use", out.stop_reason
+    assert len(out.tool_calls) == 1
+    assert out.tool_calls[0].name == "read_file"
+    assert out.tool_calls[0].arguments == {"path": "a/b.py"}
+
+
+def test_text_fallback_ignores_unknown_name() -> None:
+    # A JSON example that is NOT a registered tool must not be hijacked.
+    content = 'Example payload: {"name": "delete_everything", "arguments": {}}'
+    resp = _fake_openai_resp(content, tool_calls=None, finish="stop")
+    out = _parse_openai_response(resp, "ollama:qwen", 0.0, {"read_file"})
+    assert out.tool_calls == []
+    assert out.stop_reason == "end_turn"
+
+
+def test_text_fallback_takes_first_when_second_is_malformed() -> None:
+    # Mirrors the real astropy run: a valid read_file block, then a run_python
+    # block whose triple-quoted code is invalid JSON.
+    content = (
+        '{"name": "read_file", "arguments": {"path": "astropy/modeling/mappings.py"}}\n'
+        '{"name": "run_python", "arguments": {"code": """bad json"""}}'
+    )
+    resp = _fake_openai_resp(content, tool_calls=None, finish="stop")
+    out = _parse_openai_response(resp, "ollama:qwen", 0.0, {"read_file", "run_python"})
+    assert len(out.tool_calls) == 1 and out.tool_calls[0].name == "read_file"
+
+
+def run_offline() -> None:
+    tests = [
+        test_submit_terminates,
+        test_natural_stop,
+        test_malformed_args_recovery,
+        test_unknown_tool_recovery,
+        test_iteration_cap,
+        test_tool_raises_is_recoverable,
+        test_anthropic_converter_merges_tool_results,
+        test_openai_converter_one_message_per_result,
+        test_text_fallback_recovers_known_tool_call,
+        test_text_fallback_ignores_unknown_name,
+        test_text_fallback_takes_first_when_second_is_malformed,
+    ]
+    for t in tests:
+        t()
+        print(f"  ok  {t.__name__}")
+    print(f"\nAll {len(tests)} offline runtime checks passed.")
+
+
+def run_live(spec: str) -> None:
+    from tdbf.models.llm import build_client
+
+    client = build_client(spec)
+    system = (
+        "You are a calculator agent. To add numbers you MUST call the `add` tool "
+        "(do not compute sums yourself). When you have the final answer, call "
+        "`submit_answer` with it. Do not give the answer in plain text."
+    )
+    agent = Agent(client, [ADD, SUBMIT], system, max_iterations=8, verbose=True)
+    print(f"\n--- live run on {client.name} ---")
+    res = agent.run("What is 17 + 25? Then add 100 to that. Use your tools.")
+    print(f"\nstop_cause   : {res.stop_cause}")
+    print(f"submission   : {res.submission!r}")
+    print(f"iterations   : {res.iterations}")
+    print(f"tokens (in/out): {res.total_input_tokens}/{res.total_output_tokens}")
+    print(f"final_text   : {res.final_text!r}")
+    ok = res.stop_cause == "submit" and res.submission and res.submission.strip() == "142"
+    print("\nRESULT:", "PASS (agent submitted 142)" if ok else "CHECK trace above")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--model", help="LLM spec for a live run, e.g. anthropic:claude-opus-4-8")
+    args = ap.parse_args()
+
+    run_offline()
+    if args.model:
+        run_live(args.model)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
