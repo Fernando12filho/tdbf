@@ -91,6 +91,27 @@ buggy code. Never submit a test that passes or merely errors on the buggy code.
 - Be efficient — you have a limited number of steps and a token budget."""
 
 
+# Optional scaffolding (`--prompt-harden`). Targets the diagnosed qwen failure
+# modes: emitting a tool call as text instead of via the function-calling channel,
+# narrating/guessing a tool's output instead of calling it, and addressing the user.
+# Apply to BOTH models (Claude is unaffected) so the RQ1 comparison stays fair.
+PROMPT_HARDEN = """
+
+CRITICAL TOOL-USE PROTOCOL — follow exactly:
+- You act ONLY by invoking tools through the function-calling channel. NEVER write a tool call as \
+text, markdown, or a ```json``` / ```python``` block in your message. If you write the call as text \
+instead of invoking it, NOTHING happens and your turn is wasted.
+- NEVER state, guess, narrate, or assume what a tool will output. You do not know a tool's result \
+until the tool actually returns it to you. Do not write "this will output ..." — call the tool and \
+wait for the real result.
+- You are an autonomous agent. NEVER address a human or ask anyone to run a command, save a file, or \
+check a directory. There is no human to help; you do everything yourself via tools.
+- Tool arguments MUST be a valid JSON object. Put code in a JSON STRING (a normal double-quoted, \
+escaped string) — never a bare identifier and never a triple-quoted block.
+- You are NOT done until run_test has returned outcome=fail with failure_reason=assertion AND you \
+have then invoked submit_test. Producing test code in your message is not submitting it."""
+
+
 def _serialise_messages(messages) -> list[dict]:
     out = []
     for m in messages:
@@ -128,6 +149,7 @@ def run_one(
     max_iterations: int,
     max_total_tokens: int,
     think: bool,
+    prompt_harden: bool,
     keep_container: bool,
     verbose: bool,
     transcript_dir: Path,
@@ -144,6 +166,8 @@ def run_one(
     system = SYSTEM_PROMPT.format(
         repo=inst.repo, base_commit=inst.base_commit, env_hint=env_hint
     )
+    if prompt_harden:
+        system += PROMPT_HARDEN
     ctx = inst.context_safe_dict()
     task = (
         f"GitHub issue for instance `{ctx['instance_id']}` "
@@ -240,7 +264,8 @@ def run_one(
         "model": client.name,
         "split": split,
         "mode": "agent",
-        "flags": {"max_iterations": max_iterations, "max_total_tokens": max_total_tokens},
+        "flags": {"max_iterations": max_iterations, "max_total_tokens": max_total_tokens,
+                  "prompt_harden": prompt_harden},
         "best_level": level,
         "best_attempt": 1,
         "attempts": [attempt_record],
@@ -263,6 +288,10 @@ def main() -> int:
     ap.add_argument("--max-tokens", type=int, default=200_000,
                     help="Cumulative token budget for one agent run (hard cap).")
     ap.add_argument("--think", action="store_true", help="Enable Qwen3 thinking mode (Ollama).")
+    ap.add_argument("--prompt-harden", action="store_true",
+                    help="Append the tool-use protocol block (RQ1 scaffolding ladder). "
+                         "Targets weak-model failures: tool-call-as-text, hallucinated output, "
+                         "addressing the user. Logged in results flags.")
     ap.add_argument("--keep-container", action="store_true",
                     help="Do not remove the agent's container after the run (debugging).")
     ap.add_argument("-v", "--verbose", action="store_true", help="Stream the agent's tool trace.")
@@ -285,6 +314,7 @@ def main() -> int:
             max_iterations=args.max_iterations,
             max_total_tokens=args.max_tokens,
             think=args.think,
+            prompt_harden=args.prompt_harden,
             keep_container=args.keep_container,
             verbose=args.verbose,
             transcript_dir=transcript_dir,
