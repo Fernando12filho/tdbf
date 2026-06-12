@@ -99,6 +99,7 @@ def main() -> int:
             max_iterations=6,
             max_total_tokens=200_000,
             think=False,
+            prompt_harden=False,
             keep_container=False,
             verbose=False,
             transcript_dir=Path(td),

@@ -197,25 +197,180 @@ class SubmitTestTool(Tool):
         return ToolResult(str(code))
 
 
+# ============================ Phase B: fix tools ============================ #
+# These tools MUTATE the buggy checkout. They remain gold-free: none applies the
+# gold patch, and none runs the held-out FAIL_TO_PASS / test_patch. The agent's
+# only success signal is the validated BRT (its own reproduction, injected at
+# construction so the agent cannot weaken it) plus existing repo tests it chooses
+# to run. Whether the produced fix actually *resolves* the issue (held-out
+# test_patch) is scored offline, never exposed to the agent.
+
+
+class EditFileTool(_SessionTool):
+    name = "edit_file"
+    description = (
+        "Edit a source file in place by replacing an exact string. `old_str` must appear in the "
+        "file; every occurrence is replaced with `new_str`. Read the file first to get an exact "
+        "match (including indentation). Use this to apply your fix to the buggy code."
+    )
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "File path relative to repo root."},
+            "old_str": {"type": "string", "description": "Exact existing text to replace."},
+            "new_str": {"type": "string", "description": "Replacement text."},
+        },
+        "required": ["path", "old_str", "new_str"],
+    }
+
+    def execute(self, arguments: dict) -> ToolResult:
+        path = str(arguments.get("path", "")).strip()
+        old = arguments.get("old_str", "")
+        new = arguments.get("new_str", "")
+        if not path:
+            return ToolResult("edit_file requires a non-empty 'path'.", is_error=True)
+        if not isinstance(old, str) or old == "":
+            return ToolResult("edit_file requires a non-empty 'old_str'.", is_error=True)
+        res = self.session.read_file(path)
+        if res.returncode != 0:
+            return ToolResult(f"Could not read {path!r}: {_clip(res.output, 400)}", is_error=True)
+        content = res.output
+        count = content.count(old)
+        if count == 0:
+            return ToolResult(
+                f"'old_str' not found in {path!r}. Read the file and copy the exact text "
+                "(including whitespace) you want to replace.",
+                is_error=True,
+            )
+        updated = content.replace(old, new)
+        self.session.write_file(f"/testbed/{path}", updated)
+        return ToolResult(f"Edited {path}: replaced {count} occurrence(s).")
+
+
+class RunBrtTool(_SessionTool):
+    """Run the validated BRT against the CURRENT (edited) tree.
+
+    The BRT code is fixed at construction — the agent cannot supply or alter it,
+    so it cannot make the test pass by weakening the test. This is the agent's
+    progress signal: the fix is done when the BRT goes from fail -> pass.
+    """
+
+    name = "run_brt"
+    description = (
+        "Run the bug-reproduction test against the current code. It FAILS now (the bug is unfixed); "
+        "your goal is to edit the source until it PASSES. Returns outcome (pass/fail/error) and output."
+    )
+    input_schema = {"type": "object", "properties": {}}
+
+    def __init__(self, session: ContainerSession, brt_code: str) -> None:
+        super().__init__(session)
+        self._brt_code = inject_setup_preamble(session.repo, brt_code)
+        self._rel_path = brt_test_path(session.repo)
+
+    def execute(self, arguments: dict) -> ToolResult:
+        self.session.write_file(f"/testbed/{self._rel_path}", self._brt_code)
+        self.session.ensure_pytest()
+        res = self.session.exec(
+            f"python -m pytest {self._rel_path} -x --tb=short -q", timeout=180
+        )
+        outcome = _parse_pytest_outcome(res.returncode, res.output)
+        return ToolResult(f"outcome={outcome}\n\n{_clip(res.output)}")
+
+
+class RunTestsTool(_SessionTool):
+    name = "run_tests"
+    description = (
+        "Run an existing test file or directory from the repo (e.g. 'astropy/modeling/tests/"
+        "test_separable.py') to check your fix did not break existing behaviour. Returns pytest output."
+    )
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Existing test path relative to repo root."}
+        },
+        "required": ["path"],
+    }
+
+    def execute(self, arguments: dict) -> ToolResult:
+        path = str(arguments.get("path", "")).strip()
+        if not path:
+            return ToolResult("run_tests requires a non-empty 'path'.", is_error=True)
+        self.session.ensure_pytest()
+        res = self.session.exec(
+            "python -m pytest \"$TPATH\" --tb=short -q", timeout=300, env={"TPATH": path}
+        )
+        outcome = _parse_pytest_outcome(res.returncode, res.output)
+        return ToolResult(f"outcome={outcome}\n\n{_clip(res.output)}")
+
+
+class RevertTool(_SessionTool):
+    name = "revert"
+    description = (
+        "Discard ALL your source edits and restore the original buggy checkout. Use this to start "
+        "over if your changes made things worse. The bug-reproduction test is preserved."
+    )
+    input_schema = {"type": "object", "properties": {}}
+
+    def execute(self, arguments: dict) -> ToolResult:
+        self.session.reset_tree()
+        return ToolResult("Reverted all source edits to the original buggy state.")
+
+
+class SubmitFixTool(Tool):
+    """Terminal tool: the agent declares its fix complete and stops.
+
+    Carries no artifact itself — the fix patch is captured offline as `git diff`
+    of the (tracked) source tree. The untracked BRT file is naturally excluded.
+    """
+
+    name = "submit_fix"
+    description = (
+        "Submit your fix and finish. Call this only once run_brt reports outcome=pass AND any "
+        "existing tests you ran still pass. Your source edits are captured automatically."
+    )
+    input_schema = {"type": "object", "properties": {}}
+    terminal = True
+
+    def execute(self, arguments: dict) -> ToolResult:
+        return ToolResult("FIX_SUBMITTED")
+
+
 # Names allowed in a BRT agent's registry. Any tool outside this set — in
 # particular anything that could touch the gold/fixed tree — is rejected.
 _GOLD_FREE_TOOL_NAMES = frozenset(
     {"read_file", "grep", "glob", "run_python", "run_test", "submit_test"}
 )
 
+# Names allowed in a fix agent's registry (Phase B). These mutate the buggy tree
+# but stay gold-free: no gold patch, no held-out FAIL_TO_PASS / test_patch.
+_FIX_TOOL_NAMES = frozenset(
+    {"read_file", "grep", "glob", "edit_file", "run_brt", "run_tests", "revert", "submit_fix"}
+)
+
+
+def _assert_allowed(tools: list[Tool], allowed: frozenset[str]) -> None:
+    for t in tools:
+        if t.name not in allowed:
+            raise ValueError(
+                f"Tool {t.name!r} is not in the gold-free allowlist {sorted(allowed)}. "
+                "No agent tool may run against the gold/fixed tree or the held-out tests."
+            )
+
 
 def assert_gold_free(tools: list[Tool]) -> None:
-    """Guard the tool surface against a fixed-tree / gold tool slipping in.
+    """Guard the BRT-agent tool surface against a fixed-tree / gold tool slipping in.
 
     This is the programmatic side of the validity invariant: the agent must
     never get a tool that observes the gold-fixed outcome.
     """
-    for t in tools:
-        if t.name not in _GOLD_FREE_TOOL_NAMES:
-            raise ValueError(
-                f"Tool {t.name!r} is not in the gold-free allowlist {sorted(_GOLD_FREE_TOOL_NAMES)}. "
-                "No agent tool may run against the gold/fixed tree."
-            )
+    _assert_allowed(tools, _GOLD_FREE_TOOL_NAMES)
+
+
+def assert_fix_gold_free(tools: list[Tool]) -> None:
+    """Guard the fix-agent tool surface (Phase B). The fix tools mutate the buggy
+    tree but must never apply the gold patch nor run the held-out test_patch /
+    FAIL_TO_PASS — resolution is scored offline only."""
+    _assert_allowed(tools, _FIX_TOOL_NAMES)
 
 
 def brt_agent_tools(session: ContainerSession) -> list[Tool]:
@@ -229,4 +384,24 @@ def brt_agent_tools(session: ContainerSession) -> list[Tool]:
         SubmitTestTool(),
     ]
     assert_gold_free(tools)
+    return tools
+
+
+def fix_agent_tools(session: ContainerSession, brt_code: str) -> list[Tool]:
+    """The gold-free toolset for a fix agent (Phase B).
+
+    `brt_code` is the validated BRT the fix must make pass; it is baked into
+    run_brt so the agent cannot alter the success criterion.
+    """
+    tools: list[Tool] = [
+        ReadFileTool(session),
+        GrepTool(session),
+        GlobTool(session),
+        EditFileTool(session),
+        RunBrtTool(session, brt_code),
+        RunTestsTool(session),
+        RevertTool(session),
+        SubmitFixTool(),
+    ]
+    assert_fix_gold_free(tools)
     return tools

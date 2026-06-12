@@ -32,6 +32,39 @@ def save_run(record: dict) -> None:
     _try_post(record)
 
 
+def load_best_brt(instance_id: str, *, min_level: int = 4) -> dict | None:
+    """Find the best logged Bug Reproduction Test for an instance.
+
+    Scans results.jsonl for runs of `instance_id` and returns the test_code of
+    the highest-scoring attempt that meets `min_level` (default L4 = validated).
+    Used by the Phase B fix agent to obtain the BRT it must make pass.
+
+    Returns {"test_code", "level", "model"} or None if no qualifying BRT exists.
+    """
+    if not RESULTS_FILE.exists():
+        return None
+    best: dict | None = None
+    with RESULTS_FILE.open() as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if rec.get("instance_id") != instance_id:
+                continue
+            for att in rec.get("attempts", []):
+                level = att.get("level", 0)
+                code = att.get("test_code")
+                if not code or level < min_level:
+                    continue
+                if best is None or level > best["level"]:
+                    best = {"test_code": code, "level": level, "model": rec.get("model", "")}
+    return best
+
+
 def _try_post(record: dict) -> None:
     try:
         import urllib.request

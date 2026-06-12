@@ -7,7 +7,12 @@ unchanged across providers via the normalized types in `models/messages.py`.
 
 from .runtime import Agent, AgentResult, AgentStep
 from .session import ContainerSession
-from .tools import assert_gold_free, brt_agent_tools
+from .tools import (
+    assert_fix_gold_free,
+    assert_gold_free,
+    brt_agent_tools,
+    fix_agent_tools,
+)
 from .types import FunctionTool, Tool, ToolResult
 
 __all__ = [
@@ -19,5 +24,7 @@ __all__ = [
     "ToolResult",
     "ContainerSession",
     "brt_agent_tools",
+    "fix_agent_tools",
     "assert_gold_free",
+    "assert_fix_gold_free",
 ]
