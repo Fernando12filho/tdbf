@@ -41,12 +41,32 @@ class _SessionTool(Tool):
         self.session = session
 
 
+def _as_int(value: object) -> int | None:
+    """Best-effort int from a possibly-string tool argument; None if absent/invalid."""
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 class ReadFileTool(_SessionTool):
     name = "read_file"
-    description = "Read a source file from the (buggy) repository checkout. Path is relative to the repo root."
+    description = (
+        "Read a source file from the (buggy) repository checkout. Path is relative to the repo root. "
+        "Output is prefixed with line numbers ('123\\t<code>') to help you locate code. "
+        "Optionally pass start_line/end_line (1-based, inclusive) to read just that range — use this "
+        "to jump straight to the code you found with grep instead of re-reading the whole file. "
+        "NOTE: the 'N\\t' line-number prefix is a display aid only; never include it in edit_file's old_str."
+    )
     input_schema = {
         "type": "object",
-        "properties": {"path": {"type": "string", "description": "File path relative to repo root, e.g. 'astropy/table/table.py'."}},
+        "properties": {
+            "path": {"type": "string", "description": "File path relative to repo root, e.g. 'astropy/table/table.py'."},
+            "start_line": {"type": "integer", "description": "Optional 1-based first line to read."},
+            "end_line": {"type": "integer", "description": "Optional 1-based last line to read (inclusive)."},
+        },
         "required": ["path"],
     }
 
@@ -54,10 +74,29 @@ class ReadFileTool(_SessionTool):
         path = str(arguments.get("path", "")).strip()
         if not path:
             return ToolResult("read_file requires a non-empty 'path'.", is_error=True)
-        res = self.session.read_file(path, max_bytes=20000)
+        # Read whole file (no byte cap) so line ranges land on real line numbers;
+        # output to the model is still bounded by _clip below.
+        res = self.session.read_file(path)
         if res.returncode != 0:
             return ToolResult(f"Could not read {path!r}: {_clip(res.output, 400)}", is_error=True)
-        return ToolResult(_clip(res.output))
+        lines = res.output.splitlines()
+        n = len(lines)
+        start = _as_int(arguments.get("start_line"))
+        end = _as_int(arguments.get("end_line"))
+        if start is not None or end is not None:
+            first = max(1, start or 1)
+            last = min(n, end if end is not None else n)
+            if first > n:
+                return ToolResult(
+                    f"start_line {first} is past end of {path!r} ({n} lines).", is_error=True
+                )
+            selected = lines[first - 1 : last]
+        else:
+            first = 1
+            selected = lines
+        width = len(str(first + len(selected) - 1)) if selected else 1
+        numbered = "\n".join(f"{first + i:>{width}}\t{ln}" for i, ln in enumerate(selected))
+        return ToolResult(_clip(numbered))
 
 
 class GrepTool(_SessionTool):
@@ -211,7 +250,8 @@ class EditFileTool(_SessionTool):
     description = (
         "Edit a source file in place by replacing an exact string. `old_str` must appear in the "
         "file; every occurrence is replaced with `new_str`. Read the file first to get an exact "
-        "match (including indentation). Use this to apply your fix to the buggy code."
+        "match (including indentation). Do NOT include read_file's 'N\\t' line-number prefix in "
+        "old_str — match only the real file text. Use this to apply your fix to the buggy code."
     )
     input_schema = {
         "type": "object",

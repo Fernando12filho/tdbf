@@ -47,6 +47,8 @@ class FakeSession:
     def read_file(self, path, *, max_bytes=0) -> ExecResult:
         if path == "exists.py":
             return ExecResult(0, "print('hello')\n")
+        if path == "multi.py":
+            return ExecResult(0, "a = 1\nb = 2\nc = 3\nd = 4\n")
         return ExecResult(1, f"cat: {path}: No such file or directory")
 
     def write_file(self, path, content) -> None:
@@ -105,10 +107,20 @@ def test_read_file_tool() -> None:
     tools = brt_agent_tools(FakeSession())  # type: ignore[arg-type]
     ok = _tool(tools, "read_file").execute({"path": "exists.py"})
     assert not ok.is_error and "hello" in ok.content
+    assert ok.content.startswith("1\t"), f"expected line-number prefix, got {ok.content!r}"
     missing = _tool(tools, "read_file").execute({"path": "nope.py"})
     assert missing.is_error
     empty = _tool(tools, "read_file").execute({"path": "  "})
     assert empty.is_error
+
+
+def test_read_file_line_range() -> None:
+    tools = brt_agent_tools(FakeSession())  # type: ignore[arg-type]
+    res = _tool(tools, "read_file").execute({"path": "multi.py", "start_line": 2, "end_line": 3})
+    assert res.content == "2\tb = 2\n3\tc = 3", repr(res.content)
+    # string args coerce; out-of-range start is a recoverable error
+    past = _tool(tools, "read_file").execute({"path": "multi.py", "start_line": "99"})
+    assert past.is_error
 
 
 def test_run_test_tool_parses_outcome_and_writes_file() -> None:
@@ -143,6 +155,7 @@ def run_offline() -> None:
         test_guard_rejects_off_allowlist_tool,
         test_schemas_are_object_schemas,
         test_read_file_tool,
+        test_read_file_line_range,
         test_run_test_tool_parses_outcome_and_writes_file,
         test_run_python_tool,
         test_submit_tool_is_terminal_and_captures_code,
