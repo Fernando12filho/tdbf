@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Commands — TDBF{% endblock %}
+
+{% macro cmd(text) %}
+<div class="cmd-wrap">
+  <button class="btn btn-sm btn-outline-light copy-btn" type="button" onclick="copyCmd(this)">copy</button>
+  <pre><code>{{ text }}</code></pre>
+</div>
+{% endmacro %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">Commands &amp; instructions</h1>
+</div>
+
+<div class="alert alert-info small">
+  Run everything from the <strong>project root</strong>. Live runs (anything that
+  touches Docker or a hosted model) need <strong>both</strong> the Docker socket and
+  your API keys exported first — see <a href="#env">Environment</a>. Offline smoke
+  tests need neither.
+</div>
+
+<!-- quick nav -->
+<div class="card mb-4">
+  <div class="card-body py-2 toc small d-flex flex-wrap gap-3">
+    <a href="#env">1. Environment</a>
+    <a href="#install">2. Install</a>
+    <a href="#smoke">3. Offline tests</a>
+    <a href="#images">4. Build images</a>
+    <a href="#phasea">5. Phase A — BRT agent</a>
+    <a href="#phaseb">6. Phase B — Fix agent</a>
+    <a href="#baseline">7. Non-agentic baseline</a>
+    <a href="#webapp">8. Webapp</a>
+  </div>
+</div>
+
+<!-- 1. ENV -->
+<h2 class="h5 mt-4" id="env">1. Environment (run once per shell)</h2>
+<p class="small text-muted mb-2">macOS + Colima. The Ollama server is the Windows desktop at 192.168.1.192:11434.</p>
+{{ cmd("# Start Docker (Colima) and point DOCKER_HOST at its socket\ncolima start\nexport DOCKER_HOST=unix://${HOME}/.colima/default/docker.sock\n\n# Load API keys from .env (ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY)\nset -a; source .env; set +a") }}
+
+<!-- 2. INSTALL -->
+<h2 class="h5 mt-4" id="install">2. Install</h2>
+{{ cmd("# Editable install — enough for the offline smoke tests\npip install -e .\n\n# Live dependencies (SWE-bench harness, datasets, LLM SDKs)\npip install -e \".[dev]\"") }}
+
+<!-- 3. SMOKE -->
+<h2 class="h5 mt-4" id="smoke">3. Offline tests (no Docker, no API key, no cost)</h2>
+<p class="small text-muted mb-2">Validate the pipeline wiring before spending anything.</p>
+{{ cmd("python3 scripts/00_smoke_test.py          # end-to-end offline pipeline\npython3 scripts/agent_runtime_smoke.py    # tool-use loop + message conversion\npython3 scripts/agent_tools_smoke.py      # tool layer + gold-free guard\npython3 scripts/agent_brt_smoke.py        # Phase A orchestration glue\npython3 scripts/agent_fix_smoke.py        # Phase B fix-agent glue") }}
+
+<!-- 4. IMAGES -->
+<h2 class="h5 mt-4" id="images">4. Build the Docker eval image (required before any live run)</h2>
+<p class="small text-muted mb-2">Builds <code>sweb.eval.x86_64.&lt;instance_id&gt;:latest</code> and validates the gold patch.</p>
+{{ cmd("# One instance\npython3 scripts/01_validate_gold.py --split lite --id astropy__astropy-12907\n\n# Whole split (slow)\npython3 scripts/01_validate_gold.py --split lite") }}
+
+<!-- 5. PHASE A -->
+<h2 class="h5 mt-4" id="phasea">5. Phase A — BRT agent (write a bug-reproduction test)</h2>
+<p class="small text-muted mb-2">Writes a BRT, scores L0–L4 offline behind the gold barrier, logs to <code>results.jsonl</code> + <code>runs/agent_brt/&lt;id&gt;.json</code>.</p>
+{{ cmd("# Single instance, Claude Sonnet\npython3 scripts/04_agent_brt.py --id astropy__astropy-12907 --model anthropic:claude-sonnet-4-6 -v\n\n# Weak baseline (qwen via Ollama) — RQ1\npython3 scripts/04_agent_brt.py --id astropy__astropy-12907 \\\n  --model \"ollama:qwen2.5-coder:7b-instruct-q4_K_M@http://192.168.1.192:11434\" -v\n\n# Prompt-hardening (RQ1 scaffolding ladder; applies to both models)\npython3 scripts/04_agent_brt.py --id django__django-10914 \\\n  --model anthropic:claude-sonnet-4-6 --prompt-harden -v\n\n# First N instances of the split\npython3 scripts/04_agent_brt.py --limit 5 --model anthropic:claude-sonnet-4-6") }}
+<p class="small text-muted">Useful flags: <code>--max-iterations 20</code> · <code>--max-tokens 200000</code> · <code>--think</code> (qwen3 reasoning) · <code>--keep-container</code> · <code>-v</code> (stream the tool trace).</p>
+
+<!-- 6. PHASE B -->
+<h2 class="h5 mt-4" id="phaseb">6. Phase B — Fix agent (fix until the BRT passes)</h2>
+<p class="small text-muted mb-2">Needs a validated L4 BRT for the instance in <code>results.jsonl</code> (run Phase A first). Scores <code>resolved</code> via the official SWE-bench harness behind the gold barrier.</p>
+{{ cmd("# Single instance, Claude Sonnet (BRT pulled from results.jsonl)\npython3 scripts/05_agent_fix.py --id astropy__astropy-12907 --model anthropic:claude-sonnet-4-6 -v\n\n# Weak baseline (qwen)\npython3 scripts/05_agent_fix.py --id astropy__astropy-12907 \\\n  --model \"ollama:qwen2.5-coder:7b-instruct-q4_K_M@http://192.168.1.192:11434\" -v\n\n# Supply a specific BRT file instead of the results.jsonl lookup\npython3 scripts/05_agent_fix.py --id astropy__astropy-12907 \\\n  --brt-file runs/agent_brt/astropy__astropy-12907.json --model anthropic:claude-sonnet-4-6 -v") }}
+<p class="small text-muted">Useful flags: <code>--max-iterations 20</code> · <code>--max-tokens 300000</code> · <code>--keep-container</code> · <code>-v</code>.</p>
+
+<!-- 7. BASELINE -->
+<h2 class="h5 mt-4" id="baseline">7. Non-agentic baseline (workflow, for comparison)</h2>
+<p class="small text-muted mb-2">The fixed-loop <code>--attempts</code>/<code>--repair</code> pipeline that predates the agents.</p>
+{{ cmd("# Two-phase generation (observe buggy output, then write the test)\npython3 scripts/02_generate_brt.py --id astropy__astropy-12907 \\\n  --model anthropic:claude-sonnet-4-6 --observe --attempts 3\n\n# Batch over the split\npython3 scripts/03_batch_brt.py --model anthropic:claude-sonnet-4-6 --observe --attempts 3") }}
+
+<!-- 8. WEBAPP -->
+<h2 class="h5 mt-4" id="webapp">8. Webapp (this dashboard)</h2>
+{{ cmd("# Serve the dashboard\ncd webapp && flask --app app run\n\n# Backfill SQLite from results.jsonl (idempotent)\ncd webapp && flask --app app sync") }}
+<p class="small text-muted mb-5">Scripts also POST each run to the webapp automatically if it is running (best-effort, set <code>TDBF_WEBAPP_URL</code> to override).</p>
+
+<script>
+function copyCmd(btn) {
+  const code = btn.parentElement.querySelector('code').innerText;
+  navigator.clipboard.writeText(code).then(() => {
+    const old = btn.innerText;
+    btn.innerText = 'copied';
+    setTimeout(() => { btn.innerText = old; }, 1200);
+  });
+}
+</script>
+{% endblock %}

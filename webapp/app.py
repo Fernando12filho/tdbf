@@ -96,6 +96,11 @@ def runs():
     )
 
 
+@app.route("/commands")
+def commands():
+    return render_template("commands.html")
+
+
 @app.route("/runs/<int:run_id>")
 def run_detail(run_id: int):
     run = db.get_run(run_id)
