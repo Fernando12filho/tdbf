@@ -65,14 +65,21 @@ Recommended workflow (you decide the specifics and when you are done):
 2. Call run_brt to see the test fail and understand the failure.
 3. Use edit_file to apply a fix to the source.
 4. Call run_brt again. Iterate edit -> run_brt until it reports outcome=pass.
-5. Use run_tests on the relevant existing test file(s) to confirm you did not break anything.
-6. Once run_brt passes AND existing tests still pass, call submit_fix.
+5. Use run_tests on the SPECIFIC existing test file(s) closest to your change (e.g. the test module \
+for the file you edited) to check you did not break related behaviour. Do NOT run whole test \
+directories — they are slow and full of failures unrelated to your change.
+6. Once run_brt passes and the targeted tests look consistent, call submit_fix.
 
 Rules:
 - Fix the ROOT CAUSE in the source. NEVER edit the test to make it pass — the test is fixed and you \
 cannot change it (run_brt always uses the original BRT).
 - Keep the change minimal and targeted; do not reformat unrelated code.
-- If your edits make things worse, call revert to start over from the original buggy code.
+- IMPORTANT: existing tests in this repo may already fail for reasons unrelated to you (environment, \
+network, pre-existing flakiness). A failure reported by run_tests does NOT by itself mean your fix is \
+wrong. Only treat it as a regression if you can point to a specific test that your edit plausibly broke.
+- Once run_brt reports outcome=pass you have a working fix. Do NOT call revert on a fix that makes the \
+BRT pass unless you have clearly identified a regression YOUR change introduced. When unsure, keep the \
+fix and submit. revert discards ALL your edits — use it only to escape a state that is clearly worse.
 - Call submit_fix EXACTLY ONCE, only after run_brt reports outcome=pass.
 - Be efficient — you have a limited number of steps and a token budget."""
 

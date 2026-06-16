@@ -109,14 +109,32 @@ BRT level semantics:
 
 ## Current status and validated results
 
-Phase 1 pipeline is fully implemented and working end-to-end.
+The project has moved past the Phase 1 *workflow* into **real agents** (see
+`docs/agent_plan.md` for the authoritative, detailed status). Both the BRT agent
+and the fix agent are implemented and live-validated end-to-end.
 
-**Validated results** (Qwen3.5:9b, thinking=on, --context --observe --attempts 3):
-- `astropy__astropy-12907`: **L4** (attempt 2) — separability matrix bug, REPL code in issue
-- `astropy__astropy-14182`: **L4** (attempt 1) — RST header_rows feature, model-generated probe
-- `django__django-11001`: **L3** (3 attempts) — multiline RawSQL ordering bug, no example code in issue
+**Agent system (`src/tdbf/agent/`):**
+- `runtime.py` — vendor-agnostic tool-use loop (`Agent`); termination = terminal
+  `submit_*` tool or no-tool turn; iteration/token caps; real token capture.
+- `session.py` — persistent per-instance container (`docker run -d sleep
+  infinity` + `exec`) so an agent's many tool calls pay startup once.
+- `tools.py` — gold-free tools wrapping `runner.py`. BRT set (Phase A):
+  {read_file, grep, glob, run_python, run_test, submit_test}. Fix set (Phase B):
+  {read_file, grep, glob, edit_file, run_brt, run_tests, revert, submit_fix}.
+  `assert_gold_free` / `assert_fix_gold_free` guard the registries.
+- Scripts: `04_agent_brt.py` (Phase A), `05_agent_fix.py` (Phase B). Offline
+  smoke tests: `scripts/agent_*_smoke.py` (no Docker/API needed).
 
-The Django L3 is a **model knowledge gap** (Qwen3.5:9b hallucinates Django ORM internals like `RawSQL` import path, `SQLCompiler` constructor, `as_sql()` return signature). The infrastructure is correct. Switching to `anthropic:claude-opus-4-7` or `openai:gpt-4-turbo` is expected to resolve this.
+**Validated results (Claude Sonnet `claude-sonnet-4-6`, astropy Lite):**
+- **Phase A (BRT):** C2P = 5/6 = **0.83**, ~$0.24/instance.
+- **Phase B (fix):** resolved 3/5 = **0.60**, ~$0.22/instance. The 2 non-resolved
+  passed their own BRT but failed the held-out test (BRT necessary-not-sufficient).
+- **RQ1 weak arm:** qwen2.5/3.5 can call tools but fail the autonomous loop
+  (Phase A C2P 0.00; Phase B empty patch). A prompt-harden + bigger-model ladder
+  did **not** close the gap → capability, not scaffolding.
+
+**Non-agentic baseline (kept for comparison):** the `--attempts`/`--repair`
+workflow in `02_generate_brt.py` / `03_batch_brt.py`.
 
 ## Environment setup (macOS + Colima)
 
@@ -130,25 +148,20 @@ export DOCKER_HOST=unix://${HOME}/.colima/default/docker.sock
 # and Windows Firewall inbound rule for TCP 11434
 ```
 
-## Next steps — pivot to a real multi-agent system
+## Next steps
 
-**Read `docs/agent_plan.md` first.** The project is moving from the current
-code-driven *workflow* (Phase 1 BRT generation with `--attempts`/`--repair`) to
-**real agents**: LLMs that autonomously choose tools and decide when they're done.
-The paper is about *using agents* to do test-driven bug fixing
-(reproduce → write BRT → fix until BRT passes).
+**Read `docs/agent_plan.md` first** — it holds the authoritative phase checklists
+and findings. Phases 0 (runtime), A (BRT agent) and B (fix agent) are done and
+live-validated. Remaining:
+- **Broaden Phase B** beyond the 5 astropy instances (more repos/instances) for a
+  credible resolved-rate; add the qwen weak arm.
+- **Phase C** — multi-agent: split into reproduction / test-writer / (critic)
+  agents + an orchestrator; compare single-capable-agent vs multi-agent (RQ4).
 
-The batch runner (`scripts/03_batch_brt.py`) and the `--repair` loop already exist
-and serve as the **non-agentic baseline**. The existing harness functions
-(`run_snippet_in_container`, `run_test_in_container`, `fetch_relevant_code`,
-`classify`) become the **tools** the agents call.
-
-Foundational task: an agent runtime (vendor-agnostic tool-use loop over the
-`LLMClient` protocol, so Claude vs qwen stays a clean RQ1 comparison). Then a
-single BRT agent (Phase A), a fix agent (Phase B), multi-agent (Phase C). Keep the
-**gold-free invariant**: no agent gets a tool that runs on the gold-fixed tree;
-`gold_patch`/`test_patch` are offline scoring only. Budget is ~$500 — see
-`docs/cost_estimate.md`. Full detail and phase checklists in `docs/agent_plan.md`.
+Hold the **gold-free invariant** in all new tools: no agent gets a tool that runs
+on the gold-fixed tree; `gold_patch`/`test_patch` are offline scoring only
+(`assert_gold_free` / `assert_fix_gold_free` enforce this). Budget ~$500 — Sonnet
+sweeps run ~$0.22–0.24/instance, qwen is the free weak arm.
 
 ## Adding support for a new repo type
 

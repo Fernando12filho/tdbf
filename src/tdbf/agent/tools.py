@@ -320,13 +320,16 @@ class RunBrtTool(_SessionTool):
 class RunTestsTool(_SessionTool):
     name = "run_tests"
     description = (
-        "Run an existing test file or directory from the repo (e.g. 'astropy/modeling/tests/"
-        "test_separable.py') to check your fix did not break existing behaviour. Returns pytest output."
+        "Run a SPECIFIC existing test file from the repo (e.g. 'astropy/modeling/tests/"
+        "test_separable.py') to check your fix did not break related behaviour. Point it at the test "
+        "module nearest your change — do NOT pass whole directories (slow, and they contain failures "
+        "unrelated to your fix). A reported failure may be pre-existing/environmental, not a regression "
+        "you caused. Returns pytest output."
     )
     input_schema = {
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "Existing test path relative to repo root."}
+            "path": {"type": "string", "description": "Existing test file path relative to repo root (a file, not a directory)."}
         },
         "required": ["path"],
     }
@@ -336,11 +339,17 @@ class RunTestsTool(_SessionTool):
         if not path:
             return ToolResult("run_tests requires a non-empty 'path'.", is_error=True)
         self.session.ensure_pytest()
+        # 180s cap (matches run_brt): bounds wall-clock if the model still points
+        # at a broad/slow path despite the guidance to use a single test file.
         res = self.session.exec(
-            "python -m pytest \"$TPATH\" --tb=short -q", timeout=300, env={"TPATH": path}
+            "python -m pytest \"$TPATH\" --tb=short -q", timeout=180, env={"TPATH": path}
         )
         outcome = _parse_pytest_outcome(res.returncode, res.output)
-        return ToolResult(f"outcome={outcome}\n\n{_clip(res.output)}")
+        note = ""
+        if res.returncode == 124:  # ExecResult timeout sentinel
+            note = ("\n\n[run_tests hit the 180s timeout — the path is too broad. "
+                    "Re-run on a single specific test file instead of a directory.]")
+        return ToolResult(f"outcome={outcome}\n\n{_clip(res.output)}{note}")
 
 
 class RevertTool(_SessionTool):
