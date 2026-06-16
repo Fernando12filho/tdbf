@@ -39,9 +39,14 @@ def _c2p(l3: int, l4: int) -> str:
 
 # ── pages ─────────────────────────────────────────────────────────────────────
 
+def _rate(num: int, denom: int) -> str:
+    return f"{num / denom:.0%}" if denom else "—"
+
+
 @app.route("/")
 def index():
     stats = db.get_dashboard_stats()
+    fix = db.get_fix_stats()
     level_map = {r["best_level"]: r["cnt"] for r in stats["by_level"]}
 
     for row in stats["by_model"]:
@@ -49,17 +54,24 @@ def index():
             row["candidates"] - row["l4"],
             row["l4"],
         )
+    for row in fix["by_model"]:
+        row["rate"] = _rate(row["resolved"], row["total"])
+    for row in fix["by_repo"]:
+        row["rate"] = _rate(row["resolved"], row["total"])
 
     overall_l3 = level_map.get(3, 0)
     overall_l4 = level_map.get(4, 0)
     return render_template(
         "index.html",
         total=stats["total"],
+        brt_total=stats["brt_total"],
         level_map=level_map,
         level_names=_LEVEL_NAMES,
         level_colors=_LEVEL_COLORS,
         by_model=stats["by_model"],
         overall_c2p=_c2p(overall_l3, overall_l4),
+        fix=fix,
+        fix_rate=_rate(fix["resolved"], fix["total"]),
     )
 
 
@@ -67,9 +79,10 @@ def index():
 def runs():
     model_filter = request.args.get("model") or None
     level_filter = request.args.get("level")
+    mode_filter = request.args.get("mode") or None
     level_int = int(level_filter) if level_filter and level_filter.isdigit() else None
 
-    rows = db.get_runs(model=model_filter, level=level_int)
+    rows = db.get_runs(model=model_filter, level=level_int, mode=mode_filter)
     models = db.get_all_models()
     return render_template(
         "runs.html",
@@ -79,6 +92,7 @@ def runs():
         level_colors=_LEVEL_COLORS,
         selected_model=model_filter or "",
         selected_level=level_filter or "",
+        selected_mode=mode_filter or "",
     )
 
 

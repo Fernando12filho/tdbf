@@ -17,6 +17,13 @@
     </select>
   </div>
   <div class="col-auto">
+    <select name="mode" class="form-select form-select-sm">
+      <option value="">All phases</option>
+      <option value="brt" {% if selected_mode == 'brt' %}selected{% endif %}>Phase A — BRT</option>
+      <option value="fix_agent" {% if selected_mode == 'fix_agent' %}selected{% endif %}>Phase B — Fix</option>
+    </select>
+  </div>
+  <div class="col-auto">
     <select name="level" class="form-select form-select-sm">
       <option value="">All levels</option>
       {% for lvl in range(5) %}
@@ -40,9 +47,9 @@
         <th>Instance</th>
         <th>Repo</th>
         <th>Model</th>
-        <th>Flags</th>
-        <th>Best Level</th>
-        <th>Attempts</th>
+        <th>Phase</th>
+        <th>Result</th>
+        <th class="text-end">Cost</th>
         <th>Timestamp</th>
         <th></th>
       </tr>
@@ -54,20 +61,26 @@
         <td class="text-muted small">{{ run.repo }}</td>
         <td class="small text-truncate model-cell" title="{{ run.model }}">{{ run.model }}</td>
         <td class="small">
-          {% if run.think %}<span class="badge bg-secondary me-1">think</span>{% endif %}
-          {% if run.context %}<span class="badge bg-secondary me-1">ctx</span>{% endif %}
-          {% if run.observe %}<span class="badge bg-secondary me-1">obs</span>{% endif %}
+          {% if run.mode == 'fix_agent' %}
+          <span class="badge bg-dark">Fix</span>
+          {% else %}
+          <span class="badge bg-light text-dark border">BRT</span>
+          {% endif %}
         </td>
         <td>
-          {% if run.best_level is not none %}
-          <span class="badge bg-{{ level_colors[run.best_level] }}">
-            L{{ run.best_level }}
-          </span>
+          {% if run.mode == 'fix_agent' %}
+            {% if run.resolved == 1 %}
+            <span class="badge bg-success">Resolved</span>
+            {% else %}
+            <span class="badge bg-danger">Not resolved</span>
+            {% endif %}
+          {% elif run.best_level is not none %}
+          <span class="badge bg-{{ level_colors[run.best_level] }}">L{{ run.best_level }}</span>
           {% else %}
           <span class="text-muted">—</span>
           {% endif %}
         </td>
-        <td class="text-center">{{ run.total_attempts }}</td>
+        <td class="text-end small text-muted">{% if run.cost_usd %}${{ "%.3f"|format(run.cost_usd) }}{% else %}—{% endif %}</td>
         <td class="text-muted small text-nowrap">{{ run.timestamp[:19].replace('T', ' ') }}</td>
         <td><a href="/runs/{{ run.id }}" class="btn btn-outline-secondary btn-sm py-0">View</a></td>
       </tr>

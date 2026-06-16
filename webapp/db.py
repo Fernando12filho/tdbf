@@ -16,6 +16,37 @@ def get_conn() -> sqlite3.Connection:
     return conn
 
 
+# Columns added after the original BRT-only schema. Kept as an idempotent
+# migration so an existing tdbf.db picks them up without a rebuild.
+#   runs.mode       'brt' (Phase A / legacy) | 'fix_agent' (Phase B)
+#   runs.resolved   fix runs: 1 if the held-out tests passed, else 0
+#   runs.cost_usd   total USD across attempts
+_RUNS_MIGRATIONS = {
+    "mode": "TEXT DEFAULT 'brt'",
+    "resolved": "INTEGER",
+    "cost_usd": "REAL",
+}
+_ATTEMPTS_MIGRATIONS = {
+    "mode": "TEXT",
+    "resolved": "INTEGER",
+    "applied": "INTEGER",
+    "stop_cause": "TEXT",
+    "iterations": "INTEGER",
+    "num_tool_calls": "INTEGER",
+    "cost_usd": "REAL",
+    "fix_patch": "TEXT",
+    "fail_to_pass_failed": "TEXT",
+    "pass_to_pass_failed": "TEXT",
+}
+
+
+def _migrate(conn, table: str, cols: dict[str, str]) -> None:
+    existing = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+    for name, decl in cols.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+
+
 def init_db() -> None:
     with get_conn() as conn:
         conn.executescript("""
@@ -28,6 +59,9 @@ def init_db() -> None:
                 think       INTEGER DEFAULT 0,
                 context     INTEGER DEFAULT 0,
                 observe     INTEGER DEFAULT 0,
+                mode        TEXT DEFAULT 'brt',
+                resolved    INTEGER,
+                cost_usd    REAL,
                 best_level  INTEGER,
                 best_attempt INTEGER,
                 total_attempts INTEGER,
@@ -39,6 +73,16 @@ def init_db() -> None:
                 run_id          INTEGER NOT NULL REFERENCES runs(id),
                 attempt_number  INTEGER NOT NULL,
                 level           INTEGER,
+                mode            TEXT,
+                resolved        INTEGER,
+                applied         INTEGER,
+                stop_cause      TEXT,
+                iterations      INTEGER,
+                num_tool_calls  INTEGER,
+                cost_usd        REAL,
+                fix_patch       TEXT,
+                fail_to_pass_failed TEXT,
+                pass_to_pass_failed TEXT,
                 outcome_buggy   TEXT,
                 outcome_fixed   TEXT,
                 test_code       TEXT,
@@ -56,19 +100,35 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_runs_model    ON runs(model);
             CREATE INDEX IF NOT EXISTS idx_runs_level    ON runs(best_level);
         """)
+        _migrate(conn, "runs", _RUNS_MIGRATIONS)
+        _migrate(conn, "attempts", _ATTEMPTS_MIGRATIONS)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_mode ON runs(mode)")
+
+
+def _maybe_json(value):
+    """Serialise list/dict values (e.g. failing-test lists) for TEXT columns."""
+    if value is None or isinstance(value, str):
+        return value
+    return json.dumps(value)
 
 
 def insert_run(record: dict) -> int:
     flags = record.get("flags", {})
     attempts_data = record.get("attempts", [])
+    mode = record.get("mode") or "brt"
+    resolved = record.get("resolved")
+    total_cost = sum(
+        (a.get("cost_usd") or 0) for a in attempts_data
+    ) or None
 
     with get_conn() as conn:
         cur = conn.execute(
             """
             INSERT INTO runs
                 (instance_id, repo, model, split, think, context, observe,
+                 mode, resolved, cost_usd,
                  best_level, best_attempt, total_attempts, timestamp)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 record.get("instance_id", ""),
@@ -78,6 +138,9 @@ def insert_run(record: dict) -> int:
                 int(flags.get("think", False)),
                 int(flags.get("context", False)),
                 int(flags.get("observe", False)),
+                mode,
+                int(resolved) if resolved is not None else None,
+                total_cost,
                 record.get("best_level"),
                 record.get("best_attempt"),
                 len(attempts_data),
@@ -87,18 +150,33 @@ def insert_run(record: dict) -> int:
         run_id = cur.lastrowid
 
         for a in attempts_data:
+            a_resolved = a.get("resolved")
+            a_applied = a.get("applied")
             conn.execute(
                 """
                 INSERT INTO attempts
-                    (run_id, attempt_number, level, outcome_buggy, outcome_fixed,
+                    (run_id, attempt_number, level, mode, resolved, applied,
+                     stop_cause, iterations, num_tool_calls, cost_usd, fix_patch,
+                     fail_to_pass_failed, pass_to_pass_failed,
+                     outcome_buggy, outcome_fixed,
                      test_code, probe_code, observed_output, raw_response,
                      prompt_sent, probe_prompt, input_tokens, output_tokens, duration_seconds)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     run_id,
                     a.get("attempt", 0),
                     a.get("level"),
+                    a.get("mode"),
+                    int(a_resolved) if a_resolved is not None else None,
+                    int(a_applied) if a_applied is not None else None,
+                    a.get("stop_cause"),
+                    a.get("iterations"),
+                    a.get("num_tool_calls"),
+                    a.get("cost_usd"),
+                    a.get("fix_patch"),
+                    _maybe_json(a.get("fail_to_pass_failed")),
+                    _maybe_json(a.get("pass_to_pass_failed")),
                     a.get("outcome_buggy"),
                     a.get("outcome_fixed"),
                     a.get("test_code"),
@@ -126,29 +204,77 @@ def already_exists(instance_id: str, model: str, timestamp: str) -> bool:
 
 # ── queries ───────────────────────────────────────────────────────────────────
 
+# BRT-class runs = Phase A + legacy workflow (everything that is not a fix run).
+_BRT_WHERE = "mode IS NULL OR mode != 'fix_agent'"
+
+
 def get_dashboard_stats() -> dict:
     with get_conn() as conn:
         total = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
         by_level = conn.execute(
-            "SELECT best_level, COUNT(*) as cnt FROM runs GROUP BY best_level ORDER BY best_level"
+            f"SELECT best_level, COUNT(*) as cnt FROM runs WHERE {_BRT_WHERE} "
+            "GROUP BY best_level ORDER BY best_level"
         ).fetchall()
         by_model = conn.execute(
-            """
+            f"""
             SELECT model,
                    COUNT(*) as total,
                    SUM(CASE WHEN best_level=4 THEN 1 ELSE 0 END) as l4,
                    SUM(CASE WHEN best_level>=3 THEN 1 ELSE 0 END) as candidates
-            FROM runs GROUP BY model ORDER BY model
+            FROM runs WHERE {_BRT_WHERE} GROUP BY model ORDER BY model
             """
         ).fetchall()
+        brt_total = conn.execute(
+            f"SELECT COUNT(*) FROM runs WHERE {_BRT_WHERE}"
+        ).fetchone()[0]
     return {
         "total": total,
+        "brt_total": brt_total,
         "by_level": [dict(r) for r in by_level],
         "by_model": [dict(r) for r in by_model],
     }
 
 
-def get_runs(model: str | None = None, level: int | None = None, limit: int = 100) -> list[dict]:
+def get_fix_stats() -> dict:
+    """Phase B (fix agent) resolved-rate, overall and per model / repo."""
+    with get_conn() as conn:
+        total = conn.execute(
+            "SELECT COUNT(*) FROM runs WHERE mode='fix_agent'"
+        ).fetchone()[0]
+        resolved = conn.execute(
+            "SELECT COUNT(*) FROM runs WHERE mode='fix_agent' AND resolved=1"
+        ).fetchone()[0]
+        cost = conn.execute(
+            "SELECT COALESCE(SUM(cost_usd),0) FROM runs WHERE mode='fix_agent'"
+        ).fetchone()[0]
+        by_model = conn.execute(
+            """
+            SELECT model,
+                   COUNT(*) as total,
+                   SUM(CASE WHEN resolved=1 THEN 1 ELSE 0 END) as resolved,
+                   COALESCE(SUM(cost_usd),0) as cost
+            FROM runs WHERE mode='fix_agent' GROUP BY model ORDER BY model
+            """
+        ).fetchall()
+        by_repo = conn.execute(
+            """
+            SELECT repo,
+                   COUNT(*) as total,
+                   SUM(CASE WHEN resolved=1 THEN 1 ELSE 0 END) as resolved
+            FROM runs WHERE mode='fix_agent' GROUP BY repo ORDER BY repo
+            """
+        ).fetchall()
+    return {
+        "total": total,
+        "resolved": resolved,
+        "cost": cost,
+        "by_model": [dict(r) for r in by_model],
+        "by_repo": [dict(r) for r in by_repo],
+    }
+
+
+def get_runs(model: str | None = None, level: int | None = None,
+             mode: str | None = None, limit: int = 100) -> list[dict]:
     clauses, params = [], []
     if model:
         clauses.append("model = ?")
@@ -156,6 +282,10 @@ def get_runs(model: str | None = None, level: int | None = None, limit: int = 10
     if level is not None:
         clauses.append("best_level = ?")
         params.append(level)
+    if mode == "fix_agent":
+        clauses.append("mode = 'fix_agent'")
+    elif mode == "brt":
+        clauses.append("(mode IS NULL OR mode != 'fix_agent')")
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     params.append(limit)
 

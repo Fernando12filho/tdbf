@@ -48,6 +48,7 @@
 </div>
 
 <!-- level breakdown -->
+<h2 class="h5 mb-3">Phase A — BRT agent</h2>
 <div class="row g-3 mb-4">
   <div class="col-md-5">
     <div class="card h-100">
@@ -96,6 +97,89 @@
     </div>
   </div>
 </div>
+
+<!-- ── Phase B: Fix agent ─────────────────────────────────────────────── -->
+{% if fix.total %}
+<h2 class="h5 mt-5 mb-3">Phase B — Fix agent</h2>
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="card text-center h-100">
+      <div class="card-body">
+        <div class="display-6 fw-bold">{{ fix.total }}</div>
+        <div class="text-muted small">Fix runs</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card text-center h-100 border-success">
+      <div class="card-body">
+        <div class="display-6 fw-bold text-success">{{ fix.resolved }}</div>
+        <div class="text-muted small">Resolved</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card text-center h-100">
+      <div class="card-body">
+        <div class="display-6 fw-bold">{{ fix_rate }}</div>
+        <div class="text-muted small">Resolved rate</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card text-center h-100">
+      <div class="card-body">
+        <div class="display-6 fw-bold">${{ "%.2f"|format(fix.cost) }}</div>
+        <div class="text-muted small">Total spend</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-7">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">Resolved rate per model</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Model</th><th class="text-end">Runs</th><th class="text-end">Resolved</th><th class="text-end">Rate</th><th class="text-end">Spend</th></tr></thead>
+          <tbody>
+            {% for row in fix.by_model %}
+            <tr>
+              <td class="text-truncate model-cell" title="{{ row.model }}">{{ row.model }}</td>
+              <td class="text-end">{{ row.total }}</td>
+              <td class="text-end text-success fw-semibold">{{ row.resolved }}</td>
+              <td class="text-end fw-semibold">{{ row.rate }}</td>
+              <td class="text-end text-muted">${{ "%.2f"|format(row.cost) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-5">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">Resolved rate per repo</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Repo</th><th class="text-end">Runs</th><th class="text-end">Resolved</th><th class="text-end">Rate</th></tr></thead>
+          <tbody>
+            {% for row in fix.by_repo %}
+            <tr>
+              <td class="small">{{ row.repo }}</td>
+              <td class="text-end">{{ row.total }}</td>
+              <td class="text-end text-success fw-semibold">{{ row.resolved }}</td>
+              <td class="text-end fw-semibold">{{ row.rate }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <div class="text-end">
   <a href="/runs" class="btn btn-outline-secondary btn-sm">View all runs →</a>

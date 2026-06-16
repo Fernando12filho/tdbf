@@ -14,7 +14,13 @@
         <h2 class="h4 font-monospace mb-1">{{ run.instance_id }}</h2>
         <div class="text-muted small">{{ run.repo }}</div>
       </div>
-      {% if run.best_level is not none %}
+      {% if run.mode == 'fix_agent' %}
+        {% if run.resolved == 1 %}
+        <span class="badge bg-success fs-6">Resolved</span>
+        {% else %}
+        <span class="badge bg-danger fs-6">Not resolved</span>
+        {% endif %}
+      {% elif run.best_level is not none %}
       <span class="badge bg-{{ level_colors[run.best_level] }} fs-6">
         {{ level_names[run.best_level] }}
       </span>
@@ -23,8 +29,16 @@
     <hr class="my-3">
     <div class="row g-2 small">
       <div class="col-md-4"><span class="text-muted">Model:</span> {{ run.model }}</div>
+      <div class="col-md-4">
+        <span class="text-muted">Phase:</span>
+        {% if run.mode == 'fix_agent' %}Fix agent (Phase B){% else %}BRT agent (Phase A){% endif %}
+      </div>
       <div class="col-md-4"><span class="text-muted">Split:</span> {{ run.split }}</div>
+      {% if run.cost_usd %}
+      <div class="col-md-4"><span class="text-muted">Cost:</span> ${{ "%.4f"|format(run.cost_usd) }}</div>
+      {% endif %}
       <div class="col-md-4"><span class="text-muted">Timestamp:</span> {{ run.timestamp[:19].replace('T', ' ') }}</div>
+      {% if run.mode != 'fix_agent' %}
       <div class="col-md-4">
         <span class="text-muted">Flags:</span>
         {% if run.think %}<span class="badge bg-secondary me-1">think</span>{% endif %}
@@ -34,9 +48,10 @@
         <span class="text-muted">none</span>
         {% endif %}
       </div>
+      {% endif %}
       <div class="col-md-4">
-        <span class="text-muted">Best attempt:</span>
-        {{ run.best_attempt }} / {{ run.total_attempts }}
+        <span class="text-muted">Attempts:</span>
+        {{ run.total_attempts }}
       </div>
     </div>
   </div>
@@ -55,14 +70,26 @@
               data-bs-toggle="collapse"
               data-bs-target="#attempt-{{ a.id }}">
         <span class="me-3">Attempt {{ a.attempt_number }}</span>
-        {% if a.level is not none %}
-        <span class="badge bg-{{ level_colors[a.level] }} me-2">{{ level_names[a.level] }}</span>
+        {% if a.mode == 'fix_agent' %}
+          {% if a.resolved == 1 %}
+          <span class="badge bg-success me-2">Resolved</span>
+          {% else %}
+          <span class="badge bg-danger me-2">Not resolved</span>
+          {% endif %}
+          <span class="text-muted small ms-2 me-3">
+            patch applied: <strong>{{ 'yes' if a.applied == 1 else 'no' }}</strong>
+            {% if a.stop_cause %}&nbsp;·&nbsp; stop: <strong>{{ a.stop_cause }}</strong>{% endif %}
+          </span>
+        {% else %}
+          {% if a.level is not none %}
+          <span class="badge bg-{{ level_colors[a.level] }} me-2">{{ level_names[a.level] }}</span>
+          {% endif %}
+          <span class="text-muted small ms-2 me-3">
+            buggy: <strong>{{ a.outcome_buggy or '—' }}</strong>
+            &nbsp;·&nbsp;
+            fixed: <strong>{{ a.outcome_fixed or '—' }}</strong>
+          </span>
         {% endif %}
-        <span class="text-muted small ms-2 me-3">
-          buggy: <strong>{{ a.outcome_buggy or '—' }}</strong>
-          &nbsp;·&nbsp;
-          fixed: <strong>{{ a.outcome_fixed or '—' }}</strong>
-        </span>
         <!-- token / timing stats inline -->
         {% if a.input_tokens or a.output_tokens or a.duration_seconds %}
         <span class="text-muted small ms-auto me-3 d-flex gap-3">
@@ -99,7 +126,33 @@
           {% if a.duration_seconds is not none %}
           <span><strong>LLM time:</strong> {{ "%.2f"|format(a.duration_seconds) }}s</span>
           {% endif %}
+          {% if a.cost_usd is not none %}
+          <span><strong>Cost:</strong> ${{ "%.4f"|format(a.cost_usd) }}</span>
+          {% endif %}
+          {% if a.iterations is not none %}
+          <span><strong>Iterations:</strong> {{ a.iterations }}</span>
+          {% endif %}
+          {% if a.num_tool_calls is not none %}
+          <span><strong>Tool calls:</strong> {{ a.num_tool_calls }}</span>
+          {% endif %}
         </div>
+        {% endif %}
+
+        {% if a.mode == 'fix_agent' %}
+          {% if a.fix_patch %}
+          <h6 class="text-muted">Fix patch (git diff)</h6>
+          <pre class="code-block"><code>{{ a.fix_patch }}</code></pre>
+          {% else %}
+          <p class="text-muted small">No source edits were produced.</p>
+          {% endif %}
+          {% if a.fail_to_pass_failed and a.fail_to_pass_failed != 'null' and a.fail_to_pass_failed != '[]' %}
+          <h6 class="text-muted mt-3">Held-out FAIL_TO_PASS still failing</h6>
+          <pre class="code-block output-block"><code>{{ a.fail_to_pass_failed }}</code></pre>
+          {% endif %}
+          {% if a.pass_to_pass_failed and a.pass_to_pass_failed != 'null' and a.pass_to_pass_failed != '[]' %}
+          <h6 class="text-muted mt-3">Regressions (PASS_TO_PASS now failing)</h6>
+          <pre class="code-block output-block"><code>{{ a.pass_to_pass_failed }}</code></pre>
+          {% endif %}
         {% endif %}
 
         {% if a.test_code %}
