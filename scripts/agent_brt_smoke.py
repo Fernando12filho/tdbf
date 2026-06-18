@@ -31,6 +31,7 @@ class FakeLiveSession(FakeSession):
     def close(self):
         pass
 
+from tdbf.agent import pipeline  # phase logic now lives here (patched below)
 from tdbf.data.instances import SWEBenchInstance
 from tdbf.harness.runner import ContainerResult
 from tdbf.models.messages import ToolCall, ToolUseResponse
@@ -81,16 +82,17 @@ def main() -> int:
 
     captured: dict = {}
 
-    # Patch the script's external dependencies in its own module namespace.
+    # Patch external dependencies. build_client/save_run are called in the script;
+    # the container + gold scoring now live in tdbf.agent.pipeline (patch there).
     mod.build_client = lambda spec: FakeBRTClient()
-    mod.ContainerSession = lambda instance, keep=False: FakeLiveSession(instance.repo)
+    mod.save_run = lambda record: captured.setdefault("record", record)
+    pipeline.ContainerSession = lambda instance, keep=False: FakeLiveSession(instance.repo)
     # Fake the gold scoring: fail on buggy (assertion), pass on fixed -> L4.
     def fake_run_test(instance, test_patch, *, gold_patch=None, test_path=None, **kw):
         if gold_patch is None:
             return ContainerResult("fail", failure_reason="assertion", output="E AssertionError")
         return ContainerResult("pass", output="1 passed")
-    mod.run_test_in_container = fake_run_test
-    mod.save_run = lambda record: captured.setdefault("record", record)
+    pipeline.run_test_in_container = fake_run_test
 
     with tempfile.TemporaryDirectory() as td:
         classification = mod.run_one(

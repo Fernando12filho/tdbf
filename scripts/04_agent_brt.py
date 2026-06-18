@@ -31,114 +31,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tdbf.agent import Agent, ContainerSession, brt_agent_tools
+from tdbf.agent.pipeline import brt_run_record, brt_transcript_dict, run_brt_phase
 from tdbf.data.instances import InstanceStore, SWEBenchInstance
-from tdbf.harness.runner import (
-    brt_test_path,
-    inject_setup_preamble,
-    make_test_patch,
-    repo_test_hint,
-    run_test_in_container,
-)
 from tdbf.models.llm import OllamaClient, build_client
 from tdbf.results import save_run
-from tdbf.validation.brt_levels import BRTClassification, classify, c2p_rate
-
-# $/1M tokens (input, output). Keyed by substring of the model id. See
-# docs/cost_estimate.md. Unknown models (ollama/local) cost $0.
-_PRICING = {
-    "opus": (5.0, 25.0),
-    "sonnet": (3.0, 15.0),
-    "haiku": (1.0, 5.0),
-}
-
-
-def _cost_usd(model: str, in_tok: int, out_tok: int) -> float | None:
-    for key, (pin, pout) in _PRICING.items():
-        if key in model:
-            return round(in_tok / 1e6 * pin + out_tok / 1e6 * pout, 4)
-    return None  # local / unknown
-
-
-SYSTEM_PROMPT = """You are an autonomous software-testing agent. Your single goal is to write a \
-Bug Reproduction Test (BRT): one pytest test that reproduces the bug described in a GitHub issue.
-
-You are working inside a checkout of `{repo}` at the BUGGY commit `{base_commit}`. The bug has NOT \
-been fixed. Your tools run against this buggy code.
-
-A good BRT:
-- FAILS on this buggy code with an ASSERTION failure that directly reflects the bug in the issue.
-- Fails for the RIGHT reason: it must reach its assertion and fail there, NOT crash with an \
-ImportError / NameError / setup error before exercising the behaviour.
-- Would PASS once the bug is correctly fixed. You cannot run the fixed code, so reason from the \
-issue about what the correct behaviour should be and assert exactly that.
-
-Recommended workflow (you decide the specifics and when you are done):
-1. Read the issue. Use glob/grep/read_file to locate the relevant code.
-2. Use run_python to OBSERVE the actual buggy behaviour and confirm your understanding before \
-asserting anything.
-3. Write the test and use run_test to check it FAILS on the buggy code with failure_reason=assertion.
-4. Iterate until run_test reports outcome=fail with failure_reason=assertion, then call submit_test.
-
-Rules:
-- Framework setup boilerplate is injected for you automatically. Write plain pytest functions; do \
-NOT write framework bootstrap (no settings.configure(), no django.setup()).
-- {env_hint}
-- The test file is placed for you; do not worry about its path or filename.
-- Only assert behaviour you are confident a correct fix would produce.
-- Call submit_test EXACTLY ONCE, only after run_test has confirmed a clean assertion failure on the \
-buggy code. Never submit a test that passes or merely errors on the buggy code.
-- Be efficient — you have a limited number of steps and a token budget."""
-
-
-# Optional scaffolding (`--prompt-harden`). Targets the diagnosed qwen failure
-# modes: emitting a tool call as text instead of via the function-calling channel,
-# narrating/guessing a tool's output instead of calling it, and addressing the user.
-# Apply to BOTH models (Claude is unaffected) so the RQ1 comparison stays fair.
-PROMPT_HARDEN = """
-
-CRITICAL TOOL-USE PROTOCOL — follow exactly:
-- You act ONLY by invoking tools through the function-calling channel. NEVER write a tool call as \
-text, markdown, or a ```json``` / ```python``` block in your message. If you write the call as text \
-instead of invoking it, NOTHING happens and your turn is wasted.
-- NEVER state, guess, narrate, or assume what a tool will output. You do not know a tool's result \
-until the tool actually returns it to you. Do not write "this will output ..." — call the tool and \
-wait for the real result.
-- You are an autonomous agent. NEVER address a human or ask anyone to run a command, save a file, or \
-check a directory. There is no human to help; you do everything yourself via tools.
-- Tool arguments MUST be a valid JSON object. Put code in a JSON STRING (a normal double-quoted, \
-escaped string) — never a bare identifier and never a triple-quoted block.
-- You are NOT done until run_test has returned outcome=fail with failure_reason=assertion AND you \
-have then invoked submit_test. Producing test code in your message is not submitting it."""
-
-
-def _serialise_messages(messages) -> list[dict]:
-    out = []
-    for m in messages:
-        d = {"role": m.role}
-        if m.content is not None:
-            d["content"] = m.content
-        if m.tool_calls:
-            d["tool_calls"] = [
-                {"id": tc.id, "name": tc.name, "arguments": tc.arguments} for tc in m.tool_calls
-            ]
-        if m.tool_call_id:
-            d["tool_call_id"] = m.tool_call_id
-        out.append(d)
-    return out
-
-
-def _step_summary(steps) -> list[dict]:
-    return [
-        {
-            "iteration": s.iteration,
-            "tools": [tc.name for tc in s.tool_calls],
-            "input_tokens": s.input_tokens,
-            "output_tokens": s.output_tokens,
-            "duration_seconds": s.duration_seconds,
-        }
-        for s in steps
-    ]
+from tdbf.validation.brt_levels import BRTClassification, c2p_rate
 
 
 def run_one(
@@ -167,118 +64,29 @@ def run_one(
     else:
         print(f"Model:     {client.name}")
 
-    test_path = brt_test_path(inst.repo)
-    env_hint = repo_test_hint(inst.repo) or "(no special framework setup for this repo)"
-    system = SYSTEM_PROMPT.format(
-        repo=inst.repo, base_commit=inst.base_commit, env_hint=env_hint
+    # --- Run the gold-free BRT agent + offline gold-barrier scoring. ---
+    phase = run_brt_phase(
+        inst, client,
+        max_iterations=max_iterations,
+        max_total_tokens=max_total_tokens,
+        prompt_harden=prompt_harden,
+        keep_container=keep_container,
+        verbose=verbose,
     )
-    if prompt_harden:
-        system += PROMPT_HARDEN
-    ctx = inst.context_safe_dict()
-    task = (
-        f"GitHub issue for instance `{ctx['instance_id']}` "
-        f"({ctx['repo']} @ {ctx['base_commit']}):\n\n{ctx['problem_statement']}"
-    )
-
-    # --- AGENT (gold-free): the model drives the tools on the buggy tree. ---
-    try:
-        session = ContainerSession(inst, keep=keep_container).start()
-    except RuntimeError as e:
-        print(f"  [skip] {e}")
+    if phase is None:  # container could not start
         return None
-    try:
-        tools = brt_agent_tools(session)  # gold-free set + assert_gold_free guard
-        agent = Agent(
-            client, tools, system,
-            max_iterations=max_iterations,
-            max_total_tokens=max_total_tokens,
-            verbose=verbose,
-        )
-        print(f"Running agent (max_iter={max_iterations}, max_tok={max_total_tokens}) ...")
-        result = agent.run(task)
-    finally:
-        session.close()
 
-    cost = _cost_usd(client.name, result.total_input_tokens, result.total_output_tokens)
-    print(
-        f"Agent done: stop={result.stop_cause}  iters={result.iterations}  "
-        f"tokens={result.total_input_tokens}/{result.total_output_tokens}"
-        + (f"  cost=${cost}" if cost is not None else "  cost=$0 (local)")
-    )
-
-    # =================== GOLD BARRIER =================== #
-    # Everything above is gold-free. Below, the gold patch is used PURELY to
-    # score the finished test into L0-L4. The agent never saw any of this.
-    submission = result.submission
-    classification = None
-    outcome_buggy = outcome_fixed = None
-    if not submission or not submission.strip():
-        print("  Agent did not submit a test (stop_cause="
-              f"{result.stop_cause}). Scoring as L0.")
-    else:
-        test_code = inject_setup_preamble(inst.repo, submission)
-        test_patch = make_test_patch(test_path, test_code)
-        print("Scoring offline — BUGGY tree ...")
-        outcome_buggy = run_test_in_container(inst, test_patch, test_path=test_path)
-        print(f"  outcome_on_buggy:  {outcome_buggy}")
-        print("Scoring offline — gold-FIXED tree ...")
-        outcome_fixed = run_test_in_container(
-            inst, test_patch, gold_patch=inst.gold_patch, test_path=test_path
-        )
-        print(f"  outcome_on_fixed:  {outcome_fixed}")
-        classification = classify(outcome_buggy, outcome_fixed)
-        print(f"  -> {classification.level_label}  (valid BRT: {classification.is_valid_brt})")
-
-    # --- Persist full transcript + summary record. ---
+    # --- Persist full transcript + summary record (shared builders). ---
     transcript_dir.mkdir(parents=True, exist_ok=True)
     (transcript_dir / f"{inst.instance_id}.json").write_text(
-        json.dumps(
-            {
-                "instance_id": inst.instance_id,
-                "model": client.name,
-                "system": system,
-                "task": task,
-                "stop_cause": result.stop_cause,
-                "messages": _serialise_messages(result.messages),
-                "submission": submission,
-            },
-            indent=2,
-        )
+        json.dumps(brt_transcript_dict(inst, client.name, phase), indent=2)
     )
-
-    level = classification.level.value if classification else 0
-    attempt_record = {
-        "attempt": 1,
-        "mode": "agent",
-        "level": level,
-        "l3_subtype": classification.l3_subtype if classification else None,
-        "stop_cause": result.stop_cause,
-        "iterations": result.iterations,
-        "num_tool_calls": sum(len(s.tool_calls) for s in result.steps),
-        "outcome_buggy": str(outcome_buggy) if outcome_buggy is not None else None,
-        "outcome_fixed": str(outcome_fixed) if outcome_fixed is not None else None,
-        "test_code": inject_setup_preamble(inst.repo, submission) if submission else None,
-        "input_tokens": result.total_input_tokens,
-        "output_tokens": result.total_output_tokens,
-        "cost_usd": cost,
-        "duration_seconds": sum((s.duration_seconds or 0) for s in result.steps),
-        "step_summary": _step_summary(result.steps),
-    }
-    save_run({
-        "instance_id": inst.instance_id,
-        "repo": inst.repo,
-        "model": client.name,
-        "split": split,
-        "mode": "agent",
-        "flags": {"max_iterations": max_iterations, "max_total_tokens": max_total_tokens,
-                  "prompt_harden": prompt_harden,
-                  "num_ctx": (client._num_ctx if isinstance(client, OllamaClient) else None),
-                  "submit_nudge_limit": agent.submit_nudge_limit},
-        "best_level": level,
-        "best_attempt": 1,
-        "attempts": [attempt_record],
-    })
-    return classification
+    flags = {"max_iterations": max_iterations, "max_total_tokens": max_total_tokens,
+             "prompt_harden": prompt_harden,
+             "num_ctx": (client._num_ctx if isinstance(client, OllamaClient) else None),
+             "submit_nudge_limit": phase.submit_nudge_limit}
+    save_run(brt_run_record(inst, client.name, split=split, flags=flags, phase=phase))
+    return phase.classification
 
 
 def main() -> int:

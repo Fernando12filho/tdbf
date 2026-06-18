@@ -31,86 +31,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from tdbf.agent import Agent, ContainerSession, fix_agent_tools
+from tdbf.agent.pipeline import fix_run_record, fix_transcript_dict, run_fix_phase
 from tdbf.data.instances import InstanceStore, SWEBenchInstance
-from tdbf.harness.runner import (
-    PredictionRecord,
-    read_report,
-    run_harness,
-    write_predictions,
-)
 from tdbf.models.llm import OllamaClient, build_client
 from tdbf.results import load_best_brt, save_run
-
-# $/1M tokens (input, output), keyed by substring of the model id. Local = $0.
-_PRICING = {"opus": (5.0, 25.0), "sonnet": (3.0, 15.0), "haiku": (1.0, 5.0)}
-
-
-def _cost_usd(model: str, in_tok: int, out_tok: int) -> float | None:
-    for key, (pin, pout) in _PRICING.items():
-        if key in model:
-            return round(in_tok / 1e6 * pin + out_tok / 1e6 * pout, 4)
-    return None
-
-
-SYSTEM_PROMPT = """You are an autonomous bug-fixing agent. Your single goal is to FIX the bug \
-described in a GitHub issue by editing the source code of `{repo}` (checked out at the buggy commit \
-`{base_commit}`).
-
-You are given a bug-reproduction test (BRT) that currently FAILS because of the bug. Your fix is \
-correct when that test PASSES and you have not broken existing behaviour.
-
-Recommended workflow (you decide the specifics and when you are done):
-1. Read the issue and the BRT. Use glob/grep/read_file to locate the buggy code.
-2. Call run_brt to see the test fail and understand the failure.
-3. Use edit_file to apply a fix to the source.
-4. Call run_brt again. Iterate edit -> run_brt until it reports outcome=pass.
-5. Use run_tests on the SPECIFIC existing test file(s) closest to your change (e.g. the test module \
-for the file you edited) to check you did not break related behaviour. Do NOT run whole test \
-directories — they are slow and full of failures unrelated to your change.
-6. Once run_brt passes and the targeted tests look consistent, call submit_fix.
-
-Rules:
-- Fix the ROOT CAUSE in the source. NEVER edit the test to make it pass — the test is fixed and you \
-cannot change it (run_brt always uses the original BRT).
-- Keep the change minimal and targeted; do not reformat unrelated code.
-- IMPORTANT: existing tests in this repo may already fail for reasons unrelated to you (environment, \
-network, pre-existing flakiness). A failure reported by run_tests does NOT by itself mean your fix is \
-wrong. Only treat it as a regression if you can point to a specific test that your edit plausibly broke.
-- Once run_brt reports outcome=pass you have a working fix. Do NOT call revert on a fix that makes the \
-BRT pass unless you have clearly identified a regression YOUR change introduced. When unsure, keep the \
-fix and submit. revert discards ALL your edits — use it only to escape a state that is clearly worse.
-- Call submit_fix EXACTLY ONCE, only after run_brt reports outcome=pass.
-- Be efficient — you have a limited number of steps and a token budget."""
-
-
-def _serialise_messages(messages) -> list[dict]:
-    out = []
-    for m in messages:
-        d = {"role": m.role}
-        if m.content is not None:
-            d["content"] = m.content
-        if m.tool_calls:
-            d["tool_calls"] = [
-                {"id": tc.id, "name": tc.name, "arguments": tc.arguments} for tc in m.tool_calls
-            ]
-        if m.tool_call_id:
-            d["tool_call_id"] = m.tool_call_id
-        out.append(d)
-    return out
-
-
-def _step_summary(steps) -> list[dict]:
-    return [
-        {
-            "iteration": s.iteration,
-            "tools": [tc.name for tc in s.tool_calls],
-            "input_tokens": s.input_tokens,
-            "output_tokens": s.output_tokens,
-            "duration_seconds": s.duration_seconds,
-        }
-        for s in steps
-    ]
 
 
 def run_one(
@@ -147,114 +71,27 @@ def run_one(
         client._think = True
     print(f"Model:     {client.name}")
 
-    system = SYSTEM_PROMPT.format(repo=inst.repo, base_commit=inst.base_commit)
-    ctx = inst.context_safe_dict()
-    task = (
-        f"GitHub issue for `{ctx['instance_id']}` ({ctx['repo']} @ {ctx['base_commit']}):\n\n"
-        f"{ctx['problem_statement']}\n\n"
-        f"--- Bug-reproduction test (currently FAILS; make it PASS by fixing the source) ---\n"
-        f"{brt_code}"
+    # --- Run the gold-free fix agent + offline gold-barrier (harness) scoring. ---
+    phase = run_fix_phase(
+        inst, brt_code, client,
+        split=split,
+        max_iterations=max_iterations,
+        max_total_tokens=max_total_tokens,
+        keep_container=keep_container,
+        verbose=verbose,
+        run_dir=transcript_dir,
     )
-
-    # --- AGENT (gold-free): the model edits the buggy tree. ---
-    try:
-        session = ContainerSession(inst, keep=keep_container).start()
-    except RuntimeError as e:
-        print(f"  [skip] {e}")
+    if phase is None:  # container could not start
         return None
-    try:
-        tools = fix_agent_tools(session, brt_code)  # gold-free; BRT baked into run_brt
-        agent = Agent(
-            client, tools, system,
-            max_iterations=max_iterations,
-            max_total_tokens=max_total_tokens,
-            verbose=verbose,
-        )
-        print(f"Running fix agent (max_iter={max_iterations}, max_tok={max_total_tokens}) ...")
-        result = agent.run(task)
-        # Capture the fix patch = tracked source edits (the untracked BRT is excluded).
-        fix_patch = session.exec("git diff").output
-    finally:
-        session.close()
+    resolved = phase.resolved
 
-    cost = _cost_usd(client.name, result.total_input_tokens, result.total_output_tokens)
-    print(
-        f"Agent done: stop={result.stop_cause}  iters={result.iterations}  "
-        f"tokens={result.total_input_tokens}/{result.total_output_tokens}"
-        + (f"  cost=${cost}" if cost is not None else "  cost=$0 (local)")
-        + f"  patch={len(fix_patch)} chars"
-    )
-
-    # =================== GOLD BARRIER =================== #
-    # Below uses the held-out test_patch (via the SWE-bench harness) PURELY to
-    # decide resolved/not. The agent never saw any of this.
-    resolved = False
-    harness = None
-    if not fix_patch.strip():
-        print("  Agent produced no source edits — not resolved.")
-    else:
-        run_id = f"agent_fix_{inst.instance_id}"
-        pred = PredictionRecord(
-            instance_id=inst.instance_id,
-            model_name_or_path=client.name,
-            model_patch=fix_patch,
-        )
-        pred_path = write_predictions([pred], Path("runs") / "agent_fix" / f"{run_id}.jsonl")
-        print("Scoring offline via SWE-bench harness (held-out test_patch) ...")
-        run_harness(pred_path, split, run_id, [inst.instance_id])
-        harness = read_report(run_id, client.name, inst)
-        resolved = harness.resolved
-        print(f"  applied={harness.applied}  resolved={resolved}  "
-              f"FAIL_TO_PASS pass/fail={len(harness.fail_to_pass_passed)}/"
-              f"{len(harness.fail_to_pass_failed)}  PASS_TO_PASS fail={len(harness.pass_to_pass_failed)}")
-
-    # --- Persist transcript + summary record. ---
+    # --- Persist transcript + summary record (shared builders). ---
     transcript_dir.mkdir(parents=True, exist_ok=True)
     (transcript_dir / f"{inst.instance_id}.json").write_text(
-        json.dumps(
-            {
-                "instance_id": inst.instance_id,
-                "model": client.name,
-                "system": system,
-                "task": task,
-                "stop_cause": result.stop_cause,
-                "messages": _serialise_messages(result.messages),
-                "fix_patch": fix_patch,
-                "resolved": resolved,
-            },
-            indent=2,
-        )
+        json.dumps(fix_transcript_dict(inst, client.name, phase), indent=2)
     )
-
-    attempt_record = {
-        "attempt": 1,
-        "mode": "fix_agent",
-        "resolved": resolved,
-        "applied": harness.applied if harness else False,
-        "stop_cause": result.stop_cause,
-        "iterations": result.iterations,
-        "num_tool_calls": sum(len(s.tool_calls) for s in result.steps),
-        "fix_patch": fix_patch,
-        "fail_to_pass_failed": harness.fail_to_pass_failed if harness else None,
-        "pass_to_pass_failed": harness.pass_to_pass_failed if harness else None,
-        "input_tokens": result.total_input_tokens,
-        "output_tokens": result.total_output_tokens,
-        "cost_usd": cost,
-        "duration_seconds": sum((s.duration_seconds or 0) for s in result.steps),
-        "step_summary": _step_summary(result.steps),
-    }
-    save_run({
-        "instance_id": inst.instance_id,
-        "repo": inst.repo,
-        "model": client.name,
-        "split": split,
-        "mode": "fix_agent",
-        "flags": {"max_iterations": max_iterations, "max_total_tokens": max_total_tokens},
-        "best_level": 4 if resolved else 0,  # reuse field: resolved -> sentinel
-        "resolved": resolved,
-        "best_attempt": 1,
-        "attempts": [attempt_record],
-    })
+    flags = {"max_iterations": max_iterations, "max_total_tokens": max_total_tokens}
+    save_run(fix_run_record(inst, client.name, split=split, flags=flags, phase=phase))
     return resolved
 
 

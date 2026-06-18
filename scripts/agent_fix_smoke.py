@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from agent_tools_smoke import FakeSession  # Docker-free session fake
 
+from tdbf.agent import pipeline  # phase logic now lives here (patched below)
 from tdbf.agent.session import ExecResult
 from tdbf.agent.tools import (
     SubmitFixTool,
@@ -193,19 +194,21 @@ def test_orchestration_glue() -> None:
     )
     captured: dict = {}
 
+    # build_client/load_best_brt/save_run are called in the script; the container
+    # + harness scoring now live in tdbf.agent.pipeline (patch there).
     mod.build_client = lambda spec: FakeFixClient()
-    mod.ContainerSession = lambda instance, keep=False: FixFakeSession(instance.repo)
     mod.load_best_brt = lambda iid, min_level=4: {
         "test_code": "def test_brt():\n    assert compute() == 5\n", "level": 4, "model": "anthropic:claude-sonnet-4-6",
     }
-    mod.write_predictions = lambda records, path: Path(path)
-    mod.run_harness = lambda *a, **k: 0
-    mod.read_report = lambda run_id, model, instance: HarnessResult(
+    mod.save_run = lambda record: captured.setdefault("record", record)
+    pipeline.ContainerSession = lambda instance, keep=False: FixFakeSession(instance.repo)
+    pipeline.write_predictions = lambda records, path: Path(path)
+    pipeline.run_harness = lambda *a, **k: 0
+    pipeline.read_report = lambda run_id, model, instance: HarnessResult(
         instance_id=instance.instance_id, resolved=True,
         fail_to_pass_passed=["test_brt"], fail_to_pass_failed=[],
         pass_to_pass_passed=["test_existing"], pass_to_pass_failed=[], applied=True,
     )
-    mod.save_run = lambda record: captured.setdefault("record", record)
 
     with tempfile.TemporaryDirectory() as td:
         resolved = mod.run_one(
