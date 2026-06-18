@@ -153,13 +153,19 @@ def run_one(
     keep_container: bool,
     verbose: bool,
     transcript_dir: Path,
+    num_ctx: int | None = None,
 ) -> BRTClassification | None:
     print(f"\n{'='*60}\nInstance:  {inst.instance_id}\nRepo:      {inst.repo}")
 
     client = build_client(model_spec)
-    if think and isinstance(client, OllamaClient):
-        client._think = True
-    print(f"Model:     {client.name}")
+    if isinstance(client, OllamaClient):
+        if think:
+            client._think = True
+        if num_ctx is not None:
+            client._num_ctx = num_ctx
+        print(f"Model:     {client.name}  (num_ctx={client._num_ctx})")
+    else:
+        print(f"Model:     {client.name}")
 
     test_path = brt_test_path(inst.repo)
     env_hint = repo_test_hint(inst.repo) or "(no special framework setup for this repo)"
@@ -265,7 +271,9 @@ def run_one(
         "split": split,
         "mode": "agent",
         "flags": {"max_iterations": max_iterations, "max_total_tokens": max_total_tokens,
-                  "prompt_harden": prompt_harden},
+                  "prompt_harden": prompt_harden,
+                  "num_ctx": (client._num_ctx if isinstance(client, OllamaClient) else None),
+                  "submit_nudge_limit": agent.submit_nudge_limit},
         "best_level": level,
         "best_attempt": 1,
         "attempts": [attempt_record],
@@ -288,6 +296,11 @@ def main() -> int:
     ap.add_argument("--max-tokens", type=int, default=200_000,
                     help="Cumulative token budget for one agent run (hard cap).")
     ap.add_argument("--think", action="store_true", help="Enable Qwen3 thinking mode (Ollama).")
+    ap.add_argument("--num-ctx", type=int, default=None,
+                    help="Override Ollama KV-cache window (num_ctx). Default keeps the "
+                         "client's 8192. Set to the model's max (e.g. 32768 for qwen2.5-coder) "
+                         "to stop file reads from scrolling out of context (RQ1 failure mode #2). "
+                         "Higher windows cost VRAM/decode speed.")
     ap.add_argument("--prompt-harden", action="store_true",
                     help="Append the tool-use protocol block (RQ1 scaffolding ladder). "
                          "Targets weak-model failures: tool-call-as-text, hallucinated output, "
@@ -318,6 +331,7 @@ def main() -> int:
             keep_container=args.keep_container,
             verbose=args.verbose,
             transcript_dir=transcript_dir,
+            num_ctx=args.num_ctx,
         )
         if c is not None:
             classifications.append(c)

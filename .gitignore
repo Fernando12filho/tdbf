@@ -25,6 +25,12 @@ logs/
 .vscode/
 .idea/
 
+# Claude Code local state
+.claude/
+
+# Webapp generated SQLite (rebuilt from results.jsonl via `flask sync`)
+webapp/tdbf.db
+
 # HuggingFace dataset cache
 ~/.cache/huggingface/
 figures/
