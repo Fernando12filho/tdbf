@@ -6,9 +6,12 @@ is what keeps the RQ1 comparison clean.
 
 Termination (per the agreed design): a successful call to a *terminal* tool
 (`submit_*`) ends the run and captures its artifact; as a fallback, an assistant
-turn with no tool calls also ends it. Hard caps on iterations and cumulative
-tokens guard the budget so a flailing model (expected for qwen, that's RQ1) can't
-burn the run open-ended.
+turn with no tool calls also ends it. Before accepting that fallback, weaker
+models that narrate a result in prose instead of firing the terminal tool get a
+bounded "submit-nudge" (`submit_nudge_limit`) prompting them to actually call it
+— this removes a scaffolding confound that otherwise auto-scores such runs L0
+(see RQ1). Hard caps on iterations and cumulative tokens guard the budget so a
+flailing model can't burn the run open-ended.
 """
 
 from __future__ import annotations
@@ -67,6 +70,7 @@ class Agent:
         max_iterations: int = 12,
         max_total_tokens: int = 200_000,
         max_tokens_per_turn: int = 4096,
+        submit_nudge_limit: int = 2,
         verbose: bool = False,
     ) -> None:
         names = [t.name for t in tools]
@@ -76,11 +80,21 @@ class Agent:
         self.client = client
         self.tools = {t.name: t for t in tools}
         self.schemas = [t.schema() for t in tools]
+        self.terminal_tools = [t.name for t in tools if t.terminal]
         self.system = system
         self.max_iterations = max_iterations
         self.max_total_tokens = max_total_tokens
         self.max_tokens_per_turn = max_tokens_per_turn
+        self.submit_nudge_limit = submit_nudge_limit
         self.verbose = verbose
+
+    def _nudge_text(self) -> str:
+        names = " or ".join(repr(n) for n in self.terminal_tools)
+        return (
+            "You ended your turn without calling a tool. A plain-text answer is "
+            f"not recorded — to finish you MUST call {names} with your result. "
+            "If you are not finished yet, keep investigating with the available tools."
+        )
 
     def _log(self, msg: str) -> None:
         if self.verbose:
@@ -96,6 +110,7 @@ class Agent:
         submission: str | None = None
         stop_cause = "max_iterations"
         final_text = ""
+        nudges_used = 0
 
         for i in range(self.max_iterations):
             if in_tok + out_tok >= self.max_total_tokens:
@@ -120,12 +135,22 @@ class Agent:
                 f"tok={resp.input_tokens}/{resp.output_tokens}"
             )
 
-            # No tool calls -> the model is done (natural-stop fallback).
+            # No tool calls. Weaker models often narrate the result in prose
+            # instead of firing the terminal tool; nudge them to actually call
+            # it, up to a bounded limit, before accepting the natural stop.
             if not resp.tool_calls:
-                stop_cause = "natural"
                 steps.append(
                     AgentStep(i, resp.text, [], [], resp.input_tokens, resp.output_tokens, resp.duration_seconds)
                 )
+                if nudges_used < self.submit_nudge_limit and self.terminal_tools:
+                    nudges_used += 1
+                    messages.append(Message(role="user", content=self._nudge_text()))
+                    self._log(
+                        f"    -> [nudge {nudges_used}/{self.submit_nudge_limit}] "
+                        "no tool call; prompting to submit"
+                    )
+                    continue
+                stop_cause = "natural"
                 break
 
             results: list[str] = []

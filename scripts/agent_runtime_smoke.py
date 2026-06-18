@@ -109,11 +109,36 @@ def test_submit_terminates() -> None:
 
 
 def test_natural_stop() -> None:
+    # With nudging disabled, a no-tool turn stops immediately (original fallback).
     client = FakeClient([_r("the answer is 42, no tools needed", [], stop="end_turn")])
-    res = Agent(client, [ADD, SUBMIT], "calc agent").run("trivial")
+    res = Agent(client, [ADD, SUBMIT], "calc agent", submit_nudge_limit=0).run("trivial")
     assert res.stop_cause == "natural", res.stop_cause
     assert res.submission is None
     assert res.final_text.endswith("no tools needed")
+
+
+def test_submit_nudge_recovers() -> None:
+    # Model narrates an answer (no tool call), gets nudged, then actually submits.
+    client = FakeClient([
+        _r("the answer is 42", [], stop="end_turn"),
+        _r("ok submitting", [ToolCall("c1", "submit_answer", {"answer": "42"})]),
+    ])
+    res = Agent(client, [ADD, SUBMIT], "calc agent").run("x")
+    assert res.stop_cause == "submit", res.stop_cause
+    assert res.submission == "42", res.submission
+    nudges = [m for m in res.messages if m.role == "user" and "MUST call" in m.content]
+    assert len(nudges) == 1, nudges
+    assert "submit_answer" in nudges[0].content
+
+
+def test_submit_nudge_exhausted() -> None:
+    # Model never fires a tool; after the nudge budget is spent, accept natural stop.
+    client = FakeClient([_r("nope", [], stop="end_turn") for _ in range(3)])
+    res = Agent(client, [ADD, SUBMIT], "calc agent", submit_nudge_limit=2).run("x")
+    assert res.stop_cause == "natural", res.stop_cause
+    assert res.submission is None
+    nudges = [m for m in res.messages if m.role == "user" and "MUST call" in m.content]
+    assert len(nudges) == 2, nudges
 
 
 def test_malformed_args_recovery() -> None:
@@ -236,6 +261,8 @@ def run_offline() -> None:
     tests = [
         test_submit_terminates,
         test_natural_stop,
+        test_submit_nudge_recovers,
+        test_submit_nudge_exhausted,
         test_malformed_args_recovery,
         test_unknown_tool_recovery,
         test_iteration_cap,
