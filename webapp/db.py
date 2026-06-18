@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent / "tdbf.db"
@@ -96,13 +98,26 @@ def init_db() -> None:
                 duration_seconds REAL
             );
 
+            CREATE TABLE IF NOT EXISTS docs (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                slug        TEXT UNIQUE NOT NULL,
+                title       TEXT NOT NULL,
+                topic       TEXT,
+                body        TEXT NOT NULL,
+                pinned      INTEGER DEFAULT 0,
+                created_at  TEXT NOT NULL,
+                updated_at  TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_runs_instance ON runs(instance_id);
             CREATE INDEX IF NOT EXISTS idx_runs_model    ON runs(model);
             CREATE INDEX IF NOT EXISTS idx_runs_level    ON runs(best_level);
+            CREATE INDEX IF NOT EXISTS idx_docs_topic    ON docs(topic);
         """)
         _migrate(conn, "runs", _RUNS_MIGRATIONS)
         _migrate(conn, "attempts", _ATTEMPTS_MIGRATIONS)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_mode ON runs(mode)")
+    seed_docs()
 
 
 def _maybe_json(value):
@@ -313,3 +328,107 @@ def get_all_models() -> list[str]:
     with get_conn() as conn:
         rows = conn.execute("SELECT DISTINCT model FROM runs ORDER BY model").fetchall()
     return [r[0] for r in rows]
+
+
+# ── docs (research log) ─────────────────────────────────────────────────────
+
+def _now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+
+
+def slugify(text: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return slug or "doc"
+
+
+def _unique_slug(conn, base: str, exclude_id: int | None = None) -> str:
+    """Return ``base`` (or base-2, base-3, …) not used by another doc."""
+    slug, n = base, 1
+    while True:
+        row = conn.execute(
+            "SELECT id FROM docs WHERE slug=? AND id IS NOT ?",
+            (slug, exclude_id),
+        ).fetchone()
+        if row is None:
+            return slug
+        n += 1
+        slug = f"{base}-{n}"
+
+
+def list_docs() -> list[dict]:
+    """All docs, ready to group by topic in the template."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, slug, title, topic, pinned, created_at, updated_at "
+            "FROM docs ORDER BY topic IS NULL, topic, pinned DESC, title"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_topics() -> list[str]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT topic FROM docs WHERE topic IS NOT NULL "
+            "AND topic != '' ORDER BY topic"
+        ).fetchall()
+    return [r[0] for r in rows]
+
+
+def get_doc(doc_id: int) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM docs WHERE id=?", (doc_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_doc_by_slug(slug: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM docs WHERE slug=?", (slug,)).fetchone()
+    return dict(row) if row else None
+
+
+def create_doc(title: str, body: str, topic: str = "",
+               pinned: bool = False, created_at: str | None = None) -> int:
+    now = _now()
+    with get_conn() as conn:
+        slug = _unique_slug(conn, slugify(title))
+        cur = conn.execute(
+            "INSERT INTO docs (slug, title, topic, body, pinned, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (slug, title, topic or None, body, int(pinned),
+             created_at or now, now),
+        )
+        return cur.lastrowid
+
+
+def update_doc(doc_id: int, title: str, body: str, topic: str = "",
+               pinned: bool = False) -> None:
+    with get_conn() as conn:
+        slug = _unique_slug(conn, slugify(title), exclude_id=doc_id)
+        conn.execute(
+            "UPDATE docs SET slug=?, title=?, topic=?, body=?, pinned=?, updated_at=? "
+            "WHERE id=?",
+            (slug, title, topic or None, body, int(pinned), _now(), doc_id),
+        )
+
+
+def delete_doc(doc_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM docs WHERE id=?", (doc_id,))
+
+
+def seed_docs() -> int:
+    """Insert the initial research-log docs once, when the table is empty."""
+    with get_conn() as conn:
+        if conn.execute("SELECT COUNT(*) FROM docs").fetchone()[0]:
+            return 0
+    from seed_docs import SEED_DOCS  # local import: seed data, not core schema
+
+    for d in SEED_DOCS:
+        create_doc(
+            title=d["title"],
+            body=d["body"],
+            topic=d.get("topic", ""),
+            pinned=bool(d.get("pinned")),
+            created_at=d.get("created_at"),
+        )
+    return len(SEED_DOCS)

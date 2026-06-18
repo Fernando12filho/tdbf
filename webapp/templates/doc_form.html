@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if doc else 'New' }} note — TDBF{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb small">
+    <li class="breadcrumb-item"><a href="{{ url_for('docs_index') }}">Docs</a></li>
+    <li class="breadcrumb-item active">{{ 'Edit' if doc else 'New note' }}</li>
+  </ol>
+</nav>
+
+<h1 class="h3 mb-3">{{ 'Edit note' if doc else 'New note' }}</h1>
+
+<form method="post" action="{{ action }}">
+  <div class="row g-3 mb-3">
+    <div class="col-md-7">
+      <label class="form-label">Title</label>
+      <input name="title" class="form-control" required
+             value="{{ doc.title if doc else '' }}">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Topic</label>
+      <input name="topic" class="form-control" list="topic-list"
+             placeholder="e.g. Results"
+             value="{{ doc.topic if doc and doc.topic else '' }}">
+      <datalist id="topic-list">
+        {% for t in topics %}<option value="{{ t }}">{% endfor %}
+      </datalist>
+    </div>
+    <div class="col-md-2 d-flex align-items-end">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="pinned" id="pinned"
+               {{ 'checked' if doc and doc.pinned else '' }}>
+        <label class="form-check-label" for="pinned">Pin</label>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-lg-6">
+      <label class="form-label">Body <span class="text-muted small">(Markdown)</span></label>
+      <textarea name="body" id="body" class="form-control font-monospace" rows="22"
+                style="font-size:.85rem;">{{ doc.body if doc else '' }}</textarea>
+    </div>
+    <div class="col-lg-6">
+      <label class="form-label">Preview</label>
+      <article id="preview" class="doc-body border rounded p-3" style="min-height:22rem;"></article>
+    </div>
+  </div>
+
+  <div class="mt-3 d-flex gap-2">
+    <button type="submit" class="btn btn-primary">Save</button>
+    <a class="btn btn-outline-secondary"
+       href="{{ url_for('doc_detail', slug=doc.slug) if doc else url_for('docs_index') }}">Cancel</a>
+  </div>
+</form>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<script>
+  const body = document.getElementById('body');
+  const preview = document.getElementById('preview');
+  function render() {
+    const html = marked.parse(body.value, { gfm: true, breaks: false });
+    preview.innerHTML = DOMPurify.sanitize(html);
+  }
+  body.addEventListener('input', render);
+  render();
+</script>
+{% endblock %}

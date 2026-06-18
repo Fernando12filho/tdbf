@@ -5,7 +5,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from flask import Flask, abort, jsonify, render_template, request
+from flask import (
+    Flask,
+    abort,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
 
 import db
 
@@ -99,6 +107,80 @@ def runs():
 @app.route("/commands")
 def commands():
     return render_template("commands.html")
+
+
+# ── docs / research log ─────────────────────────────────────────────────────
+
+def _group_docs_by_topic(docs: list[dict]) -> list[tuple[str, list[dict]]]:
+    grouped: dict[str, list[dict]] = {}
+    for d in docs:
+        grouped.setdefault(d["topic"] or "Uncategorised", []).append(d)
+    return list(grouped.items())
+
+
+@app.route("/docs")
+def docs_index():
+    docs = db.list_docs()
+    return render_template(
+        "docs.html",
+        groups=_group_docs_by_topic(docs),
+        count=len(docs),
+    )
+
+
+@app.route("/docs/new", methods=["GET", "POST"])
+def doc_new():
+    if request.method == "POST":
+        title = (request.form.get("title") or "").strip()
+        if not title:
+            abort(400, "title is required")
+        doc_id = db.create_doc(
+            title=title,
+            body=request.form.get("body") or "",
+            topic=(request.form.get("topic") or "").strip(),
+            pinned=bool(request.form.get("pinned")),
+        )
+        return redirect(url_for("doc_detail", slug=db.get_doc(doc_id)["slug"]))
+    return render_template(
+        "doc_form.html", doc=None, topics=db.list_topics(), action=url_for("doc_new")
+    )
+
+
+@app.route("/docs/<slug>")
+def doc_detail(slug: str):
+    doc = db.get_doc_by_slug(slug)
+    if not doc:
+        abort(404)
+    return render_template("doc_detail.html", doc=doc)
+
+
+@app.route("/docs/<int:doc_id>/edit", methods=["GET", "POST"])
+def doc_edit(doc_id: int):
+    doc = db.get_doc(doc_id)
+    if not doc:
+        abort(404)
+    if request.method == "POST":
+        title = (request.form.get("title") or "").strip()
+        if not title:
+            abort(400, "title is required")
+        db.update_doc(
+            doc_id,
+            title=title,
+            body=request.form.get("body") or "",
+            topic=(request.form.get("topic") or "").strip(),
+            pinned=bool(request.form.get("pinned")),
+        )
+        return redirect(url_for("doc_detail", slug=db.get_doc(doc_id)["slug"]))
+    return render_template(
+        "doc_form.html", doc=doc, topics=db.list_topics(),
+        action=url_for("doc_edit", doc_id=doc_id),
+    )
+
+
+@app.route("/docs/<int:doc_id>/delete", methods=["POST"])
+def doc_delete(doc_id: int):
+    db.delete_doc(doc_id)
+    return redirect(url_for("docs_index"))
 
 
 @app.route("/runs/<int:run_id>")

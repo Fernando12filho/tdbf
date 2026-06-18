@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Docs — TDBF{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h1 class="h3 mb-0">Research log &amp; docs</h1>
+    <p class="text-muted small mb-0">{{ count }} note{{ '' if count == 1 else 's' }} — the design decisions, results and discussion behind TDBF.</p>
+  </div>
+  <a class="btn btn-primary" href="{{ url_for('doc_new') }}">+ New note</a>
+</div>
+
+{% if not groups %}
+  <div class="alert alert-secondary">No docs yet. <a href="{{ url_for('doc_new') }}">Write the first one.</a></div>
+{% endif %}
+
+{% for topic, docs in groups %}
+<div class="card mb-3">
+  <div class="card-header bg-light fw-semibold">{{ topic }}</div>
+  <ul class="list-group list-group-flush">
+    {% for d in docs %}
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+      <a class="text-decoration-none" href="{{ url_for('doc_detail', slug=d.slug) }}">
+        {% if d.pinned %}<span title="pinned">📌</span> {% endif %}{{ d.title }}
+      </a>
+      <span class="text-muted small">{{ d.created_at }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endfor %}
+{% endblock %}
