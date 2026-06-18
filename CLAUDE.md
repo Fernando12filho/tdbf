@@ -41,6 +41,13 @@ python scripts/02_generate_brt.py --model ollama:qwen3.5:9b@http://192.168.1.192
 python scripts/02_generate_brt.py --id astropy__astropy-14182 --model anthropic:claude-opus-4-7 --observe --attempts 3
 ```
 
+Run the full agentic pipeline end-to-end (BRT agent → gate on L4 → fix agent) for
+one instance (build the image first via `01_validate_gold.py`):
+```
+python scripts/06_agent_pipeline.py --id astropy__astropy-12907 --model anthropic:claude-sonnet-4-6 -v
+python scripts/06_agent_pipeline.py --id astropy__astropy-12907 --brt-only   # stop after the BRT
+```
+
 ## Architecture
 
 The pipeline flows: **instance loading → test generation → harness execution → BRT classification**.
@@ -122,8 +129,15 @@ and the fix agent are implemented and live-validated end-to-end.
   {read_file, grep, glob, run_python, run_test, submit_test}. Fix set (Phase B):
   {read_file, grep, glob, edit_file, run_brt, run_tests, revert, submit_fix}.
   `assert_gold_free` / `assert_fix_gold_free` guard the registries.
-- Scripts: `04_agent_brt.py` (Phase A), `05_agent_fix.py` (Phase B). Offline
-  smoke tests: `scripts/agent_*_smoke.py` (no Docker/API needed).
+- `pipeline.py` — the shared phase logic both scripts and the end-to-end runner
+  build on: `run_brt_phase` / `run_fix_phase` (gold-free agent run + offline
+  gold-barrier scoring), the cost/serialise/step helpers, the system prompts, and
+  pure transcript/results-record builders. Single source of truth — 04/05/06 do
+  not re-implement the plumbing.
+- Scripts: `04_agent_brt.py` (Phase A), `05_agent_fix.py` (Phase B),
+  `06_agent_pipeline.py` (end-to-end BRT → gate-on-L4 → fix, in one command;
+  the BRT travels in memory, no results.jsonl round-trip). Offline smoke tests:
+  `scripts/agent_*_smoke.py` incl. `agent_pipeline_smoke.py` (no Docker/API needed).
 
 **Validated results (Claude Sonnet `claude-sonnet-4-6`, astropy Lite):**
 - **Phase A (BRT):** C2P = 5/6 = **0.83**, ~$0.24/instance.

@@ -30,8 +30,9 @@
     <a href="#images">4. Build images</a>
     <a href="#phasea">5. Phase A — BRT agent</a>
     <a href="#phaseb">6. Phase B — Fix agent</a>
-    <a href="#baseline">7. Non-agentic baseline</a>
-    <a href="#webapp">8. Webapp</a>
+    <a href="#pipeline">7. End-to-end pipeline</a>
+    <a href="#baseline">8. Non-agentic baseline</a>
+    <a href="#webapp">9. Webapp</a>
   </div>
 </div>
 
@@ -47,7 +48,7 @@
 <!-- 3. SMOKE -->
 <h2 class="h5 mt-4" id="smoke">3. Offline tests (no Docker, no API key, no cost)</h2>
 <p class="small text-muted mb-2">Validate the pipeline wiring before spending anything.</p>
-{{ cmd("python3 scripts/00_smoke_test.py          # end-to-end offline pipeline\npython3 scripts/agent_runtime_smoke.py    # tool-use loop + message conversion\npython3 scripts/agent_tools_smoke.py      # tool layer + gold-free guard\npython3 scripts/agent_brt_smoke.py        # Phase A orchestration glue\npython3 scripts/agent_fix_smoke.py        # Phase B fix-agent glue") }}
+{{ cmd("python3 scripts/00_smoke_test.py          # end-to-end offline pipeline\npython3 scripts/agent_runtime_smoke.py    # tool-use loop + message conversion\npython3 scripts/agent_tools_smoke.py      # tool layer + gold-free guard\npython3 scripts/agent_brt_smoke.py        # Phase A orchestration glue\npython3 scripts/agent_fix_smoke.py        # Phase B fix-agent glue\npython3 scripts/agent_pipeline_smoke.py   # end-to-end BRT->fix glue") }}
 
 <!-- 4. IMAGES -->
 <h2 class="h5 mt-4" id="images">4. Build the Docker eval image (required before any live run)</h2>
@@ -66,13 +67,19 @@
 {{ cmd("# Single instance, Claude Sonnet (BRT pulled from results.jsonl)\npython3 scripts/05_agent_fix.py --id astropy__astropy-12907 --model anthropic:claude-sonnet-4-6 -v\n\n# Weak baseline (qwen)\npython3 scripts/05_agent_fix.py --id astropy__astropy-12907 \\\n  --model \"ollama:qwen2.5-coder:7b-instruct-q4_K_M@http://192.168.1.192:11434\" -v\n\n# Supply a specific BRT file instead of the results.jsonl lookup\npython3 scripts/05_agent_fix.py --id astropy__astropy-12907 \\\n  --brt-file runs/agent_brt/astropy__astropy-12907.json --model anthropic:claude-sonnet-4-6 -v") }}
 <p class="small text-muted">Useful flags: <code>--max-iterations 20</code> · <code>--max-tokens 300000</code> · <code>--keep-container</code> · <code>-v</code>.</p>
 
-<!-- 7. BASELINE -->
-<h2 class="h5 mt-4" id="baseline">7. Non-agentic baseline (workflow, for comparison)</h2>
+<!-- 7. END-TO-END PIPELINE -->
+<h2 class="h5 mt-4" id="pipeline">7. End-to-end pipeline (BRT → fix in one command)</h2>
+<p class="small text-muted mb-2">Runs Phase A then, <strong>only if the BRT is validated L4</strong>, hands it in memory to Phase B — no <code>results.jsonl</code> round-trip. Writes the same two records as running 04 then 05 (this dashboard shows both).</p>
+{{ cmd("# One instance, end to end (build the image first, step 4)\npython3 scripts/06_agent_pipeline.py --id astropy__astropy-12907 \\\n  --model anthropic:claude-sonnet-4-6 -v\n\n# First N instances of the split\npython3 scripts/06_agent_pipeline.py --limit 5 --model anthropic:claude-sonnet-4-6\n\n# Stop after Phase A (write the BRT, skip the fix)\npython3 scripts/06_agent_pipeline.py --id astropy__astropy-12907 \\\n  --model anthropic:claude-sonnet-4-6 --brt-only -v") }}
+<p class="small text-muted">The model is shared by both phases. Flags: <code>--max-iterations 20</code> (per phase) · <code>--max-tokens 300000</code> (per phase) · <code>--brt-only</code> · <code>--prompt-harden</code> · <code>--keep-container</code> · <code>-v</code>.</p>
+
+<!-- 8. BASELINE -->
+<h2 class="h5 mt-4" id="baseline">8. Non-agentic baseline (workflow, for comparison)</h2>
 <p class="small text-muted mb-2">The fixed-loop <code>--attempts</code>/<code>--repair</code> pipeline that predates the agents.</p>
 {{ cmd("# Two-phase generation (observe buggy output, then write the test)\npython3 scripts/02_generate_brt.py --id astropy__astropy-12907 \\\n  --model anthropic:claude-sonnet-4-6 --observe --attempts 3\n\n# Batch over the split\npython3 scripts/03_batch_brt.py --model anthropic:claude-sonnet-4-6 --observe --attempts 3") }}
 
-<!-- 8. WEBAPP -->
-<h2 class="h5 mt-4" id="webapp">8. Webapp (this dashboard)</h2>
+<!-- 9. WEBAPP -->
+<h2 class="h5 mt-4" id="webapp">9. Webapp (this dashboard)</h2>
 {{ cmd("# Serve the dashboard\ncd webapp && flask --app app run\n\n# Backfill SQLite from results.jsonl (idempotent)\ncd webapp && flask --app app sync") }}
 <p class="small text-muted mb-5">Scripts also POST each run to the webapp automatically if it is running (best-effort, set <code>TDBF_WEBAPP_URL</code> to override).</p>
 
