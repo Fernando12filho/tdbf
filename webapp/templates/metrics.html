@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block title %}Metrics — TDBF{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h1 class="h3 mb-0">Metrics</h1>
+  <span class="text-muted small">
+    {{ rep.counts.records }} records ·
+    {{ rep.counts.brt_agent }} BRT · {{ rep.counts.fix_agent }} fix ·
+    {{ rep.counts.deployable }} deployable · {{ rep.counts.baseline }} baseline
+  </span>
+</div>
+<p class="text-muted small mb-4">
+  Paper metric suite over <code>results.jsonl</code>. Per-instance dedup:
+  best-of level (BRT) / resolved-first (fix). Local <code>ollama:*</code> runs are
+  free — cost figures are Claude only.
+</p>
+
+{% macro pill(r) -%}
+  {%- if r and r.den -%}
+    <span class="fw-semibold">{{ r.pct }}</span>
+    <span class="text-muted small">({{ r.num }}/{{ r.den }})</span>
+  {%- else -%}<span class="text-muted">—</span>{%- endif -%}
+{%- endmacro %}
+
+<!-- ── [1] BRT quality ─────────────────────────────────────────────── -->
+<h2 class="h5 mb-3">1 · BRT quality <span class="text-muted fw-normal small">Phase A · C2P = L4/(L3+L4)</span></h2>
+<div class="card mb-4">
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0 align-middle">
+      <thead><tr>
+        <th>Arm</th>
+        <th class="text-end">Inst</th>
+        <th class="text-center">L0 · L1 · L2 · L3 · L4</th>
+        <th class="text-end">C2P</th>
+        <th class="text-end">Valid-BRT</th>
+      </tr></thead>
+      <tbody>
+        {% for a in rep.brt_arms %}
+        <tr>
+          <td>
+            {{ a.label }}
+            {% if a.local %}<span class="badge bg-secondary ms-1">local</span>{% endif %}
+            <span class="text-muted small d-block">{{ a.runs }} runs</span>
+          </td>
+          <td class="text-end">{{ a.instances }}</td>
+          <td class="text-center font-monospace small">
+            {{ a.levels[0] }} · {{ a.levels[1] }} · {{ a.levels[2] }} ·
+            <span class="text-info">{{ a.levels[3] }}</span> ·
+            <span class="text-success fw-semibold">{{ a.levels[4] }}</span>
+          </td>
+          <td class="text-end">{{ pill(a.c2p) }}</td>
+          <td class="text-end">{{ pill(a.valid) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── [2] Fix quality ─────────────────────────────────────────────── -->
+<h2 class="h5 mb-3">2 · Fix quality <span class="text-muted fw-normal small">Phase B · Resolve@BRT = resolved/N</span></h2>
+<div class="card mb-4">
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0 align-middle">
+      <thead><tr>
+        <th>Model</th>
+        <th class="text-end">Inst</th>
+        <th class="text-end">Resolve@BRT</th>
+        <th class="text-end">$/inst</th>
+        <th class="text-end">$/resolved</th>
+      </tr></thead>
+      <tbody>
+        {% for a in rep.fix_arms %}
+        <tr>
+          <td>
+            {{ a.label }}
+            {% if a.local %}<span class="badge bg-secondary ms-1">local</span>{% endif %}
+            <span class="text-muted small d-block">{{ a.runs }} runs</span>
+          </td>
+          <td class="text-end">{{ a.instances }}</td>
+          <td class="text-end">{{ pill(a.resolve_at_brt) }}</td>
+          <td class="text-end text-muted">{% if a.cost %}${{ "%.3f"|format(a.cost_per_inst) }}{% else %}—{% endif %}</td>
+          <td class="text-end text-muted">{% if a.cost_per_resolved %}${{ "%.3f"|format(a.cost_per_resolved) }}{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── [3] Whole pipeline funnel ───────────────────────────────────── -->
+<h2 class="h5 mb-3">3 · Whole pipeline <span class="text-muted fw-normal small">assembled ceiling · Pipeline = GateRate × Resolve@Gated</span></h2>
+<div class="row g-3 mb-4">
+  {% for p in rep.pipeline %}
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">
+        {{ p.model }}{% if p.local %} <span class="badge bg-secondary">local</span>{% endif %}
+      </div>
+      <div class="card-body">
+        <div class="d-flex justify-content-between"><span class="text-muted">N (Phase A instances)</span><span class="fw-semibold">{{ p.n_a }}</span></div>
+        <div class="d-flex justify-content-between"><span class="text-muted">Gate rate (L4/N)</span><span>{{ pill(p.gate_rate) }}</span></div>
+        <div class="d-flex justify-content-between"><span class="text-muted">Resolve@Gated</span><span>{{ pill(p.resolve_at_gated) }}</span></div>
+        <hr class="my-2">
+        <div class="d-flex justify-content-between">
+          <span class="fw-semibold">Pipeline resolve</span>
+          <span class="fs-5 fw-bold {{ 'text-success' if p.pipeline_resolve.value else '' }}">{{ pill(p.pipeline_resolve) }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- ── [4] Deployable pipeline ─────────────────────────────────────── -->
+{% if rep.deployable %}
+<h2 class="h5 mb-3">4 · Deployable pipeline <span class="text-muted fw-normal small">07 · gold-free gate · pilot</span></h2>
+<div class="card mb-4">
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0 align-middle">
+      <thead><tr>
+        <th>Model</th><th class="text-end">Inst</th>
+        <th class="text-end">Gate accept</th><th class="text-end">Resolved (of gated)</th>
+      </tr></thead>
+      <tbody>
+        {% for d in rep.deployable %}
+        <tr>
+          <td>{{ d.model }}{% if d.local %} <span class="badge bg-secondary">local</span>{% endif %}</td>
+          <td class="text-end">{{ d.instances }}</td>
+          <td class="text-end">{{ d.gate_accept }}</td>
+          <td class="text-end">{{ pill(d.resolved) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── [5] Repo breakdown ──────────────────────────────────────────── -->
+{% if rep.repo_breakdown %}
+<h2 class="h5 mb-3">5 · Repo breakdown <span class="text-muted fw-normal small">Claude Sonnet</span></h2>
+<div class="card mb-4">
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0 align-middle">
+      <thead><tr>
+        <th>Repo</th><th class="text-end">C2P</th>
+        <th class="text-end">Valid-BRT</th><th class="text-end">Resolve@BRT</th>
+      </tr></thead>
+      <tbody>
+        {% for r in rep.repo_breakdown %}
+        <tr>
+          <td>{{ r.repo }}</td>
+          <td class="text-end">{{ pill(r.c2p) }}</td>
+          <td class="text-end">{{ pill(r.valid) }}</td>
+          <td class="text-end">{{ pill(r.resolve_at_brt) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── [6] Non-agentic baseline ────────────────────────────────────── -->
+{% if rep.baseline_arms %}
+<h2 class="h5 mb-3">6 · Non-agentic baseline <span class="text-muted fw-normal small">02/03 --attempts workflow · for contrast</span></h2>
+<div class="card mb-4">
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0 align-middle">
+      <thead><tr>
+        <th>Model</th><th class="text-end">Inst</th>
+        <th class="text-center">L0 · L1 · L2 · L3 · L4</th><th class="text-end">C2P</th>
+      </tr></thead>
+      <tbody>
+        {% for a in rep.baseline_arms %}
+        <tr>
+          <td>{{ a.label }}{% if a.local %} <span class="badge bg-secondary">local</span>{% endif %}</td>
+          <td class="text-end">{{ a.instances }}</td>
+          <td class="text-center font-monospace small">
+            {{ a.levels[0] }} · {{ a.levels[1] }} · {{ a.levels[2] }} ·
+            <span class="text-info">{{ a.levels[3] }}</span> ·
+            <span class="text-success fw-semibold">{{ a.levels[4] }}</span>
+          </td>
+          <td class="text-end">{{ pill(a.c2p) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

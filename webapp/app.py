@@ -17,6 +17,8 @@ from flask import (
 
 import db
 
+from tdbf import metrics as tdbf_metrics
+
 app = Flask(__name__)
 db.init_db()
 
@@ -107,6 +109,14 @@ def runs():
 @app.route("/commands")
 def commands():
     return render_template("commands.html")
+
+
+@app.route("/metrics")
+def metrics():
+    """Paper/advisor metric suite, computed from results.jsonl via tdbf.metrics
+    (the same single source of truth the CLI report 08_metrics_report.py uses)."""
+    recs = tdbf_metrics.load_records(RESULTS_FILE)
+    return render_template("metrics.html", rep=tdbf_metrics.build_report(recs))
 
 
 # ── docs / research log ─────────────────────────────────────────────────────
