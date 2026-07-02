@@ -260,7 +260,16 @@ class BrtPhaseResult:
 
     @property
     def is_valid_brt(self) -> bool:
+        """Gold L4 label (offline analysis ONLY — needs the gold-fixed tree)."""
         return bool(self.classification and self.classification.is_valid_brt)
+
+    @property
+    def reproduces_on_buggy(self) -> bool:
+        """GOLD-FREE accept signal: the test reached an assertion and FAILED on
+        the buggy tree (a candidate BRT, L3 or L4). This is the only usability
+        signal observable without a fix, so it — not `is_valid_brt` — is what a
+        deployable pipeline may gate on. (Cannot tell L3 from L4; that needs gold.)"""
+        return self.outcome_buggy == "fail"
 
 
 def run_brt_phase(
@@ -273,8 +282,15 @@ def run_brt_phase(
     submit_nudge_limit: int = 2,
     keep_container: bool = False,
     verbose: bool = False,
+    score_fixed: bool = True,
 ) -> BrtPhaseResult | None:
     """Run the BRT agent (gold-free) then score its test through the gold barrier.
+
+    `score_fixed=True` (default; used by 04/06) runs the test on BOTH the buggy and
+    the gold-fixed tree and assigns an L0-L4 label. `score_fixed=False` (the
+    deployable pipeline, 07) runs the test on the BUGGY tree ONLY — the gold patch
+    is never touched, so there is no L4 label, only the gold-free `outcome_buggy`
+    (and `reproduces_on_buggy`). Use this when the gate must stay gold-free.
 
     Returns None only if the container could not be started (instance skipped).
     """
@@ -333,13 +349,20 @@ def run_brt_phase(
         print("Scoring offline — BUGGY tree ...")
         outcome_buggy = run_test_in_container(inst, test_patch, test_path=test_path)
         print(f"  outcome_on_buggy:  {outcome_buggy}")
-        print("Scoring offline — gold-FIXED tree ...")
-        outcome_fixed = run_test_in_container(
-            inst, test_patch, gold_patch=inst.gold_patch, test_path=test_path
-        )
-        print(f"  outcome_on_fixed:  {outcome_fixed}")
-        classification = classify(outcome_buggy, outcome_fixed)
-        print(f"  -> {classification.level_label}  (valid BRT: {classification.is_valid_brt})")
+        if score_fixed:
+            print("Scoring offline — gold-FIXED tree ...")
+            outcome_fixed = run_test_in_container(
+                inst, test_patch, gold_patch=inst.gold_patch, test_path=test_path
+            )
+            print(f"  outcome_on_fixed:  {outcome_fixed}")
+            classification = classify(outcome_buggy, outcome_fixed)
+            print(f"  -> {classification.level_label}  (valid BRT: {classification.is_valid_brt})")
+        else:
+            # Deployable pipeline: NO gold-fixed run, NO L4 label. The gate uses
+            # only the gold-free buggy-side outcome (reproduces_on_buggy).
+            reproduces = str(outcome_buggy) == "fail"
+            print(f"  gold-free: reproduces failure on buggy = {reproduces} "
+                  "(L3/L4 not distinguished — gold not consulted)")
 
     return BrtPhaseResult(
         agent=result,
