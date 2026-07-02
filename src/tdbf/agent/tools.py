@@ -14,6 +14,8 @@ guards the registry against a fixed-tree tool slipping in.
 
 from __future__ import annotations
 
+import json
+
 from ..harness.runner import (
     _REPO_PREAMBLES,
     _parse_failure_reason,
@@ -384,10 +386,65 @@ class SubmitFixTool(Tool):
         return ToolResult("FIX_SUBMITTED")
 
 
+# ====================== Phase C: review-role tools ========================= #
+# The Critic (Phase A) and Reviewer (Phase B) are advisory roles. They inspect
+# the buggy tree read-only and return a structured verdict — they NEVER write a
+# test, edit source, or (of course) touch the gold/fixed tree. submit_review is
+# their only terminal tool; its artifact is a JSON {verdict, feedback} the
+# orchestrator parses to decide accept vs. revise.
+
+
+class SubmitReviewTool(Tool):
+    """Terminal tool for a critic/reviewer role: record a structured verdict."""
+
+    name = "submit_review"
+    description = (
+        "Submit your review verdict and finish. `verdict` must be 'accept' (the artifact is good "
+        "enough to proceed) or 'revise' (it needs specific, fixable changes). When verdict='revise', "
+        "`feedback` MUST give concrete, actionable instructions the author can act on. Call once."
+    )
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "verdict": {
+                "type": "string",
+                "enum": ["accept", "revise"],
+                "description": "'accept' to proceed as-is, or 'revise' to send it back with feedback.",
+            },
+            "feedback": {
+                "type": "string",
+                "description": "Concrete reasoning; required actionable guidance when verdict='revise'.",
+            },
+        },
+        "required": ["verdict"],
+    }
+    terminal = True
+
+    def execute(self, arguments: dict) -> ToolResult:
+        verdict = str(arguments.get("verdict", "")).strip().lower()
+        if verdict not in ("accept", "revise"):
+            return ToolResult("submit_review requires verdict to be 'accept' or 'revise'.", is_error=True)
+        feedback = str(arguments.get("feedback", "")).strip()
+        if verdict == "revise" and not feedback:
+            return ToolResult(
+                "verdict='revise' requires non-empty 'feedback' describing exactly what to change.",
+                is_error=True,
+            )
+        return ToolResult(json.dumps({"verdict": verdict, "feedback": feedback}))
+
+
 # Names allowed in a BRT agent's registry. Any tool outside this set — in
 # particular anything that could touch the gold/fixed tree — is rejected.
 _GOLD_FREE_TOOL_NAMES = frozenset(
     {"read_file", "grep", "glob", "run_python", "run_test", "submit_test"}
+)
+
+# Names allowed in a review-role registry (Phase C critic/reviewer). Read-only
+# inspection of the buggy tree + the terminal verdict. No test-writing, no source
+# edits, no gold/fixed-tree tool. run_python (critic: verify expected values) and
+# run_tests (reviewer: targeted regression) are the only executors.
+_ROLE_TOOL_NAMES = frozenset(
+    {"read_file", "grep", "glob", "run_python", "run_tests", "submit_review"}
 )
 
 # Names allowed in a fix agent's registry (Phase B). These mutate the buggy tree
@@ -422,6 +479,13 @@ def assert_fix_gold_free(tools: list[Tool]) -> None:
     _assert_allowed(tools, _FIX_TOOL_NAMES)
 
 
+def assert_role_gold_free(tools: list[Tool]) -> None:
+    """Guard a review-role tool surface (Phase C critic/reviewer). Roles inspect
+    read-only and return a verdict; the same gold-free invariant applies — no
+    tool may observe the gold-fixed outcome or the held-out tests."""
+    _assert_allowed(tools, _ROLE_TOOL_NAMES)
+
+
 def brt_agent_tools(session: ContainerSession) -> list[Tool]:
     """The standard gold-free toolset for a single BRT agent (Phase A)."""
     tools: list[Tool] = [
@@ -453,4 +517,41 @@ def fix_agent_tools(session: ContainerSession, brt_code: str) -> list[Tool]:
         SubmitFixTool(),
     ]
     assert_fix_gold_free(tools)
+    return tools
+
+
+def critic_agent_tools(session: ContainerSession) -> list[Tool]:
+    """Read-only gold-free toolset for the Phase A Critic (BRT specificity review).
+
+    The critic inspects the issue + candidate test and may use run_python to
+    verify what the *correct* value should be — but it cannot write a test, edit
+    source, or see the gold-fixed tree. It ends by calling submit_review.
+    """
+    tools: list[Tool] = [
+        ReadFileTool(session),
+        GrepTool(session),
+        GlobTool(session),
+        RunPythonTool(session),
+        SubmitReviewTool(),
+    ]
+    assert_role_gold_free(tools)
+    return tools
+
+
+def reviewer_agent_tools(session: ContainerSession) -> list[Tool]:
+    """Read-only gold-free toolset for the Phase B Reviewer (fix minimality review).
+
+    The reviewer sees the candidate fix (already applied in the shared tree, so
+    read_file shows the edited source) and may run a targeted existing test file
+    as a regression check — but it cannot edit source or see the held-out tests.
+    It ends by calling submit_review.
+    """
+    tools: list[Tool] = [
+        ReadFileTool(session),
+        GrepTool(session),
+        GlobTool(session),
+        RunTestsTool(session),
+        SubmitReviewTool(),
+    ]
+    assert_role_gold_free(tools)
     return tools

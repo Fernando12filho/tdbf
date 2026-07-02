@@ -33,6 +33,7 @@ from ..harness.runner import (
 )
 from ..models.llm import LLMClient
 from ..validation.brt_levels import BRTClassification, classify
+from .roles import Review, run_critic, run_reviewer
 from .runtime import Agent, AgentResult
 from .session import ContainerSession
 from .tools import brt_agent_tools, fix_agent_tools
@@ -85,9 +86,13 @@ def step_summary(steps) -> list[dict]:
 # byte-identical transcripts + results.jsonl records. The scripts own the I/O
 # (write the transcript, call save_run) so save_run stays patchable in tests.
 
+def _reviews_dict(phase) -> list[dict]:
+    return [{"verdict": rv.verdict, "feedback": rv.feedback} for rv in (phase.reviews or [])]
+
+
 def brt_transcript_dict(inst: SWEBenchInstance, model_name: str, phase: "BrtPhaseResult") -> dict:
     r = phase.agent
-    return {
+    d = {
         "instance_id": inst.instance_id,
         "model": model_name,
         "system": phase.system,
@@ -96,6 +101,9 @@ def brt_transcript_dict(inst: SWEBenchInstance, model_name: str, phase: "BrtPhas
         "messages": serialise_messages(r.messages),
         "submission": phase.submission,
     }
+    if phase.reviews:
+        d["reviews"] = _reviews_dict(phase)
+    return d
 
 
 def brt_run_record(
@@ -113,12 +121,15 @@ def brt_run_record(
         "outcome_buggy": phase.outcome_buggy,
         "outcome_fixed": phase.outcome_fixed,
         "test_code": phase.test_code,
-        "input_tokens": r.total_input_tokens,
-        "output_tokens": r.total_output_tokens,
+        "input_tokens": phase.total_input_tokens if phase.total_input_tokens is not None else r.total_input_tokens,
+        "output_tokens": phase.total_output_tokens if phase.total_output_tokens is not None else r.total_output_tokens,
         "cost_usd": phase.cost_usd,
         "duration_seconds": sum((s.duration_seconds or 0) for s in r.steps),
         "step_summary": step_summary(r.steps),
     }
+    if phase.reviews:  # Phase C only — single-agent records stay byte-identical
+        attempt["critic_rounds"] = len(phase.reviews)
+        attempt["critic_verdicts"] = [rv.verdict for rv in phase.reviews]
     return {
         "instance_id": inst.instance_id,
         "repo": inst.repo,
@@ -134,7 +145,7 @@ def brt_run_record(
 
 def fix_transcript_dict(inst: SWEBenchInstance, model_name: str, phase: "FixPhaseResult") -> dict:
     r = phase.agent
-    return {
+    d = {
         "instance_id": inst.instance_id,
         "model": model_name,
         "system": phase.system,
@@ -144,6 +155,9 @@ def fix_transcript_dict(inst: SWEBenchInstance, model_name: str, phase: "FixPhas
         "fix_patch": phase.fix_patch,
         "resolved": phase.resolved,
     }
+    if phase.reviews:
+        d["reviews"] = _reviews_dict(phase)
+    return d
 
 
 def fix_run_record(
@@ -162,12 +176,15 @@ def fix_run_record(
         "fix_patch": phase.fix_patch,
         "fail_to_pass_failed": h.fail_to_pass_failed if h else None,
         "pass_to_pass_failed": h.pass_to_pass_failed if h else None,
-        "input_tokens": r.total_input_tokens,
-        "output_tokens": r.total_output_tokens,
+        "input_tokens": phase.total_input_tokens if phase.total_input_tokens is not None else r.total_input_tokens,
+        "output_tokens": phase.total_output_tokens if phase.total_output_tokens is not None else r.total_output_tokens,
         "cost_usd": phase.cost_usd,
         "duration_seconds": sum((s.duration_seconds or 0) for s in r.steps),
         "step_summary": step_summary(r.steps),
     }
+    if phase.reviews:  # Phase C only
+        attempt["reviewer_rounds"] = len(phase.reviews)
+        attempt["reviewer_verdicts"] = [rv.verdict for rv in phase.reviews]
     return {
         "instance_id": inst.instance_id,
         "repo": inst.repo,
@@ -253,6 +270,11 @@ class BrtPhaseResult:
     classification: BRTClassification | None
     cost_usd: float | None
     submit_nudge_limit: int
+    # Phase C (multi-agent). Empty/None in the single-agent path so records stay
+    # byte-identical. `total_*_tokens` aggregate worker + critic runs when set.
+    reviews: list = None  # type: ignore[assignment]
+    total_input_tokens: int | None = None
+    total_output_tokens: int | None = None
 
     @property
     def level(self) -> int:
@@ -283,6 +305,9 @@ def run_brt_phase(
     keep_container: bool = False,
     verbose: bool = False,
     score_fixed: bool = True,
+    critic_client: LLMClient | None = None,
+    critic_rounds: int = 0,
+    critic_max_iterations: int = 8,
 ) -> BrtPhaseResult | None:
     """Run the BRT agent (gold-free) then score its test through the gold barrier.
 
@@ -291,6 +316,11 @@ def run_brt_phase(
     deployable pipeline, 07) runs the test on the BUGGY tree ONLY — the gold patch
     is never touched, so there is no L4 label, only the gold-free `outcome_buggy`
     (and `reproduces_on_buggy`). Use this when the gate must stay gold-free.
+
+    Phase C (multi-agent): pass `critic_client` + `critic_rounds > 0` to add a
+    Critic that reviews the candidate BRT for specificity; on a 'revise' verdict
+    the worker gets another round with the critic's feedback. `critic_client=None`
+    (default) is the single-agent RQ4 baseline — byte-identical to before.
 
     Returns None only if the container could not be started (instance skipped).
     """
@@ -313,10 +343,10 @@ def run_brt_phase(
     except RuntimeError as e:
         print(f"  [skip] {e}")
         return None
+    reviews: list[Review] = []
     try:
-        tools = brt_agent_tools(session)  # gold-free set + assert_gold_free guard
         agent = Agent(
-            client, tools, system,
+            client, brt_agent_tools(session), system,  # gold-free set + assert_gold_free guard
             max_iterations=max_iterations,
             max_total_tokens=max_total_tokens,
             submit_nudge_limit=submit_nudge_limit,
@@ -324,14 +354,53 @@ def run_brt_phase(
         )
         print(f"Running BRT agent (max_iter={max_iterations}, max_tok={max_total_tokens}) ...")
         result = agent.run(task)
+        tot_in, tot_out = result.total_input_tokens, result.total_output_tokens
+
+        # Phase C: Critic reviews the candidate BRT for specificity; on 'revise'
+        # the worker re-runs with the feedback (bounded by critic_rounds). The
+        # critic shares this session and is gold-free (see roles.py).
+        for rnd in range(critic_rounds if critic_client is not None else 0):
+            if not (result.submission and result.submission.strip()):
+                break  # nothing submitted to review
+            review = run_critic(
+                inst, session, critic_client,
+                candidate_test=result.submission,
+                max_iterations=critic_max_iterations,
+                max_total_tokens=max_total_tokens,
+                verbose=verbose,
+            )
+            reviews.append(review)
+            tot_in += review.agent.total_input_tokens
+            tot_out += review.agent.total_output_tokens
+            print(f"  Critic round {rnd + 1}: verdict={review.verdict}")
+            if review.accepted:
+                break
+            revise_task = (
+                f"{task}\n\n--- A critic reviewed your previous test and asked for revisions ---\n"
+                f"Your previous test:\n{result.submission}\n\n"
+                f"Critic feedback: {review.feedback}\n\n"
+                "Revise the test to address this feedback. Use run_test to confirm it still fails "
+                "cleanly (assertion) on the buggy code, then call submit_test."
+            )
+            agent = Agent(
+                client, brt_agent_tools(session), system,
+                max_iterations=max_iterations,
+                max_total_tokens=max_total_tokens,
+                submit_nudge_limit=submit_nudge_limit,
+                verbose=verbose,
+            )
+            result = agent.run(revise_task)
+            tot_in += result.total_input_tokens
+            tot_out += result.total_output_tokens
     finally:
         session.close()
 
-    cost = cost_usd(client.name, result.total_input_tokens, result.total_output_tokens)
+    cost = cost_usd(client.name, tot_in, tot_out)
     print(
         f"BRT agent done: stop={result.stop_cause}  iters={result.iterations}  "
-        f"tokens={result.total_input_tokens}/{result.total_output_tokens}"
+        f"tokens={tot_in}/{tot_out}"
         + (f"  cost=${cost}" if cost is not None else "  cost=$0 (local)")
+        + (f"  critic_rounds={len(reviews)}" if reviews else "")
     )
 
     # =================== GOLD BARRIER =================== #
@@ -375,6 +444,9 @@ def run_brt_phase(
         classification=classification,
         cost_usd=cost,
         submit_nudge_limit=agent.submit_nudge_limit,
+        reviews=reviews,
+        total_input_tokens=tot_in,
+        total_output_tokens=tot_out,
     )
 
 
@@ -424,6 +496,10 @@ class FixPhaseResult:
     resolved: bool
     harness: object | None
     cost_usd: float | None
+    # Phase C (multi-agent). Empty/None in the single-agent path.
+    reviews: list = None  # type: ignore[assignment]
+    total_input_tokens: int | None = None
+    total_output_tokens: int | None = None
 
 
 def run_fix_phase(
@@ -437,9 +513,17 @@ def run_fix_phase(
     keep_container: bool = False,
     verbose: bool = False,
     run_dir: Path = Path("runs") / "agent_fix",
+    reviewer_client: LLMClient | None = None,
+    reviewer_rounds: int = 0,
+    reviewer_max_iterations: int = 8,
 ) -> FixPhaseResult | None:
     """Run the fix agent (gold-free, BRT baked into run_brt) then score the fix
     patch through the gold barrier (held-out test_patch via the harness).
+
+    Phase C (multi-agent): pass `reviewer_client` + `reviewer_rounds > 0` to add a
+    Reviewer that judges the fix's minimality/root-cause before it is accepted; on
+    a 'revise' verdict the worker gets another round with the feedback.
+    `reviewer_client=None` (default) is the single-agent RQ4 baseline.
 
     Returns None only if the container could not be started (instance skipped).
     """
@@ -458,10 +542,10 @@ def run_fix_phase(
     except RuntimeError as e:
         print(f"  [skip] {e}")
         return None
+    reviews: list[Review] = []
     try:
-        tools = fix_agent_tools(session, brt_code)  # gold-free; BRT baked into run_brt
         agent = Agent(
-            client, tools, system,
+            client, fix_agent_tools(session, brt_code), system,  # gold-free; BRT baked into run_brt
             max_iterations=max_iterations,
             max_total_tokens=max_total_tokens,
             verbose=verbose,
@@ -470,15 +554,51 @@ def run_fix_phase(
         result = agent.run(task)
         # Capture the fix patch = tracked source edits (the untracked BRT is excluded).
         fix_patch = session.exec("git diff").output
+        tot_in, tot_out = result.total_input_tokens, result.total_output_tokens
+
+        # Phase C: Reviewer judges the candidate fix; on 'revise' the worker
+        # re-runs with the feedback (bounded by reviewer_rounds). Gold-free.
+        for rnd in range(reviewer_rounds if reviewer_client is not None else 0):
+            if not fix_patch.strip():
+                break  # no fix to review
+            review = run_reviewer(
+                inst, session, reviewer_client,
+                brt_code=brt_code, fix_diff=fix_patch,
+                max_iterations=reviewer_max_iterations,
+                max_total_tokens=max_total_tokens,
+                verbose=verbose,
+            )
+            reviews.append(review)
+            tot_in += review.agent.total_input_tokens
+            tot_out += review.agent.total_output_tokens
+            print(f"  Reviewer round {rnd + 1}: verdict={review.verdict}")
+            if review.accepted:
+                break
+            revise_task = (
+                f"{task}\n\n--- A reviewer examined your fix and asked for revisions ---\n"
+                f"Reviewer feedback: {review.feedback}\n\n"
+                "Address this feedback by editing the source. Keep run_brt passing, then submit_fix."
+            )
+            agent = Agent(
+                client, fix_agent_tools(session, brt_code), system,
+                max_iterations=max_iterations,
+                max_total_tokens=max_total_tokens,
+                verbose=verbose,
+            )
+            result = agent.run(revise_task)
+            fix_patch = session.exec("git diff").output
+            tot_in += result.total_input_tokens
+            tot_out += result.total_output_tokens
     finally:
         session.close()
 
-    cost = cost_usd(client.name, result.total_input_tokens, result.total_output_tokens)
+    cost = cost_usd(client.name, tot_in, tot_out)
     print(
         f"Fix agent done: stop={result.stop_cause}  iters={result.iterations}  "
-        f"tokens={result.total_input_tokens}/{result.total_output_tokens}"
+        f"tokens={tot_in}/{tot_out}"
         + (f"  cost=${cost}" if cost is not None else "  cost=$0 (local)")
         + f"  patch={len(fix_patch)} chars"
+        + (f"  reviewer_rounds={len(reviews)}" if reviews else "")
     )
 
     # =================== GOLD BARRIER =================== #
@@ -512,4 +632,7 @@ def run_fix_phase(
         resolved=resolved,
         harness=harness,
         cost_usd=cost,
+        reviews=reviews,
+        total_input_tokens=tot_in,
+        total_output_tokens=tot_out,
     )
