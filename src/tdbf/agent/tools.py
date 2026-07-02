@@ -433,6 +433,33 @@ class SubmitReviewTool(Tool):
         return ToolResult(json.dumps({"verdict": verdict, "feedback": feedback}))
 
 
+class SubmitSelectionTool(Tool):
+    """Terminal tool for the Selector role: pick the best candidate BRT by index."""
+
+    name = "submit_selection"
+    description = (
+        "Select the single best candidate Bug Reproduction Test and finish. `index` is the "
+        "0-based number of the candidate you are choosing (as labelled in the task). `reason` "
+        "should briefly justify why that test most specifically pins the bug. Call once."
+    )
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "index": {"type": "integer", "description": "0-based index of the chosen candidate."},
+            "reason": {"type": "string", "description": "Why this candidate is the most specific reproduction."},
+        },
+        "required": ["index"],
+    }
+    terminal = True
+
+    def execute(self, arguments: dict) -> ToolResult:
+        idx = _as_int(arguments.get("index"))
+        if idx is None:
+            return ToolResult("submit_selection requires an integer 'index'.", is_error=True)
+        reason = str(arguments.get("reason", "")).strip()
+        return ToolResult(json.dumps({"index": idx, "reason": reason}))
+
+
 # Names allowed in a BRT agent's registry. Any tool outside this set — in
 # particular anything that could touch the gold/fixed tree — is rejected.
 _GOLD_FREE_TOOL_NAMES = frozenset(
@@ -445,6 +472,13 @@ _GOLD_FREE_TOOL_NAMES = frozenset(
 # run_tests (reviewer: targeted regression) are the only executors.
 _ROLE_TOOL_NAMES = frozenset(
     {"read_file", "grep", "glob", "run_python", "run_tests", "submit_review"}
+)
+
+# Names allowed in a Selector registry (best-of-N BRT selection). Read-only
+# inspection + run_python (verify the correct value) + the terminal choice. No
+# test-writing, no source edits, no gold/fixed-tree tool.
+_SELECTOR_TOOL_NAMES = frozenset(
+    {"read_file", "grep", "glob", "run_python", "submit_selection"}
 )
 
 # Names allowed in a fix agent's registry (Phase B). These mutate the buggy tree
@@ -484,6 +518,12 @@ def assert_role_gold_free(tools: list[Tool]) -> None:
     read-only and return a verdict; the same gold-free invariant applies — no
     tool may observe the gold-fixed outcome or the held-out tests."""
     _assert_allowed(tools, _ROLE_TOOL_NAMES)
+
+
+def assert_selector_gold_free(tools: list[Tool]) -> None:
+    """Guard the Selector tool surface (best-of-N BRT selection). The selector
+    only inspects and picks — same gold-free invariant, no fixed-tree tool."""
+    _assert_allowed(tools, _SELECTOR_TOOL_NAMES)
 
 
 def brt_agent_tools(session: ContainerSession) -> list[Tool]:
@@ -554,4 +594,22 @@ def reviewer_agent_tools(session: ContainerSession) -> list[Tool]:
         SubmitReviewTool(),
     ]
     assert_role_gold_free(tools)
+    return tools
+
+
+def selector_agent_tools(session: ContainerSession) -> list[Tool]:
+    """Read-only gold-free toolset for the Selector (best-of-N BRT choice).
+
+    The selector reads the issue + candidate tests (with their buggy-tree
+    outcomes) and may use run_python to check the correct value, then calls
+    submit_selection. It cannot write tests, edit source, or see the fixed tree.
+    """
+    tools: list[Tool] = [
+        ReadFileTool(session),
+        GrepTool(session),
+        GlobTool(session),
+        RunPythonTool(session),
+        SubmitSelectionTool(),
+    ]
+    assert_selector_gold_free(tools)
     return tools

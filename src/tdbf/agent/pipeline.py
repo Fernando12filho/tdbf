@@ -22,6 +22,8 @@ from pathlib import Path
 from ..data.instances import SWEBenchInstance
 from ..harness.runner import (
     PredictionRecord,
+    _parse_failure_reason,
+    _parse_pytest_outcome,
     brt_test_path,
     inject_setup_preamble,
     make_test_patch,
@@ -33,7 +35,7 @@ from ..harness.runner import (
 )
 from ..models.llm import LLMClient
 from ..validation.brt_levels import BRTClassification, classify
-from .roles import Review, run_critic, run_reviewer
+from .roles import Review, Selection, run_critic, run_reviewer, run_selector
 from .runtime import Agent, AgentResult
 from .session import ContainerSession
 from .tools import brt_agent_tools, fix_agent_tools
@@ -450,6 +452,191 @@ def run_brt_phase(
     )
 
 
+# ── Phase A (best-of-N): generate many BRTs, select the best ──────────────────
+# Gold-free throughout the loop: every candidate is scored on the BUGGY tree only,
+# the viability filter + the Selector never see the fixed tree. Only the CHOSEN
+# candidate is optionally scored through the gold barrier afterwards (scoreboard).
+
+
+def _score_on_buggy_in_session(session: ContainerSession, submission: str) -> tuple[str, str | None]:
+    """Gold-free: write a candidate BRT into the shared (buggy) session and run it.
+    Returns (outcome, failure_reason). Buggy tree only — the fixed tree is never
+    touched, so this is a valid pre-filter / gate signal."""
+    rel = brt_test_path(session.repo)
+    code = inject_setup_preamble(session.repo, submission)
+    session.write_file(f"/testbed/{rel}", code)
+    session.ensure_pytest()
+    res = session.exec(f"python -m pytest {rel} -x --tb=short -q", timeout=180)
+    outcome = _parse_pytest_outcome(res.returncode, res.output)
+    reason = _parse_failure_reason(res.output) if outcome == "fail" else None
+    return outcome, reason
+
+
+def _brt_passes_in_session(session: ContainerSession, brt_code: str) -> bool:
+    """Gold-free success check for the fix loop: does the BRT PASS on the current
+    (edited) tree? Buggy checkout + the agent's own edits only — no gold patch."""
+    rel = brt_test_path(session.repo)
+    code = inject_setup_preamble(session.repo, brt_code)
+    session.write_file(f"/testbed/{rel}", code)
+    session.ensure_pytest()
+    res = session.exec(f"python -m pytest {rel} -x --tb=short -q", timeout=180)
+    return _parse_pytest_outcome(res.returncode, res.output) == "pass"
+
+
+@dataclass
+class BrtCandidate:
+    """One generated candidate BRT + its gold-free (buggy-tree) outcome."""
+
+    index: int
+    submission: str | None
+    outcome_buggy: str | None
+    failure_reason: str | None
+    viable: bool  # clean assertion-fail on buggy (the gate criterion)
+    agent: AgentResult
+
+
+@dataclass
+class BestOfNResult:
+    """Outcome of best-of-N BRT generation + selection. `brt` is a normal
+    BrtPhaseResult for the CHOSEN candidate (so the usual record/transcript
+    builders apply); None if no candidate was viable."""
+
+    brt: BrtPhaseResult | None
+    candidates: list[BrtCandidate]
+    chosen_index: int | None
+    selection: Selection | None
+    n_viable: int
+    total_input_tokens: int
+    total_output_tokens: int
+    cost_usd: float | None
+
+
+def run_brt_best_of_n(
+    inst: SWEBenchInstance,
+    client: LLMClient,
+    *,
+    n_candidates: int,
+    max_iterations: int,
+    max_total_tokens: int,
+    selector_client: LLMClient,
+    prompt_harden: bool = False,
+    submit_nudge_limit: int = 2,
+    selector_max_iterations: int = 8,
+    keep_container: bool = False,
+    verbose: bool = False,
+    score_fixed: bool = False,
+) -> BestOfNResult | None:
+    """Generate `n_candidates` BRTs (gold-free), keep only the clean-assertion-fail
+    ones, let a Selector pick the best, then optionally gold-barrier-score the
+    CHOSEN candidate for the scoreboard. Returns None if the container won't start.
+
+    Fully gold-free in the loop: candidate scoring, the viability filter and the
+    selection all use the buggy tree only. `score_fixed` governs ONLY the offline
+    scoreboard of the chosen test (L0-L4); no decision ever sees the fixed tree.
+    """
+    test_path = brt_test_path(inst.repo)
+    env_hint = repo_test_hint(inst.repo) or "(no special framework setup for this repo)"
+    system = BRT_SYSTEM_PROMPT.format(repo=inst.repo, base_commit=inst.base_commit, env_hint=env_hint)
+    if prompt_harden:
+        system += PROMPT_HARDEN
+    ctx = inst.context_safe_dict()
+    task = (
+        f"GitHub issue for instance `{ctx['instance_id']}` "
+        f"({ctx['repo']} @ {ctx['base_commit']}):\n\n{ctx['problem_statement']}"
+    )
+
+    try:
+        session = ContainerSession(inst, keep=keep_container).start()
+    except RuntimeError as e:
+        print(f"  [skip] {e}")
+        return None
+
+    candidates: list[BrtCandidate] = []
+    tot_in = tot_out = 0
+    selection: Selection | None = None
+    chosen_index: int | None = None
+    chosen_submission: str | None = None
+    chosen_agent: AgentResult | None = None
+    try:
+        # --- GENERATE N candidates (gold-free), score each on the BUGGY tree ---
+        for i in range(n_candidates):
+            agent = Agent(
+                client, brt_agent_tools(session), system,
+                max_iterations=max_iterations, max_total_tokens=max_total_tokens,
+                submit_nudge_limit=submit_nudge_limit, verbose=verbose,
+            )
+            print(f"Generating candidate {i + 1}/{n_candidates} ...")
+            result = agent.run(task)
+            tot_in += result.total_input_tokens
+            tot_out += result.total_output_tokens
+            sub = result.submission
+            outcome, reason = (
+                _score_on_buggy_in_session(session, sub) if sub and sub.strip() else (None, None)
+            )
+            viable = outcome == "fail" and reason == "assertion"
+            print(f"  candidate {i}: submit={'yes' if sub else 'no'}  "
+                  f"buggy={outcome} reason={reason}  viable={viable}")
+            candidates.append(BrtCandidate(i, sub, outcome, reason, viable, result))
+
+        viable = [c for c in candidates if c.viable]
+        print(f"Viable (clean assertion-fail on buggy): {len(viable)}/{n_candidates}")
+
+        # --- SELECT among viable candidates (gold-free) ---
+        if len(viable) == 1:
+            chosen_index = viable[0].index
+            print(f"  only 1 viable candidate -> index {chosen_index} (selector skipped)")
+        elif len(viable) >= 2:
+            selection = run_selector(
+                inst, session, selector_client,
+                candidates=[c.submission for c in viable],
+                max_iterations=selector_max_iterations, max_total_tokens=max_total_tokens,
+                verbose=verbose,
+            )
+            tot_in += selection.agent.total_input_tokens
+            tot_out += selection.agent.total_output_tokens
+            chosen_index = viable[selection.index].index  # viable-local -> global index
+            print(f"  selector chose viable#{selection.index} -> candidate index {chosen_index}")
+        if chosen_index is not None:
+            chosen_submission = candidates[chosen_index].submission
+            chosen_agent = candidates[chosen_index].agent
+    finally:
+        session.close()
+
+    cost = cost_usd(client.name, tot_in, tot_out)
+
+    # =================== GOLD BARRIER (scoreboard only) =================== #
+    brt: BrtPhaseResult | None = None
+    if chosen_submission:
+        test_code = inject_setup_preamble(inst.repo, chosen_submission)
+        test_patch = make_test_patch(test_path, test_code)
+        print("Scoring CHOSEN candidate offline — BUGGY tree ...")
+        outcome_buggy = run_test_in_container(inst, test_patch, test_path=test_path)
+        outcome_fixed = None
+        classification = None
+        if score_fixed:
+            print("Scoring CHOSEN candidate offline — gold-FIXED tree ...")
+            outcome_fixed = run_test_in_container(
+                inst, test_patch, gold_patch=inst.gold_patch, test_path=test_path
+            )
+            classification = classify(outcome_buggy, outcome_fixed)
+            print(f"  -> {classification.level_label}  (valid BRT: {classification.is_valid_brt})")
+        brt = BrtPhaseResult(
+            agent=chosen_agent, system=system, task=task,
+            submission=chosen_submission, test_code=test_code,
+            outcome_buggy=str(outcome_buggy) if outcome_buggy is not None else None,
+            outcome_fixed=str(outcome_fixed) if outcome_fixed is not None else None,
+            classification=classification, cost_usd=cost, submit_nudge_limit=submit_nudge_limit,
+            reviews=[], total_input_tokens=tot_in, total_output_tokens=tot_out,
+        )
+    else:
+        print("No viable candidate produced — nothing to hand to the fix phase.")
+
+    return BestOfNResult(
+        brt=brt, candidates=candidates, chosen_index=chosen_index, selection=selection,
+        n_viable=len(viable), total_input_tokens=tot_in, total_output_tokens=tot_out, cost_usd=cost,
+    )
+
+
 # ── Phase B: fix agent ────────────────────────────────────────────────────────
 
 FIX_SYSTEM_PROMPT = """You are an autonomous bug-fixing agent. Your single goal is to FIX the bug \
@@ -516,13 +703,19 @@ def run_fix_phase(
     reviewer_client: LLMClient | None = None,
     reviewer_rounds: int = 0,
     reviewer_max_iterations: int = 8,
+    max_attempts: int = 1,
 ) -> FixPhaseResult | None:
     """Run the fix agent (gold-free, BRT baked into run_brt) then score the fix
     patch through the gold barrier (held-out test_patch via the harness).
 
+    `max_attempts > 1` adds a gold-free RETRY loop: after each attempt, if the BRT
+    does not pass on the (edited) tree, the tree is reverted and the agent tries
+    again with a hint about what the previous attempt did — up to `max_attempts`
+    tries. The retry decision uses only the gold-free run_brt-pass signal; the
+    held-out test is never consulted inside the loop.
+
     Phase C (multi-agent): pass `reviewer_client` + `reviewer_rounds > 0` to add a
-    Reviewer that judges the fix's minimality/root-cause before it is accepted; on
-    a 'revise' verdict the worker gets another round with the feedback.
+    Reviewer that judges the fix's minimality/root-cause before it is accepted.
     `reviewer_client=None` (default) is the single-agent RQ4 baseline.
 
     Returns None only if the container could not be started (instance skipped).
@@ -543,18 +736,39 @@ def run_fix_phase(
         print(f"  [skip] {e}")
         return None
     reviews: list[Review] = []
+    tot_in = tot_out = 0
     try:
-        agent = Agent(
-            client, fix_agent_tools(session, brt_code), system,  # gold-free; BRT baked into run_brt
-            max_iterations=max_iterations,
-            max_total_tokens=max_total_tokens,
-            verbose=verbose,
-        )
-        print(f"Running fix agent (max_iter={max_iterations}, max_tok={max_total_tokens}) ...")
-        result = agent.run(task)
-        # Capture the fix patch = tracked source edits (the untracked BRT is excluded).
-        fix_patch = session.exec("git diff").output
-        tot_in, tot_out = result.total_input_tokens, result.total_output_tokens
+        # Gold-free RETRY loop: try up to max_attempts, reverting between failures.
+        result = None
+        fix_patch = ""
+        attempt_hint = ""
+        for attempt in range(max_attempts):
+            agent = Agent(
+                client, fix_agent_tools(session, brt_code), system,  # gold-free; BRT baked into run_brt
+                max_iterations=max_iterations,
+                max_total_tokens=max_total_tokens,
+                verbose=verbose,
+            )
+            print(f"Running fix agent (attempt {attempt + 1}/{max_attempts}, "
+                  f"max_iter={max_iterations}, max_tok={max_total_tokens}) ...")
+            result = agent.run(task + attempt_hint)
+            # Capture the fix patch = tracked source edits (the untracked BRT is excluded).
+            fix_patch = session.exec("git diff").output
+            tot_in += result.total_input_tokens
+            tot_out += result.total_output_tokens
+            if attempt == max_attempts - 1:
+                break  # last (or only) attempt — keep whatever we have
+            # Gold-free accept check: BRT passes on the edited tree AND a patch exists.
+            if fix_patch.strip() and _brt_passes_in_session(session, brt_code):
+                print(f"  attempt {attempt + 1}: BRT passes (gold-free) — accepting this fix.")
+                break
+            attempt_hint = (
+                f"\n\n--- Your previous attempt (#{attempt + 1}) did NOT make the BRT pass ---\n"
+                + (f"It changed:\n{fix_patch}\n" if fix_patch.strip() else "It produced no source edits.\n")
+                + "Take a DIFFERENT approach this time; the same edit will not work."
+            )
+            session.reset_tree()  # revert to clean buggy tree before retrying
+            print(f"  attempt {attempt + 1}: BRT not passing — reverting and retrying.")
 
         # Phase C: Reviewer judges the candidate fix; on 'revise' the worker
         # re-runs with the feedback (bounded by reviewer_rounds). Gold-free.

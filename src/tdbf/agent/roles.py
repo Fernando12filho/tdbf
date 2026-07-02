@@ -28,7 +28,7 @@ from ..data.instances import SWEBenchInstance
 from ..models.llm import LLMClient
 from .runtime import Agent, AgentResult
 from .session import ContainerSession
-from .tools import critic_agent_tools, reviewer_agent_tools
+from .tools import critic_agent_tools, reviewer_agent_tools, selector_agent_tools
 
 CRITIC_SYSTEM_PROMPT = """You are a meticulous test reviewer (a Critic) working on `{repo}` at the \
 buggy commit. Another agent wrote a candidate Bug Reproduction Test (BRT) that already FAILS on the \
@@ -69,6 +69,23 @@ Finish by calling submit_review:
 efficient; you have a limited step budget."""
 
 
+SELECTOR_SYSTEM_PROMPT = """You are a test selector working on `{repo}` at the buggy commit. Several \
+candidate Bug Reproduction Tests (BRTs) were generated for the same GitHub issue; each already FAILS \
+with a clean assertion on the buggy code. Your job is to pick the SINGLE best one — the test that will \
+most reliably become a passing test once the bug is correctly fixed.
+
+Prefer the candidate that:
+- asserts the specific value a CORRECT fix would produce, reasoned from the issue (not a vague or \
+overly broad assertion, and never the buggy value dressed up as correct);
+- targets exactly the behaviour the issue describes, so a genuine fix makes it pass and a wrong/trivial \
+change would not;
+- is clear and self-contained.
+
+You have read-only tools (read_file, grep, glob) and run_python to check what the correct value should \
+be. You are gold-free: you cannot see the fixed code; reason from the issue. Finish by calling \
+submit_selection with the 0-based index of your chosen candidate and a short reason. Be efficient."""
+
+
 @dataclass
 class Review:
     """A role's verdict on a worker artifact, plus the role agent's run (telemetry)."""
@@ -80,6 +97,15 @@ class Review:
     @property
     def accepted(self) -> bool:
         return self.verdict == "accept"
+
+
+@dataclass
+class Selection:
+    """The Selector's choice among candidate BRTs, plus its agent run (telemetry)."""
+
+    index: int
+    reason: str
+    agent: AgentResult
 
 
 def _parse_verdict(result: AgentResult) -> tuple[str, str]:
@@ -150,3 +176,44 @@ def run_reviewer(
     result = agent.run(task)
     verdict, feedback = _parse_verdict(result)
     return Review(verdict, feedback, result)
+
+
+def run_selector(
+    inst: SWEBenchInstance,
+    session: ContainerSession,
+    client: LLMClient,
+    *,
+    candidates: list[str],
+    max_iterations: int,
+    max_total_tokens: int,
+    verbose: bool = False,
+) -> Selection:
+    """Run the Selector over `candidates` (each a viable BRT that fails cleanly on
+    the buggy tree); return its 0-based choice. Fails OPEN to index 0 (all inputs
+    are already viable, so the first is a safe default) if the choice is invalid."""
+    system = SELECTOR_SYSTEM_PROMPT.format(repo=inst.repo)
+    ctx = inst.context_safe_dict()
+    listing = "\n\n".join(
+        f"=== Candidate index {i} ===\n{code}" for i, code in enumerate(candidates)
+    )
+    task = (
+        f"GitHub issue for `{ctx['instance_id']}` ({ctx['repo']}):\n\n{ctx['problem_statement']}\n\n"
+        f"There are {len(candidates)} candidate BRTs, each failing cleanly on the buggy code:\n\n"
+        f"{listing}\n\n"
+        "Pick the single best candidate, then call submit_selection with its 0-based index."
+    )
+    agent = Agent(
+        client, selector_agent_tools(session), system,
+        max_iterations=max_iterations, max_total_tokens=max_total_tokens, verbose=verbose,
+    )
+    result = agent.run(task)
+    index, reason = 0, ""
+    if result.submission:
+        try:
+            data = json.loads(result.submission)
+            idx = int(data.get("index"))
+            if 0 <= idx < len(candidates):
+                index, reason = idx, str(data.get("reason", "")).strip()
+        except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
+            pass
+    return Selection(index, reason, result)
