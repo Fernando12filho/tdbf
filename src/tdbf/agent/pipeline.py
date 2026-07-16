@@ -35,7 +35,7 @@ from ..harness.runner import (
 )
 from ..models.llm import LLMClient
 from ..validation.brt_levels import BRTClassification, classify
-from .roles import Review, Selection, run_critic, run_reviewer, run_selector
+from .roles import Break, Review, Selection, run_breaker, run_critic, run_reviewer, run_selector
 from .runtime import Agent, AgentResult
 from .session import ContainerSession
 from .tools import brt_agent_tools, fix_agent_tools
@@ -90,6 +90,10 @@ def step_summary(steps) -> list[dict]:
 
 def _reviews_dict(phase) -> list[dict]:
     return [{"verdict": rv.verdict, "feedback": rv.feedback} for rv in (phase.reviews or [])]
+
+
+def _breaks_dict(phase) -> list[dict]:
+    return [{"verdict": bk.verdict, "feedback": bk.feedback} for bk in (getattr(phase, "breaks", None) or [])]
 
 
 def brt_transcript_dict(inst: SWEBenchInstance, model_name: str, phase: "BrtPhaseResult") -> dict:
@@ -159,6 +163,8 @@ def fix_transcript_dict(inst: SWEBenchInstance, model_name: str, phase: "FixPhas
     }
     if phase.reviews:
         d["reviews"] = _reviews_dict(phase)
+    if getattr(phase, "breaks", None):
+        d["breaks"] = _breaks_dict(phase)
     return d
 
 
@@ -187,6 +193,9 @@ def fix_run_record(
     if phase.reviews:  # Phase C only
         attempt["reviewer_rounds"] = len(phase.reviews)
         attempt["reviewer_verdicts"] = [rv.verdict for rv in phase.reviews]
+    if getattr(phase, "breaks", None):  # Phase C — post-fix breaker only
+        attempt["breaker_rounds"] = len(phase.breaks)
+        attempt["breaker_verdicts"] = [bk.verdict for bk in phase.breaks]
     return {
         "instance_id": inst.instance_id,
         "repo": inst.repo,
@@ -695,6 +704,7 @@ class FixPhaseResult:
     reviews: list = None  # type: ignore[assignment]
     total_input_tokens: int | None = None
     total_output_tokens: int | None = None
+    breaks: list = None  # type: ignore[assignment]  # post-fix breaker verdicts
 
 
 def run_fix_phase(
@@ -711,6 +721,9 @@ def run_fix_phase(
     reviewer_client: LLMClient | None = None,
     reviewer_rounds: int = 0,
     reviewer_max_iterations: int = 8,
+    breaker_client: LLMClient | None = None,
+    breaker_rounds: int = 1,
+    breaker_max_iterations: int = 8,
     max_attempts: int = 1,
 ) -> FixPhaseResult | None:
     """Run the fix agent (gold-free, BRT baked into run_brt) then score the fix
@@ -725,6 +738,13 @@ def run_fix_phase(
     Phase C (multi-agent): pass `reviewer_client` + `reviewer_rounds > 0` to add a
     Reviewer that judges the fix's minimality/root-cause before it is accepted.
     `reviewer_client=None` (default) is the single-agent RQ4 baseline.
+
+    Phase C (post-fix Breaker): pass `breaker_client` to add an adversarial verifier
+    that runs AFTER the fix (and any Reviewer) and tries to defeat it gold-free —
+    passing the BRT is necessary-not-sufficient. On a 'broken' verdict the fix agent
+    re-runs with the breaker's failing case (bounded by `breaker_rounds`); the
+    verdict is always recorded (a gold-free confidence signal). `breaker_client=None`
+    (default) skips the breaker entirely, keeping the single-agent path identical.
 
     Returns None only if the container could not be started (instance skipped).
     """
@@ -744,6 +764,7 @@ def run_fix_phase(
         print(f"  [skip] {e}")
         return None
     reviews: list[Review] = []
+    breaks: list[Break] = []
     tot_in = tot_out = 0
     try:
         # Gold-free RETRY loop: try up to max_attempts, reverting between failures.
@@ -811,6 +832,44 @@ def run_fix_phase(
             fix_patch = session.exec("git diff").output
             tot_in += result.total_input_tokens
             tot_out += result.total_output_tokens
+
+        # Phase C (post-fix Breaker): an adversarial verifier attacks the fix even
+        # though the BRT passes (necessary-not-sufficient). It always runs at least
+        # once when enabled — the verdict is a gold-free confidence signal — and a
+        # 'broken' verdict triggers up to `breaker_rounds` re-fix rounds (0 =
+        # confidence-only, no re-fix). Gold-free: the breaker probes the agent's own
+        # fixed tree, never the gold patch or held-out tests.
+        refixes = 0
+        while breaker_client is not None and fix_patch.strip():
+            brk = run_breaker(
+                inst, session, breaker_client,
+                brt_code=brt_code, fix_diff=fix_patch,
+                max_iterations=breaker_max_iterations,
+                max_total_tokens=max_total_tokens,
+                verbose=verbose,
+            )
+            breaks.append(brk)
+            tot_in += brk.agent.total_input_tokens
+            tot_out += brk.agent.total_output_tokens
+            print(f"  Breaker round {len(breaks)}: verdict={brk.verdict}")
+            if not brk.broken or refixes >= breaker_rounds:
+                break  # robust, or out of re-fix budget — accept the current fix
+            break_task = (
+                f"{task}\n\n--- An adversarial verifier defeated your fix ---\n"
+                f"It found a case your fix still gets wrong: {brk.feedback}\n\n"
+                "Address this case by editing the source (keep run_brt passing), then submit_fix."
+            )
+            agent = Agent(
+                client, fix_agent_tools(session, brt_code), system,
+                max_iterations=max_iterations,
+                max_total_tokens=max_total_tokens,
+                verbose=verbose,
+            )
+            result = agent.run(break_task)
+            fix_patch = session.exec("git diff").output
+            tot_in += result.total_input_tokens
+            tot_out += result.total_output_tokens
+            refixes += 1
     finally:
         session.close()
 
@@ -821,6 +880,7 @@ def run_fix_phase(
         + (f"  cost=${cost}" if cost is not None else "  cost=$0 (local)")
         + f"  patch={len(fix_patch)} chars"
         + (f"  reviewer_rounds={len(reviews)}" if reviews else "")
+        + (f"  breaker={'/'.join(b.verdict for b in breaks)}" if breaks else "")
     )
 
     # =================== GOLD BARRIER =================== #
@@ -857,4 +917,5 @@ def run_fix_phase(
         reviews=reviews,
         total_input_tokens=tot_in,
         total_output_tokens=tot_out,
+        breaks=breaks,
     )

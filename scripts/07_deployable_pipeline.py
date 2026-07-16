@@ -28,6 +28,12 @@ Usage:
       --model anthropic:claude-sonnet-4-6 -v
   python3 scripts/07_deployable_pipeline.py --limit 5 --model anthropic:claude-sonnet-4-6
   python3 scripts/07_deployable_pipeline.py --id astropy__astropy-12907 --brt-only  # stop after Phase A
+  python3 scripts/07_deployable_pipeline.py --id astropy__astropy-14182 --breaker   # + post-fix Breaker arm
+
+Two-arm comparison: run WITHOUT --breaker (single-agent baseline) and WITH --breaker
+(adds the post-fix adversarial verifier) over the same instances, then compare
+resolved-rate. Records are tagged flags.breaker / flags.breaker_verdicts so the arms
+are separable in results.jsonl and the webapp.
 """
 
 from __future__ import annotations
@@ -62,23 +68,30 @@ class DeployOutcome:
     gate_accepted: bool        # did the gold-free gate hand the BRT to the fix phase
     resolved: bool | None      # None = fix phase skipped (gate rejected, or --brt-only)
     cost_usd: float
+    brt_level: int | None = None  # offline label (only with --score-brt); info only
+    breaker_verdicts: list | None = None  # post-fix Breaker verdicts (only with --breaker)
 
     @property
     def summary(self) -> str:
         gate = "accept" if self.gate_accepted else "REJECT"
+        lvl = "" if self.brt_level is None else f" L{self.brt_level}"
+        brk = f"  breaker={'/'.join(self.breaker_verdicts)}" if self.breaker_verdicts else ""
         if self.resolved is None:
             fix = "fix=skipped"
         else:
-            fix = f"fix={'RESOLVED' if self.resolved else 'not-resolved'}"
-        return (f"{self.instance_id}: reproduces={self.reproduces_on_buggy}  "
+            fix = f"fix={'RESOLVED' if self.resolved else 'not-resolved'}{brk}"
+        return (f"{self.instance_id}: reproduces={self.reproduces_on_buggy}{lvl}  "
                 f"gate={gate}  {fix}  (${self.cost_usd:.2f})")
 
 
 def brt_deployable_record(
-    inst: SWEBenchInstance, model_name: str, *, split: str, flags: dict, phase, gate_accepted: bool
+    inst: SWEBenchInstance, model_name: str, *, split: str, flags: dict, phase,
+    gate_accepted: bool, scored: bool = False
 ) -> dict:
-    """BRT run record for the deployable pipeline. Deliberately records NO L0-L4
-    level (gold was never consulted) — only the gold-free buggy-side signal."""
+    """BRT run record for the deployable pipeline. The GATE is always gold-free
+    (`reproduces_on_buggy`). When `scored` is True (--score-brt), we ALSO attach the
+    offline L0-L4 label + gold-fixed outcome for INFORMATION only — it never touched
+    the gate. When False, no gold was consulted and best_level stays None."""
     r = phase.agent
     attempt = {
         "attempt": 1,
@@ -94,6 +107,9 @@ def brt_deployable_record(
         "duration_seconds": sum((s.duration_seconds or 0) for s in r.steps),
         "step_summary": step_summary(r.steps),
     }
+    if scored:  # offline label, informational — NOT used by the gate
+        attempt["level"] = phase.level
+        attempt["outcome_fixed"] = phase.outcome_fixed
     return {
         "instance_id": inst.instance_id,
         "repo": inst.repo,
@@ -101,7 +117,7 @@ def brt_deployable_record(
         "split": split,
         "mode": "agent_deployable",
         "flags": flags,
-        "best_level": None,  # no L4 testing in this pipeline (gold-free)
+        "best_level": (phase.level if scored else None),
         "reproduces_on_buggy": phase.reproduces_on_buggy,
         "gate_accepted": gate_accepted,
         "outcome_buggy": phase.outcome_buggy,
@@ -121,6 +137,9 @@ def run_one(
     prompt_harden: bool,
     brt_only: bool,
     keep_container: bool,
+    score_brt: bool = False,
+    breaker: bool = False,
+    breaker_rounds: int = 1,
     verbose: bool,
     num_ctx: int | None,
     brt_dir: Path,
@@ -138,8 +157,11 @@ def run_one(
     else:
         print(f"Model:     {client.name}")
 
-    # ===================== PHASE A — BRT agent (gold-free scoring) ===================== #
-    print(f"\n--- Phase A: BRT agent (buggy-only scoring, no gold) ---")
+    # ===================== PHASE A — BRT agent ===================== #
+    # score_brt=True adds an OFFLINE L0-L4 label (needs the gold-fixed tree) purely
+    # for inspection; it never feeds the gate. Default (False) is pure gold-free.
+    print(f"\n--- Phase A: BRT agent "
+          f"({'buggy-only gate + offline label' if score_brt else 'buggy-only, no gold'}) ---")
     brt = run_brt_phase(
         inst, client,
         max_iterations=max_iterations,
@@ -147,15 +169,20 @@ def run_one(
         prompt_harden=prompt_harden,
         keep_container=keep_container,
         verbose=verbose,
-        score_fixed=False,  # <- the honest difference: never run on the gold-fixed tree
+        score_fixed=score_brt,  # only affects the offline label, never the gate
     )
     if brt is None:  # container could not start
         return None
 
-    # ===================== GATE — gold-free ===================== #
+    # ===================== GATE — gold-free (always) ===================== #
     # Accept iff the test reproduces a clean failure on the BUGGY tree (L3 or L4 —
-    # indistinguishable without a fix, and that is the point). No gold consulted.
+    # indistinguishable without a fix, and that is the point). No gold consulted,
+    # even when --score-brt computed a label above.
     gate_accepted = brt.reproduces_on_buggy
+    brt_lvl = brt.level if score_brt else None
+    if score_brt:
+        print(f"[offline label] BRT = L{brt.level}  "
+              f"(buggy={brt.outcome_buggy} / fixed={brt.outcome_fixed}) — info only, NOT gated")
 
     brt_dir.mkdir(parents=True, exist_ok=True)
     (brt_dir / f"{inst.instance_id}.json").write_text(
@@ -167,20 +194,25 @@ def run_one(
                  "submit_nudge_limit": brt.submit_nudge_limit,
                  "pipeline": "deployable"}
     save_run(brt_deployable_record(
-        inst, client.name, split=split, flags=brt_flags, phase=brt, gate_accepted=gate_accepted))
+        inst, client.name, split=split, flags=brt_flags, phase=brt,
+        gate_accepted=gate_accepted, scored=score_brt))
 
     cost = brt.cost_usd or 0.0
 
     if not gate_accepted:
         print(f"\n[gate:gold-free] BRT does not reproduce a clean failure on the buggy code "
               f"(outcome_on_buggy={brt.outcome_buggy}) — rejected, skipping the fix phase.")
-        return DeployOutcome(inst.instance_id, brt.reproduces_on_buggy, False, None, cost)
+        return DeployOutcome(inst.instance_id, brt.reproduces_on_buggy, False, None, cost, brt_lvl)
     if brt_only:
         print(f"\n[gate:gold-free] --brt-only: gate accepted; stopping before the fix phase.")
-        return DeployOutcome(inst.instance_id, brt.reproduces_on_buggy, True, None, cost)
+        return DeployOutcome(inst.instance_id, brt.reproduces_on_buggy, True, None, cost, brt_lvl)
 
-    # ===================== PHASE B — fix agent ===================== #
-    print(f"\n--- Phase B: fix agent (driving the gold-free-accepted BRT) ---")
+    # ===================== PHASE B — fix agent (+ optional post-fix Breaker) ===== #
+    # The Breaker (same model self-reviews) runs AFTER the fix, gold-free, and tries
+    # to defeat it; on 'broken' the fix agent re-fixes (bounded). --breaker enables
+    # it; without the flag this is the single-agent baseline arm.
+    print(f"\n--- Phase B: fix agent{' + post-fix Breaker' if breaker else ''} "
+          f"(driving the gold-free-accepted BRT) ---")
     fix = run_fix_phase(
         inst, brt.test_code, client,
         split=split,
@@ -189,20 +221,25 @@ def run_one(
         keep_container=keep_container,
         verbose=verbose,
         run_dir=fix_dir,
+        breaker_client=client if breaker else None,  # self-review: same model
+        breaker_rounds=breaker_rounds if breaker else 0,
     )
     if fix is None:  # container could not start
-        return DeployOutcome(inst.instance_id, brt.reproduces_on_buggy, True, None, cost)
+        return DeployOutcome(inst.instance_id, brt.reproduces_on_buggy, True, None, cost, brt_lvl)
 
     fix_dir.mkdir(parents=True, exist_ok=True)
     (fix_dir / f"{inst.instance_id}.json").write_text(
         json.dumps(fix_transcript_dict(inst, client.name, fix), indent=2)
     )
     fix_flags = {"max_iterations": max_iterations, "max_total_tokens": max_total_tokens,
-                 "pipeline": "deployable"}
+                 "pipeline": "deployable", "breaker": breaker,
+                 "breaker_rounds": breaker_rounds if breaker else 0,
+                 "breaker_verdicts": [b.verdict for b in (fix.breaks or [])]}
     save_run(fix_run_record(inst, client.name, split=split, flags=fix_flags, phase=fix))
 
     cost += fix.cost_usd or 0.0
-    return DeployOutcome(inst.instance_id, brt.reproduces_on_buggy, True, fix.resolved, cost)
+    return DeployOutcome(inst.instance_id, brt.reproduces_on_buggy, True, fix.resolved, cost, brt_lvl,
+                         breaker_verdicts=[b.verdict for b in (fix.breaks or [])] or None)
 
 
 def main() -> int:
@@ -221,6 +258,16 @@ def main() -> int:
                     help="Cumulative token budget per phase (hard cap).")
     ap.add_argument("--brt-only", action="store_true",
                     help="Stop after Phase A (write the BRT, skip the fix).")
+    ap.add_argument("--score-brt", action="store_true",
+                    help="Also compute the offline L0-L4 BRT label (runs on the gold-fixed tree) "
+                         "for inspection. The gate stays gold-free — the label never gates.")
+    ap.add_argument("--breaker", action="store_true",
+                    help="Add a post-fix adversarial Breaker (same model self-reviews) that tries "
+                         "to defeat the fix gold-free; on 'broken' the fix agent re-fixes. Without "
+                         "this flag the run is the single-agent baseline arm.")
+    ap.add_argument("--breaker-rounds", type=int, default=1,
+                    help="Max re-fix rounds a 'broken' verdict triggers (0 = record the verdict as a "
+                         "confidence signal only, no re-fix). Only used with --breaker.")
     ap.add_argument("--think", action="store_true", help="Enable Qwen3 thinking mode (Ollama).")
     ap.add_argument("--num-ctx", type=int, default=None,
                     help="Override Ollama KV-cache window (num_ctx); see 04_agent_brt.py.")
@@ -251,6 +298,9 @@ def main() -> int:
             think=args.think,
             prompt_harden=args.prompt_harden,
             brt_only=args.brt_only,
+            score_brt=args.score_brt,
+            breaker=args.breaker,
+            breaker_rounds=args.breaker_rounds,
             keep_container=args.keep_container,
             verbose=args.verbose,
             num_ctx=args.num_ctx,
@@ -268,6 +318,16 @@ def main() -> int:
     accepted = [o for o in outcomes if o.gate_accepted]
     if outcomes:
         print(f"\nGold-free gate accepted:  {len(accepted)}/{len(outcomes)}")
+    scored_lvls = [o.brt_level for o in outcomes if o.brt_level is not None]
+    if scored_lvls:  # --score-brt: show the offline BRT quality (info only)
+        hist = {lvl: scored_lvls.count(lvl) for lvl in range(5)}
+        print("BRT offline label:        "
+              + "  ".join(f"L{lvl}={hist[lvl]}" for lvl in range(5))
+              + f"   (L4/valid = {hist[4]}/{len(scored_lvls)})")
+    broke = [o for o in outcomes if o.breaker_verdicts]
+    if broke:  # --breaker: how often the adversary defeated the first fix
+        n_broken = sum(1 for o in broke if "broken" in o.breaker_verdicts)
+        print(f"Breaker fired:            {len(broke)}   (defeated first fix on {n_broken})")
     scored = [o for o in outcomes if o.resolved is not None]
     if scored:
         n_res = sum(1 for o in scored if o.resolved)

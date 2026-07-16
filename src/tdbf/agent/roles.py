@@ -28,7 +28,12 @@ from ..data.instances import SWEBenchInstance
 from ..models.llm import LLMClient
 from .runtime import Agent, AgentResult
 from .session import ContainerSession
-from .tools import critic_agent_tools, reviewer_agent_tools, selector_agent_tools
+from .tools import (
+    breaker_agent_tools,
+    critic_agent_tools,
+    reviewer_agent_tools,
+    selector_agent_tools,
+)
 
 CRITIC_SYSTEM_PROMPT = """You are a meticulous test reviewer (a Critic) working on `{repo}` at the \
 buggy commit. Another agent wrote a candidate Bug Reproduction Test (BRT) that already FAILS on the \
@@ -66,6 +71,29 @@ diff. Remember a run_tests failure may be pre-existing/environmental, not caused
 Finish by calling submit_review:
 - verdict='accept' if the fix is a minimal, root-cause change;
 - verdict='revise' with concrete feedback if it is a hack, non-minimal, or plausibly regressive. Be \
+efficient; you have a limited step budget."""
+
+
+BREAKER_SYSTEM_PROMPT = """You are an adversarial verifier (a Breaker) working on `{repo}` at the \
+buggy commit. Another agent produced a candidate FIX (shown as a diff) that already makes the \
+bug-reproduction test (BRT) PASS. But passing the BRT is NECESSARY, NOT SUFFICIENT: a fix can satisfy \
+the test yet still be incomplete or wrong. Your job is to TRY TO DEFEAT this fix — not to edit code.
+
+Reason from the ISSUE about what a genuinely correct fix must do, then attack:
+- enumerate cases the issue implies (other inputs, edge cases, related code paths, the general behaviour \
+— not just the single example the BRT checks);
+- use run_python to exercise the ALREADY-APPLIED fix on those cases and observe what it actually does;
+- look for an input or behaviour where the fixed code still violates what the issue says is correct.
+
+The fix is already applied in the checkout, so read_file shows the fixed source and run_python runs the \
+fixed code. You are gold-free: you CANNOT see the held-out tests or the reference fix — reason only from \
+the issue and the code.
+
+Finish by calling submit_break:
+- verdict='broken' if you found a concrete case where the fixed code is still wrong — put that exact \
+failing case in `feedback` so the author can address it;
+- verdict='robust' if, after genuine effort, you could not defeat the fix. Be a strict but honest \
+adversary: only report 'broken' with a real, demonstrated failing case, never a vague doubt. Be \
 efficient; you have a limited step budget."""
 
 
@@ -108,6 +136,19 @@ class Selection:
     agent: AgentResult
 
 
+@dataclass
+class Break:
+    """The Breaker's verdict on a candidate fix, plus its agent run (telemetry)."""
+
+    verdict: str  # "robust" | "broken"
+    feedback: str
+    agent: AgentResult
+
+    @property
+    def broken(self) -> bool:
+        return self.verdict == "broken"
+
+
 def _parse_verdict(result: AgentResult) -> tuple[str, str]:
     """Extract (verdict, feedback) from the submit_review artifact. Fail-open to
     accept if the role never returned a clean verdict (never block the worker)."""
@@ -120,6 +161,21 @@ def _parse_verdict(result: AgentResult) -> tuple[str, str]:
         except (json.JSONDecodeError, TypeError, AttributeError):
             pass
     return "accept", ""
+
+
+def _parse_break(result: AgentResult) -> tuple[str, str]:
+    """Extract (verdict, feedback) from the submit_break artifact. Fail-open to
+    'robust' if the breaker never returned a clean verdict — a flaky adversary must
+    never discard a good fix; it can only ADD a 'broken' signal."""
+    if result.submission:
+        try:
+            data = json.loads(result.submission)
+            verdict = str(data.get("verdict", "")).strip().lower()
+            if verdict in ("robust", "broken"):
+                return verdict, str(data.get("feedback", "")).strip()
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            pass
+    return "robust", ""
 
 
 def run_critic(
@@ -217,3 +273,36 @@ def run_selector(
         except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
             pass
     return Selection(index, reason, result)
+
+
+def run_breaker(
+    inst: SWEBenchInstance,
+    session: ContainerSession,
+    client: LLMClient,
+    *,
+    brt_code: str,
+    fix_diff: str,
+    max_iterations: int,
+    max_total_tokens: int,
+    verbose: bool = False,
+) -> Break:
+    """Run the post-fix Breaker over a candidate fix (gold-free); return its verdict.
+
+    The fix is already applied in `session`, so the breaker's run_python probes the
+    agent's own fixed tree. It never sees the gold patch or the held-out tests.
+    """
+    system = BREAKER_SYSTEM_PROMPT.format(repo=inst.repo)
+    ctx = inst.context_safe_dict()
+    task = (
+        f"GitHub issue for `{ctx['instance_id']}` ({ctx['repo']}):\n\n{ctx['problem_statement']}\n\n"
+        f"--- Bug-reproduction test the fix already makes pass ---\n{brt_code}\n\n"
+        f"--- Candidate fix (already applied in the checkout) ---\n{fix_diff}\n\n"
+        "Try to defeat this fix by finding a case it still gets wrong, then call submit_break."
+    )
+    agent = Agent(
+        client, breaker_agent_tools(session), system,
+        max_iterations=max_iterations, max_total_tokens=max_total_tokens, verbose=verbose,
+    )
+    result = agent.run(task)
+    verdict, feedback = _parse_break(result)
+    return Break(verdict, feedback, result)

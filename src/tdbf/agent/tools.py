@@ -460,6 +460,47 @@ class SubmitSelectionTool(Tool):
         return ToolResult(json.dumps({"index": idx, "reason": reason}))
 
 
+class SubmitBreakTool(Tool):
+    """Terminal tool for the post-fix Breaker: record whether it could defeat the fix."""
+
+    name = "submit_break"
+    description = (
+        "Submit your verdict on the candidate fix and finish. `verdict` must be 'broken' (you found "
+        "a concrete case where the fixed code still violates what the issue says is correct, so the "
+        "fix is incomplete despite passing the BRT) or 'robust' (after genuine effort you could not "
+        "defeat it). When verdict='broken', `feedback` MUST describe the exact failing case the fix "
+        "author should handle. Call once."
+    )
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "verdict": {
+                "type": "string",
+                "enum": ["robust", "broken"],
+                "description": "'robust' if the fix withstood your attack, 'broken' if you defeated it.",
+            },
+            "feedback": {
+                "type": "string",
+                "description": "Concrete failing case / weakness; required when verdict='broken'.",
+            },
+        },
+        "required": ["verdict"],
+    }
+    terminal = True
+
+    def execute(self, arguments: dict) -> ToolResult:
+        verdict = str(arguments.get("verdict", "")).strip().lower()
+        if verdict not in ("robust", "broken"):
+            return ToolResult("submit_break requires verdict to be 'robust' or 'broken'.", is_error=True)
+        feedback = str(arguments.get("feedback", "")).strip()
+        if verdict == "broken" and not feedback:
+            return ToolResult(
+                "verdict='broken' requires non-empty 'feedback' describing the exact case that fails.",
+                is_error=True,
+            )
+        return ToolResult(json.dumps({"verdict": verdict, "feedback": feedback}))
+
+
 # Names allowed in a BRT agent's registry. Any tool outside this set — in
 # particular anything that could touch the gold/fixed tree — is rejected.
 _GOLD_FREE_TOOL_NAMES = frozenset(
@@ -479,6 +520,15 @@ _ROLE_TOOL_NAMES = frozenset(
 # test-writing, no source edits, no gold/fixed-tree tool.
 _SELECTOR_TOOL_NAMES = frozenset(
     {"read_file", "grep", "glob", "run_python", "submit_selection"}
+)
+
+# Names allowed in a post-fix Breaker registry (Phase C verification gate). The
+# breaker runs in the fix agent's session where the candidate fix is already
+# applied, so read_file/run_python observe the *agent's own* fixed tree (never
+# gold). Read-only inspection + run_python (probe the fix) + the terminal verdict.
+# No source edit, no test-write, no run_brt/run_tests, no gold/held-out tool.
+_BREAKER_TOOL_NAMES = frozenset(
+    {"read_file", "grep", "glob", "run_python", "submit_break"}
 )
 
 # Names allowed in a fix agent's registry (Phase B). These mutate the buggy tree
@@ -524,6 +574,14 @@ def assert_selector_gold_free(tools: list[Tool]) -> None:
     """Guard the Selector tool surface (best-of-N BRT selection). The selector
     only inspects and picks — same gold-free invariant, no fixed-tree tool."""
     _assert_allowed(tools, _SELECTOR_TOOL_NAMES)
+
+
+def assert_breaker_gold_free(tools: list[Tool]) -> None:
+    """Guard the post-fix Breaker tool surface. The breaker probes the agent's own
+    applied fix read-only and returns a verdict; the same gold-free invariant
+    applies — no source edit, no test-write, and no tool that observes the gold
+    patch or the held-out FAIL_TO_PASS / test_patch."""
+    _assert_allowed(tools, _BREAKER_TOOL_NAMES)
 
 
 def brt_agent_tools(session: ContainerSession) -> list[Tool]:
@@ -612,4 +670,23 @@ def selector_agent_tools(session: ContainerSession) -> list[Tool]:
         SubmitSelectionTool(),
     ]
     assert_selector_gold_free(tools)
+    return tools
+
+
+def breaker_agent_tools(session: ContainerSession) -> list[Tool]:
+    """Read-only gold-free toolset for the post-fix Breaker (verification gate).
+
+    The candidate fix is already applied in the shared session, so read_file shows
+    the fixed source and run_python probes the fixed behaviour. The breaker cannot
+    edit source, write/run a BRT, or see the held-out tests. It ends by calling
+    submit_break.
+    """
+    tools: list[Tool] = [
+        ReadFileTool(session),
+        GrepTool(session),
+        GlobTool(session),
+        RunPythonTool(session),
+        SubmitBreakTool(),
+    ]
+    assert_breaker_gold_free(tools)
     return tools
