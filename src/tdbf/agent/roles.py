@@ -79,11 +79,17 @@ buggy commit. Another agent produced a candidate FIX (shown as a diff) that alre
 bug-reproduction test (BRT) PASS. But passing the BRT is NECESSARY, NOT SUFFICIENT: a fix can satisfy \
 the test yet still be incomplete or wrong. Your job is to TRY TO DEFEAT this fix — not to edit code.
 
-Reason from the ISSUE about what a genuinely correct fix must do, then attack:
-- enumerate cases the issue implies (other inputs, edge cases, related code paths, the general behaviour \
-— not just the single example the BRT checks);
-- use run_python to exercise the ALREADY-APPLIED fix on those cases and observe what it actually does;
-- look for an input or behaviour where the fixed code still violates what the issue says is correct.
+Reason from the ISSUE about what a genuinely correct fix must do, then attack. The BRT's exact \
+scenario ALREADY passes — do NOT just re-run it. A fix is under-specified precisely on the cases the \
+BRT does NOT cover, so deliberately probe those:
+- the INVERSE / round-trip operation: if the fix adds or changes a writer, exercise the READER (and \
+write->read->write round-trips); if it adds a getter, exercise the setter — any symmetry the issue \
+implies must hold in BOTH directions, even when the BRT only checked one;
+- VARY every parameter beyond the BRT's exact value: try more, fewer, zero, one, and other valid \
+values (e.g. if the BRT passes a 2-element option, also try 3 elements, 1, an empty one, an unusual one);
+- other inputs, edge cases, and related code paths the issue implies but the BRT never touches.
+Use run_python to actually EXECUTE these on the ALREADY-APPLIED fix and observe what it does — never \
+guess. Look for any input or behaviour where the fixed code still violates what the issue says is correct.
 
 The fix is already applied in the checkout, so read_file shows the fixed source and run_python runs the \
 fixed code. You are gold-free: you CANNOT see the held-out tests or the reference fix — reason only from \
