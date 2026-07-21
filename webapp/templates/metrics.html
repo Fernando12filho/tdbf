@@ -24,14 +24,42 @@
 {%- endmacro %}
 
 <!-- ── [1] BRT quality ─────────────────────────────────────────────── -->
-<h2 class="h5 mb-3">1 · BRT quality <span class="text-muted fw-normal small">Phase A · C2P = L4/(L3+L4)</span></h2>
+<h2 class="h5 mb-3">1 · BRT quality <span class="text-muted fw-normal small">Phase A · C2P = F2P / (F2P + F2F)</span></h2>
+
+<!-- SWE-bench transition legend: a BRT's level IS its (buggy → gold-fixed) outcome. -->
+<div class="card mb-3 border-0 bg-light">
+  <div class="card-body py-3">
+    <div class="small text-muted mb-2 fw-semibold">How a generated test behaves on buggy code → gold-fixed code:</div>
+    <div class="row g-2 small">
+      <div class="col-md-6">
+        <span class="badge bg-success">F2P</span>
+        <span class="fw-semibold">Fail → Pass</span> <span class="text-muted">(= L4)</span> —
+        reproduces the bug and the gold fix clears it. <span class="text-success fw-semibold">The only valid BRT.</span>
+      </div>
+      <div class="col-md-6">
+        <span class="badge bg-info text-dark">F2F</span>
+        <span class="fw-semibold">Fail → Fail</span> <span class="text-muted">(= L3)</span> —
+        catches <em>a</em> failure, but the gold fix doesn't clear it (wrong assertion).
+      </div>
+    </div>
+    <div class="small text-muted mt-2">
+      <strong>C2P</strong> (candidate→plausible) <code>= F2P / (F2P + F2F)</code> = L4/(L3+L4).
+      L0–L2 = the test never ran cleanly on buggy code (malformed / crashed), so it forms no
+      transition. (SWE-bench <em>Pass→Pass</em> is the held-out regression suite, not a
+      generated BRT — not shown here.)
+    </div>
+  </div>
+</div>
+
 <div class="card mb-4">
   <div class="card-body p-0">
     <table class="table table-sm mb-0 align-middle">
       <thead><tr>
         <th>Arm</th>
         <th class="text-end">Inst</th>
-        <th class="text-center">L0 · L1 · L2 · L3 · L4</th>
+        <th class="text-center">L0 · L1 · L2 · <span class="text-info">F2F</span> · <span class="text-success">F2P</span></th>
+        <th class="text-end"><span class="text-success">F2P</span></th>
+        <th class="text-end"><span class="text-info">F2F</span></th>
         <th class="text-end">C2P</th>
         <th class="text-end">Valid-BRT</th>
       </tr></thead>
@@ -49,6 +77,8 @@
             <span class="text-info">{{ a.levels[3] }}</span> ·
             <span class="text-success fw-semibold">{{ a.levels[4] }}</span>
           </td>
+          <td class="text-end text-success fw-semibold">{{ a.levels[4] }}</td>
+          <td class="text-end text-info">{{ a.levels[3] }}</td>
           <td class="text-end">{{ pill(a.c2p) }}</td>
           <td class="text-end">{{ pill(a.valid) }}</td>
         </tr>
@@ -171,7 +201,7 @@
     <table class="table table-sm mb-0 align-middle">
       <thead><tr>
         <th>Model</th><th class="text-end">Inst</th>
-        <th class="text-center">L0 · L1 · L2 · L3 · L4</th><th class="text-end">C2P</th>
+        <th class="text-center">L0 · L1 · L2 · <span class="text-info">F2F</span> · <span class="text-success">F2P</span></th><th class="text-end">C2P</th>
       </tr></thead>
       <tbody>
         {% for a in rep.baseline_arms %}
