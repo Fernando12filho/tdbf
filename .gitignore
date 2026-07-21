@@ -52,3 +52,5 @@ scratchpad/
 *.synctex.gz
 thesis/main.pdf
 thesisproposal/main.pdf
+thesis/main.log
+thesisproposal/main.log
