@@ -1,0 +1,48 @@
+% ============================================================================
+% CHAPTER 2 — RELATED WORK
+% Source to adapt: thesisproposal/main.tex §2 (Literature Review) + the
+% related-work table in webapp/research_data.py (the vs_tdbf column is the
+% positioning argument for each paper — write it out in prose here).
+% ============================================================================
+\chapter{Related Work}
+\label{ch:related}
+
+\section{Bug Reproduction and Test Generation}
+\label{sec:related-brt}
+% TODO: adapt proposal §2.1 — AthenaTest, Qureshi'25, LIBRO (few-shot,
+% non-agentic), Cheng'25 BRT Agent (28% plausible BRTs, +30% fixes when fed
+% to APR). Add 2026 systems: ReProAgent (58/70% on SWT-bench), SWE-Doctor
+% (multi-faceted BRTs as runtime diagnosis).
+
+\section{Agentic Automated Program Repair}
+\label{sec:related-apr}
+% TODO: adapt proposal §2.2–2.3 — SWE-agent (the canonical reactive agent,
+% ~12%), MarsCode, Meng'24 empirical study (localization + reproduction are
+% THE bottlenecks — converging motivation), SWE-bench itself.
+% Add: APR traceability study ("shift-left" argument = our thesis).
+
+\section{Test-First Ordering in Agentic Repair}
+\label{sec:related-ordering}
+% TODO: NEW section (not in proposal) — the direct engagement with
+% Cheng'26 "Dynamic Cogeneration" (FSE'26): 120 internal Google bugs,
+% Gemini 2.5 Pro, TDD/TLD/Freeform via prompt instructions; found Freeform
+% best, TLD > TDD on candidateBRT@k, agent defaults to test-last.
+% Position: (a) their TDD is a prompt nudge inside ONE agent — ours is a
+% two-agent architecture with a hard validation gate; (b) their #1 failure
+% (test deleted as temporary) impossible here by construction; (c) private
+% vs public benchmark; (d) their failure #3 (fix overfits BRT) independently
+% replicated by our verification-gap finding. Also TDFlow (TDD framing,
+% no controlled ordering experiment).
+
+\section{Evaluation Methodology}
+\label{sec:related-eval}
+% TODO: adapt proposal §2.4 — why observable outcomes (resolved-rate,
+% held-out tests) rather than proxy similarity metrics (BLEU/CodeBLEU
+% unreliable, Evtikhiev'23).
+
+\section{Summary of the Gap}
+\label{sec:related-gap}
+% TODO: adapt proposal §2.5 — no controlled evaluation of test-first as a
+% mandatory ARCHITECTURAL constraint against a matched reactive baseline on
+% public data. Cheng'26 got close but: prompt-level enforcement, private
+% dataset, cogeneration (one agent) rather than gated two-phase pipeline.

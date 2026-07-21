@@ -1,0 +1,119 @@
+% ============================================================================
+% TDBF — Master's Thesis
+% Test-Driven Bug Fixing: How Pre-Fix Test Generation Improves
+% Agentic AI Success Rates
+%
+% Build:  pdflatex main && bibtex main && pdflatex main && pdflatex main
+%   (or:  latexmk -pdf main)
+%
+% Skeleton only — chapters contain structure + TODO notes, no prose yet.
+% The proposal (../thesisproposal/main.tex) is the source to adapt for
+% chapters 1–4; results/discussion await the two-arm sweep.
+% ============================================================================
+\documentclass[12pt]{report}
+
+\usepackage[a4paper, margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{times}
+\usepackage{setspace}
+\usepackage{float}
+\usepackage[section]{placeins}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{url}
+\usepackage{xurl}
+\usepackage{makecell}
+\usepackage[hidelinks]{hyperref}
+
+% Figures live outside this folder: repo-level figures/ (pipeline + agent
+% diagrams) and the proposal's figures/.
+\graphicspath{{../figures/}{../thesisproposal/figures/}}
+
+\setlength{\emergencystretch}{3em}
+\onehalfspacing
+
+\begin{document}
+\hypersetup{pageanchor=false}
+
+% ============================================================================
+% TITLE PAGE
+% ============================================================================
+\begin{titlepage}
+\begin{center}
+
+\vspace*{0.7in}
+
+\LARGE{\textbf{Test-Driven Bug Fixing: How Pre-Fix Test Generation Improves Agentic AI Success Rates}} \\[0.3in]
+
+\large{Master's Thesis} \\[1in]
+
+\textbf{Submitted by} \\[0.15in]
+Fernando Guimaraes \\
+Department of Computer Science \\
+Florida Polytechnic University \\
+Lakeland, FL 33805 \\[0.8in]
+
+\textbf{Advisor:} \\
+Dr.\ Ayesha Dina \\[0.6in]
+
+\textbf{Committee Members:} \\[0.2in]
+Dr.\ Luis Jaimes \\
+Dr.\ Ayesha Dina \\
+Dr.\ Sanjeeta N.\ Ghimire \\
+
+\end{center}
+\end{titlepage}
+
+\hypersetup{pageanchor=true}
+\pagenumbering{roman}
+
+% ============================================================================
+% FRONT MATTER
+% ============================================================================
+\begin{abstract}
+% TODO: write last. One paragraph each: (1) problem — agentic APR is reactive,
+% BRTs known to help but never enforced as a pre-fix architectural constraint;
+% (2) approach — two-agent test-first pipeline with a gold-free validation
+% gate, evaluated on SWE-bench Lite against a matched reactive baseline;
+% (3) headline numbers — resolved-rate Δ, C2P, cost (fill after sweep);
+% (4) contributions — empirical evidence on ordering, gold-free gate design,
+% BRT-quality characterization (RQ2), open replication of Cheng '26 findings.
+\end{abstract}
+
+\tableofcontents
+\listoffigures
+\listoftables
+\clearpage
+
+\pagenumbering{arabic}
+\setcounter{page}{1}
+
+% ============================================================================
+% CHAPTERS
+% ============================================================================
+\input{chapters/1_introduction}
+\input{chapters/2_related_work}
+\input{chapters/3_methodology}
+\input{chapters/4_experiments}
+\input{chapters/5_results}
+\input{chapters/6_discussion}
+\input{chapters/7_conclusion}
+
+% ============================================================================
+% BIBLIOGRAPHY
+% ============================================================================
+% \nocite{*} keeps every references.bib entry visible while chapters have no
+% \cite commands yet — REMOVE once chapters cite properly.
+\nocite{*}
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

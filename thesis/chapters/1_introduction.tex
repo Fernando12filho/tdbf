@@ -1,0 +1,52 @@
+% ============================================================================
+% CHAPTER 1 — INTRODUCTION
+% Source to adapt: thesisproposal/main.tex §1 (Introduction, Motivation and
+% Problem Statement) — largely portable; update tense (proposal→done) and the
+% dataset (Lite, not Verified).
+% ============================================================================
+\chapter{Introduction}
+\label{ch:introduction}
+
+\section{Context and Motivation}
+\label{sec:intro-context}
+% TODO: adapt proposal §1 paragraphs 1–3: debugging cost, LLM agents, the
+% ~12% SWE-bench reactive baseline (SWE-agent), Cheng'25 finding that BRTs
+% lift plausible-fix rate by 30%.
+
+\section{Problem Statement}
+\label{sec:intro-problem}
+% TODO: adapt proposal §1.1. Core problem: reactive agents patch before they
+% hold an executable specification of the failure. Test-first gives the fix
+% stage a precise optimization target.
+
+\section{Thesis Statement and Approach}
+\label{sec:intro-thesis}
+% TODO: one crisp paragraph: mandating a VALIDATED (verifiably failing)
+% bug-reproduction test before any fix attempt, enforced as an architectural
+% gate (not a prompt instruction), improves agentic repair on SWE-bench Lite
+% versus a matched reactive baseline.
+% NOTE: the "architectural gate vs prompt nudge" distinction is what
+% separates this work from Cheng'26 cogeneration — introduce it HERE.
+
+\section{Research Questions}
+\label{sec:intro-rqs}
+% TODO: adapt proposal §3 (RQ1–RQ3), updated to the executed design:
+% RQ1 — test-first (arm B) vs reactive (arm A) resolved-rate on Lite,
+%       matched model/tools/budgets; paired design.
+% RQ2 — which BRT properties predict fix success (offline artifact analysis:
+%       assertion density, determinism, gold-patch-line coverage).
+% RQ3 — pipeline/orchestration characteristics: attempt budgets, reviewer,
+%       post-fix breaker, best-of-N (includes the negative results).
+
+\section{Contributions}
+\label{sec:intro-contributions}
+% TODO: adapt proposal §Contributions; add what emerged during the work:
+% (1) controlled ordering experiment on public data;
+% (2) the gold-free gate design + its enforcement (assert_gold_free);
+% (3) BRT-quality framework (RQ2);
+% (4) negative results: depth-1 self-review (Critic/Breaker) fail-open
+%     without an oracle; weak-model (7–14B) inability to sustain the loop.
+
+\section{Thesis Organization}
+\label{sec:intro-organization}
+% TODO: one paragraph, write last.

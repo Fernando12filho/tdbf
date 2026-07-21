@@ -1,0 +1,53 @@
+% ============================================================================
+% CHAPTER 4 — EXPERIMENTAL DESIGN
+% Source to adapt: thesisproposal/main.tex §5 (Experiments) with the DECIDED
+% design (2026-07-21): SWE-bench Lite as scoring dataset (NOT Verified —
+% proposal must be corrected), two arms, pilot → frozen sample → sweep.
+% ============================================================================
+\chapter{Experimental Design}
+\label{ch:experiments}
+
+\section{Dataset}
+\label{sec:exp-dataset}
+% TODO: SWE-bench Lite (300 instances, 12 repos; django 114, sympy 77,
+% matplotlib 23, sklearn 23, ...). Justify Lite-over-Verified decision
+% (cost/scale under a fixed budget; identical harness and scoring).
+% BugsInPy/GitBugs: descoped (Future Work).
+
+\section{Arms}
+\label{sec:exp-arms}
+% TODO: Arm A (reactive) vs Arm B (test-first / deployable pipeline).
+% Matched: model (claude-sonnet-4-6), tool budgets (max_iterations,
+% max_total_tokens), container, harness, per-instance attempt budget.
+% Differ ONLY in: Phase 1 presence + run_brt tool.
+% Weak-model configuration (qwen 7–14B local): report as a capability
+% finding, not a headline arm.
+
+\section{Sampling and Pairing}
+\label{sec:exp-sampling}
+% TODO: pilot ~20 random Lite instances (both arms) to fix Δ-estimate and
+% per-instance cost; then a frozen, stratified-by-repo random sample of
+% ~150 instances committed to the repository BEFORE the sweep. Paired
+% design: every instance through both arms.
+% CAVEAT to state explicitly: the 13-instance development set (all astropy
+% Lite + 7 early django, 9/13 resolved) was NON-random and is reported as
+% pilot-quality evidence only.
+
+\section{Outcome Measures and Analysis}
+\label{sec:exp-metrics}
+% TODO: primary — resolved-rate per arm + Δ with bootstrap 95% CI (10k
+% resamples) and McNemar's test on discordant pairs. Secondary — C2P,
+% gate-accept rate, cost per instance, iterations/tokens.
+% RQ2 (offline, over stored artifacts): assertion density / LOC / exact-value
+% vs raises-only (ast), determinism (3× re-run), gold-patch-line coverage
+% (gold legal offline); logistic regression vs resolved.
+% RQ3 (ablations, includes negatives): attempt budget, reviewer (revise-rate
+% 1/14 on the strong model), post-fix breaker (n=2 fail-open robust),
+% best-of-N BRT selection.
+
+\section{Compute Budget and Infrastructure}
+\label{sec:exp-budget}
+% TODO: ~$500 total; measured ~$0.25/instance (arm B, Phase A+gate) and
+% ~$0.50 (A+B phases); sweep estimate 150×2 ≈ $180. Docker (Colima) local
+% image builds are the wall-clock bottleneck, not API cost. Reproducibility:
+% results.jsonl append-only log; runs/ + logs/ artifacts; frozen sample file.

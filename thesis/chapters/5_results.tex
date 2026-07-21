@@ -1,0 +1,43 @@
+% ============================================================================
+% CHAPTER 5 — RESULTS
+% Awaits the pilot + sweep. Structure fixed now so tables land in place.
+% Data sources when writing: results.jsonl via src/tdbf/metrics.py
+% (build_report — same numbers as the webapp /metrics page and script 08).
+% ============================================================================
+\chapter{Results}
+\label{ch:results}
+
+\section{RQ1: Test-First versus Reactive}
+\label{sec:results-rq1}
+% TODO after sweep. Planned tables/figures:
+%   Table: resolved-rate per arm (n, resolved, rate, Δ, 95% bootstrap CI,
+%          McNemar p) — overall and per-repo.
+%   Figure: per-instance paired outcome grid (A✓B✓ / A✓B✗ / A✗B✓ / A✗B✗).
+%   Table: cost and efficiency per arm (tokens, iterations, $/instance,
+%          $/resolved).
+
+\section{BRT Generation Quality (Phase 1)}
+\label{sec:results-brt}
+% TODO: L0–L4 distribution, C2P, gate-accept rate on the sweep sample;
+% development-set numbers (C2P 5/6 = 0.83 astropy) reported as pilot.
+
+\section{RQ2: BRT Properties and Fix Success}
+\label{sec:results-rq2}
+% TODO after offline analysis: property distributions, correlation /
+% regression table (property → resolved), the verification-gap cases
+% (L4-passing fixes that fail the held-out oracle).
+
+\section{RQ3: Pipeline Characteristics}
+\label{sec:results-rq3}
+% TODO: ablation results incl. NEGATIVE results reported as findings:
+%   - reviewer/critic on a strong model: revise-rate 1/14 (near no-op);
+%   - post-fix breaker: n=2 false-negative 'robust' — depth-1 self-review
+%     without an oracle fail-opens (14182: misattributed ambiguous error;
+%     7746: plausible wrong value, symmetric probes only);
+%   - best-of-N BRT + selector; attempt budgets.
+
+\section{Weak-Model Configuration}
+\label{sec:results-weak}
+% TODO: qwen2.5/3.5 (7–14B): tool-calling works, autonomous loop does not
+% (Phase A C2P 0.00; Phase B empty patches); prompt-harden + bigger-model
+% ladder did not close the gap → capability, not scaffolding.
