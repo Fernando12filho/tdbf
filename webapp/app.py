@@ -16,6 +16,7 @@ from flask import (
 )
 
 import db
+import research_data
 
 from tdbf import metrics as tdbf_metrics
 
@@ -117,6 +118,18 @@ def metrics():
     (the same single source of truth the CLI report 08_metrics_report.py uses)."""
     recs = tdbf_metrics.load_records(RESULTS_FILE)
     return render_template("metrics.html", rep=tdbf_metrics.build_report(recs))
+
+
+@app.route("/research")
+def research():
+    """Research hub: plan status, decisions log, related-work comparison.
+    Content lives in research_data.py (git-versioned, reviewable in diffs)."""
+    return render_template(
+        "research.html",
+        plan=research_data.RESEARCH_PLAN,
+        decisions=research_data.DECISIONS,
+        related=research_data.RELATED_WORK,
+    )
 
 
 # ── docs / research log ─────────────────────────────────────────────────────
