@@ -24,12 +24,13 @@ Usage:
       --model anthropic:claude-sonnet-4-6 -v
   python3 scripts/06_agent_pipeline.py --limit 5 --model anthropic:claude-sonnet-4-6
   python3 scripts/06_agent_pipeline.py --id astropy__astropy-12907 --brt-only   # stop after Phase A
-  python3 scripts/06_agent_pipeline.py --id astropy__astropy-12907 --multi      # Phase C: + Critic/Reviewer
+  python3 scripts/06_agent_pipeline.py --id astropy__astropy-12907 --multi      # + Phase B Reviewer
 
-Phase C (`--multi`) adds a Critic that reviews the BRT for specificity (Phase A)
-and a Reviewer that judges fix minimality (Phase B); the same model self-reviews,
-so the single-agent run (no flag) stays the clean RQ4 baseline. Both roles are
-gold-free. See `tdbf.agent.roles`.
+`--multi` adds multi-agent review to the FIX phase only (a Reviewer that judges the
+candidate fix; the same model self-reviews). Phase A (BRT) is always single-agent —
+the BRT is only a means to drive the fix, and a Critic there was a near-no-op on a
+capable model. The single-agent run (no flag) is the baseline. Roles are gold-free.
+See `tdbf.agent.roles`.
 """
 
 from __future__ import annotations
@@ -105,8 +106,11 @@ def run_one(
     else:
         print(f"Model:     {client.name}")
 
-    # ===================== PHASE A — BRT agent (+ optional Critic) ========== #
-    print(f"\n--- Phase A: BRT agent{' + Critic' if multi else ''} ---")
+    # ===================== PHASE A — BRT agent (always single-agent) ======== #
+    # The BRT is only a means to drive the fix; multi-agent effort lives in
+    # Phase B. (A Critic here was a near-no-op on a capable model: revise-rate
+    # 1/14 on Sonnet — so Phase A stays single-agent.)
+    print("\n--- Phase A: BRT agent ---")
     brt = run_brt_phase(
         inst, client,
         max_iterations=max_iterations,
@@ -114,8 +118,6 @@ def run_one(
         prompt_harden=prompt_harden,
         keep_container=keep_container,
         verbose=verbose,
-        critic_client=client if multi else None,  # self-review: same model, clean RQ4
-        critic_rounds=review_rounds if multi else 0,
     )
     if brt is None:  # container could not start
         return None
@@ -128,7 +130,7 @@ def run_one(
                  "prompt_harden": prompt_harden,
                  "num_ctx": (client._num_ctx if isinstance(client, OllamaClient) else None),
                  "submit_nudge_limit": brt.submit_nudge_limit,
-                 "multi": multi, "review_rounds": review_rounds if multi else 0,
+                 "multi": False,  # Phase A is always single-agent now
                  "pipeline": True}
     save_run(brt_run_record(inst, client.name, split=split, flags=brt_flags, phase=brt))
 
@@ -194,10 +196,11 @@ def main() -> int:
     ap.add_argument("--prompt-harden", action="store_true",
                     help="Append the tool-use protocol block to the BRT prompt (RQ1 weak-arm).")
     ap.add_argument("--multi", action="store_true",
-                    help="Phase C: add a Critic (Phase A) + Reviewer (Phase B), same model "
-                         "self-reviewing. Single-agent (no flag) is the RQ4 baseline.")
+                    help="Add multi-agent review to the FIX phase (Phase B Reviewer), same "
+                         "model self-reviewing. Phase A (BRT) is always single-agent. "
+                         "Single-agent (no flag) is the baseline.")
     ap.add_argument("--review-rounds", type=int, default=1,
-                    help="Max critic/reviewer revise rounds per phase when --multi is set.")
+                    help="Max Reviewer revise rounds in Phase B when --multi is set.")
     ap.add_argument("--keep-container", action="store_true",
                     help="Do not remove agent containers after the run (debugging).")
     ap.add_argument("-v", "--verbose", action="store_true", help="Stream each agent's tool trace.")
