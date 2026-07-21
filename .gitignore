@@ -35,3 +35,20 @@ webapp/tdbf.db
 ~/.cache/huggingface/
 figures/
 docs/
+
+# Local experiment logs / scratch
+scratchpad/
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.lof
+*.lot
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+thesis/main.pdf
+thesisproposal/main.pdf

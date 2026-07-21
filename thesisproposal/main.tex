@@ -1,0 +1,602 @@
+% \documentclass[journal,onecolumn]{IEEEtran}
+\documentclass[12pt]{article}
+\usepackage[a4paper, margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{cite}    % For IEEE citation style
+\usepackage{array}   % For table formatting
+\usepackage{ragged2e} % Add this package
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{tabularx}
+\usepackage{multirow} 
+\usepackage{comment}
+\usepackage{times}
+\usepackage{helvet}
+\usepackage{courier}
+\usepackage{setspace}
+\usepackage{float}
+\usepackage[section]{placeins}
+\usepackage{pgfgantt}
+%%Added new packages
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{url}
+\usepackage{xurl}
+\usepackage{lipsum}   % For generating placeholder text
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{tabularx}
+\usepackage{makecell}       % For wrapping headers nicely
+\renewcommand\theadalign{cc}
+\renewcommand\theadfont{\bfseries}
+\renewcommand\theadgape{\Gape[4pt]}
+\renewcommand\cellgape{\Gape[4pt]}
+
+
+
+\setlength{\pdfpagewidth}{8.5in}
+\setlength{\pdfpageheight}{11in}
+\setlength{\emergencystretch}{3em}
+
+
+
+
+\begin{document}
+\hypersetup{pageanchor=false}
+
+% ============================================================================
+% TITLE PAGE
+% ============================================================================
+
+\begin{titlepage}
+\begin{center}
+
+\vspace*{0.7in}  % reduce top spacing
+
+\LARGE{\textbf{Test-Driven Bug Fixing: How Pre-Fix Test Generation Improves Agentic AI Success Rates}} \\[0.3in]
+
+\large{Master's Thesis Proposal} \\[1in]
+
+\textbf{Submitted by} \\[0.15in]
+Fernando Guimaraes \\
+Department of Computer Science \\
+Florida Polytechnic University \\
+Lakeland, FL 33805 \\
+April 23^r^d, 2026 \\[0.8in]
+
+\textbf{Advisor:} \\
+Dr. Ayesha Dina\\[0.6in]
+
+\textbf{Committee Members:} \\[0.2in]
+Dr. Luis Jaimes \\
+Dr. Ayesha Dina\\
+Dr. Sanjeeta N. Ghimire \\
+
+\end{center}
+\end{titlepage}
+
+\newpage
+\hypersetup{pageanchor=true}
+\setcounter{page}{1}
+\pagenumbering{arabic}
+
+\tableofcontents
+\newpage
+
+% ============================================================================
+% 1. INTRODUCTION
+% ============================================================================
+
+\section{Introduction}
+
+Software development is a critical and costly activity in the software development lifecycle. Developers spend considerable time writing clear bug reports, gathering diagnostic information, creating test cases, and investigating root causes before implementing fixes. This debugging workflow is repetitive, time-consuming, and represents a significant bottleneck in development cycles.
+
+Recent advances in large language models (LLMs) and agent-based software engineering systems have shown promise in automating tasks such as code generation, testing, and program repair. However, current state-of-the-art systems still struggle with bug fixing: the SWE-bench benchmark shows that the best performing systems solve only approximately~12\% of real-world GitHub issues~yang et al.,~\cite{Yang2024SWEagent}.
+
+A critical insight from recent work is that the presence of Bug Reproduction Test (BRT) significantly improves outcomes. Google's internal study on agentic bug reproduction~cheng et al.,~\cite{Cheng2025Agentic} demonstrated that providing automated program repair systems with high-quality BRT increases the percentage of bugs achieving plausible fixes by~30\%. 
+
+However, this insight has not been systematically applied to agent architecture design. Current agents attempt fixes first, then validate reactively. We propose reversing this order: \emph{mandating that agents generate targeted test cases based on the bug report and codebase context before attempting any fix}. This test-driven approach mirrors best practices in human software development and leverages the agent's code understanding to improve fix quality.
+
+The theoretical rationale is that generated tests act as executable specifications that constrain the patch search space. By forcing failure reproduction first, the agent receives earlier and sharper feedback signals than post-hoc validation, which should reduce unfocused edits and improve repair precision.
+
+\subsection{Motivation and Problem Statement}
+
+The core problem is this: how can we engineer agent-based AI systems that fix more bugs by adopting a test-first development approach rather than reactive validation?
+
+In reactive pipelines, agents often begin patching before they have an executable specification of the failure. This can cause misinterpretation of the bug report, unfocused code changes, and regressions in unrelated functionality.
+
+In a test-first pipeline, the agent must first produce BRT that fail on the buggy version and encode the expected behavior. The fix stage then has a precise optimization target (make those tests pass while preserving existing behavior), which narrows search space and improves feedback quality.
+
+While test generation from specifications has been studied (e.g., tufano et al.,~\cite{Tufano2020AthenaTest}) and automated program repair is well-established (e.g., jimenez et al.,~\cite{Jimenez2023SWEbench}), their integration as a mandatory \emph{pre-fix architectural constraint} in agent-based workflows remains underexplored. This proposal addresses that gap with a clearer execution model: test generation first, patch generation second, and acceptance only through executable validation.
+
+% ============================================================================
+% 2. LITERATURE REVIEW
+% ============================================================================
+
+\section{Literature Review}
+
+\subsection{Bug Reproduction and Test Case Generation}
+
+Test case generation from natural language specifications and code has been studied.~Tufano et al.,~\cite{Tufano2020AthenaTest} introduced AthenaTest, a transformer-based approach for generating unit test cases from method context. Their evaluation on the Defects4J benchmark showed that developer-preferred, readable tests could be generated at scale.
+
+More recently, qureshi et al.,~\cite{Qureshi2025TestCase} evaluated LLM-based test case generation from bug reports using a cognitive layered evaluation framework Bloom's taxonomy. They found that while LLMs understand simple test specifications, they struggle with identifier mutations and complex semantic requirements. Crucially, they showed that providing near-identical examples improves success rates by up to 3 times, and that structural technical elements like method signatures, and test code are far more impactful than narrative descriptions.
+
+Cheng et al.,~\cite{Cheng2025Agentic} at Google studied the practical challenge of automated BRT generation. Their BRT Agent achieved~28\% success in generating plausible BRTs from bug reports on Google's internal codebase, compared to only~10\% with baseline LIBRO~kang et al.,~\cite{Kang2023LIBRO}. Most critically, when BRTs were integrated with an automated program repair system, 30\% more bugs achieved plausible fixes.
+
+While these works demonstrate that high-quality BRT improve fixing, no work has systematically studied whether \emph{agentic test generation as a mandatory pre-fix stage} improves overall bug-fixing success rates compared to reactive approaches. Furthermore, prior work does not clearly characterize which pre-fix test properties are most predictive of final repair success, nor which orchestration choices best support test-first workflows.
+
+\subsection{Agentic AI for Software Engineering}
+
+The emergence of LLM-based agents has opened new possibilities for software engineering tasks.~Yang et al.,~\cite{Yang2024SWEagent} introduced SWE-agent, which uses a custom agent-computer interface (ACI) to enable LM agents to navigate repositories, edit code, and run tests. SWE-agent achieved state-of-the-art results on SWE-bench with 12.5\% pass score, demonstrating that interface design significantly impacts agent capability.
+
+Liu et al.,~\cite{Liu2024MarsCode} presented MarsCode Agent, an AI-native framework for automated bug fixing that combines planning, bug reproduction, fault localization, candidate patch generation, and validation. Their approach achieved high success rates on SWE-bench compared to earlier baselines.
+
+Meng et al.,~\cite{Meng2024Empirical} conducted an empirical study comparing six repair agents on SWE-bench Verified, finding that further optimization is needed in both LLM capability and agentic flow design. Critically, they identified fault localization accuracy and bug reproduction capability as key bottlenecks.
+
+% Agent architecture and stage ordering significantly impact performance. While prior systems optimize components such as localization, patch synthesis, and validation, they do not isolate whether generating tests \emph{before} patching yields measurable end-to-end gains versus reactive ordering.
+
+\subsection{Automated Program Repair (APR)}
+
+Automated program repair has roots in neural program synthesis and traditional symbolic approaches.~Jimenez et al.,~\cite{Jimenez2023SWEbench} introduced SWE-bench, an evaluation benchmark of 2,294 real GitHub issues. The best model such as Claude 2 solves only 1.96\% of issues, highlighting the difficulty of real-world program repair.
+
+Traditional APR systems often leverage pre-existing test suites for validation. Our proposal extends this by considering \emph{agent-generated} tests as the validation mechanism, which may provide stronger signals when human-written tests are sparse or inadequate.
+
+Beyond fix/no-fix outcomes, this proposal also evaluates test quality itself, such as detection coverage, assertion density, and behavioral specificity, treating tests as first-class artifacts in the repair pipeline.
+
+\subsection{Evaluation and Metrics for Code Generation}
+
+A critical methodological consideration is that automated metrics often do not reflect real repair quality.~Evtikhiev et al.,~\cite{Evtikhiev2023BLEU} showed that BLEU and CodeBLEU, which are commonly used to evaluate code generation models, fail to correlate reliably with human judgment. For code generation, metric differences below five points are unreliable, and for some tasks even differences below two points are not statistically meaningful. For this reason, our study will rely on observable outcomes such as test pass rates, bootstrap-based significance testing, and human validation on representative samples rather than on proxy similarity metrics. We will measure success via explicit test-passing rates and SWE-bench ground truth, not by proxy metrics.
+
+\subsection{Summary of Literature Gap}
+
+Prior work shows LLMs can generate useful tests from code and natural-language artifacts, BRT can materially improve repair outcomes, and agent workflow design strongly influences end-to-end performance.
+
+At the same time, real-world automated repair remains difficult, with low success rates and frequent failures from weak fault localization, incomplete reproduction, and over-broad edits that introduce regressions. These observations suggest that the ordering and constraints of the agent pipeline are central to performance, not just model size.
+
+The missing piece is an integrated, controlled evaluation of \emph{test-first agentic repair}: requiring agents to generate and validate BRT before any code patching, and then measuring whether this constraint improves fix rate, robustness, and efficiency over reactive baselines. This proposal fills that gap.
+
+% ============================================================================
+% 3. RESEARCH QUESTIONS AND MOTIVATION
+% ============================================================================
+
+\section{Research Questions and Motivation}
+
+The literature suggests that test generation capability, repair capability, and orchestration are each important, but it does not establish how they should be composed in a practical debugging pipeline. To address this, we frame three research questions that move from overall impact, to test design mechanisms, to pipeline characteristics and coordination choices. Together, these questions provide both scientific evidence and actionable design guidance for building stronger agent-based bug-fixing systems.
+
+\subsection{(RQ1) How much does a test-first agentic pipeline improve bug-fixing success rates compared to standard reactive approaches?}
+
+This question evaluates the core claim of this proposal: enforcing test generation before patching should increase end-to-end repair success. Using SWE-bench as the evaluation substrate, we will compare a reactive baseline, approximately $\sim$12\% success in prior reports, against the proposed test-first pipeline. Our working hypothesis is that a test-first architecture can raise fix rates to the 18--25\% range, representing at least a 50\% relative improvement. Success will be measured by issue resolution rates under generated tests, project tests passing and validated against benchmark ground truth. This question is foundational because it determines whether the proposed architectural constraint yields a practically meaningful gain.
+
+\subsection{(RQ2) What characteristics make an effective bug reproduction test, and how do design choices impact fix validation?}
+
+This question investigates why some generated tests are useful for repair while others are not. We will examine how test properties such as code coverage, assertion density, specificity versus generality, and overall test complexity relate to downstream fix success. The analysis will use correlational and regression-based methods to connect measurable test attributes with repair outcomes across benchmark instances. By identifying which test characteristics provide the strongest guidance signal, this question transforms test generation from a generic prerequisite into an optimizable component of the pipeline and provides concrete guidance for prompt design and agent control.
+
+\subsection{(RQ3) Which pipeline characteristics and information-flow strategies most improve fix quality and reliability?}
+
+This question focuses on orchestration: even with strong tests and a capable model, outcomes depend on how workflow components are coordinated. We will conduct ablation studies over pipeline variants to determine the effect of key design decisions, including fix-attempt budget per issue, whether test generation should be iteratively refined after failed patches, and which feedback channels (e.g., failing assertions, stack traces, syntax diagnostics) most effectively guide subsequent actions. The goal is to identify a robust coordination strategy that maximizes reliability under realistic compute budgets. Findings from this question will produce an actionable architecture blueprint for production-grade AI-assisted debugging systems.
+
+In addition, we will analyze whether certain bug categories are more amenable to test-first repair, to better characterize method scope and failure modes. Figure~\ref{fig:rq-flow-placeholder} summarizes the logic connecting impact measurement, mechanism analysis, and pipeline coordination analysis.
+
+\begin{figure}[H]
+\noindent\includegraphics[width=\textwidth,height=0.82\textheight,keepaspectratio]{figures/rqflow.png}
+\caption{Research-question flow used to motivate the staged evaluation design.}
+\label{fig:rq-flow-placeholder}
+\end{figure}
+
+The figure shows how the evaluation proceeds from outcome-focused comparison to explanation-focused analysis. RQ1 quantifies whether test-first ordering improves resolved-issue rate, RQ2 explains which test properties drive that improvement, and RQ3 identifies which coordination patterns best preserve those gains under fixed budgets.
+
+% ============================================================================
+% 4. PROPOSED METHODOLOGY
+% ============================================================================
+
+\section{Proposed Methodology}
+
+\subsection{Framework Overview}
+
+This study adopts a mandatory test-first architecture for agent-based bug fixing. The pipeline enforces a strict order: the system must first generate an executable bug reproduction test, verify that it fails on the buggy revision, and only then attempt code repair. A candidate patch is accepted only if it makes the generated reproduction test pass while preserving the repository's existing behavior.
+
+The methodology compares two workflows under matched compute constraints, a reactive baseline that generates patches first and validates afterward, and the proposed two-stage test-first system. Both conditions use identical model class, tool access, timeout policy, and per-instance attempt budget so that differences in outcome can be attributed to workflow design rather than infrastructure differences.
+
+\begin{figure}[H]
+\noindent\includegraphics[width=\textwidth,height=0.82\textheight,keepaspectratio]{figures/figure4_pipeline_sips.png}
+\caption{Pipeline execution flow: reactive patch-first baseline versus test-first stage-ordered workflow.}
+\label{fig:evaluation-flow-compact}
+\end{figure}
+
+Figure~\ref{fig:evaluation-flow-compact} highlights the key architectural difference between conditions: in the test-first pipeline, an executable failing test is produced and validated before any patch attempt. This ordering creates a concrete target for repair and narrows the patch search space.
+
+\subsection{Coordinator-Based Pipeline Architecture}
+
+The implementation follows a coordinator-driven architecture with two explicit phases.
+
+\subsubsection{Phase 1: Test Generation and Failure Reproduction}
+
+In Phase 1, the test-generation component receives the issue report and repository context, then proposes one or more reproduction tests. A generated test is retained only if it compiles, runs, and fails on the buggy base revision. Timeouts, syntax/import failures, and non-failing tests are logged as explicit Phase 1 failures.
+
+Phase 1 prompting includes compact few-shot exemplars of high-quality reproduction tests. The coordinator stores intermediate artifacts from this phase such as failing assertions, stack traces, and execution logs, which become structured inputs for the repair phase.
+
+% \[
+% V_{test}(T)=
+% \begin{cases}
+% 1, & \text{if generated tests fail on buggy code and pass after a correct patch}\\
+% 0, & \text{otherwise}
+% \end{cases}
+% \]
+
+
+\subsubsection{Phase 2: Fix Generation}
+
+In Phase 2, the repair component receives the issue context together with the validated reproduction test and Phase 1 execution traces, then generates candidate patches constrained by that executable target. A candidate patch is accepted only if it resolves the failing reproduction behavior and preserves repository behavior under existing regression tests.
+
+The coordinator enforces attempt limits, timeout policy, and full trace logging for each patch attempt. This keeps repair decisions auditable and makes failure modes measurable for later ablation analysis.
+
+To evaluate architectural effects rather than model-brand effects, we will use the same model family across conditions in each run configuration. The primary configuration will use one frontier tool-using model and one open-source comparison model, with fixed prompts and fixed tool permissions across baseline and test-first pipelines.
+
+The baseline condition is a reactive patch-first variant with the same model, tools, and budgets, but without access to Stage 1 generated tests. This ensures that measured gains are attributable to pipeline ordering rather than additional privileged information.
+% \[
+% V_{patch}(P)=
+% \begin{cases}
+% 1, & \text{if } \mathrm{F2P}(P)=1.0 \text{ and } \mathrm{P2P}(P)=1.0\\
+% 0, & \text{otherwise}
+% \end{cases}
+% \]
+
+% The primary outcome for RQ1 is the success-rate difference between workflows:
+% \[
+% \Delta = S_{test\text{-}first} - S_{reactive}.
+% \]
+
+% \subsection{Simplified Formal Framework}
+
+% The test-first pipeline uses two binary checks:
+% \[
+% V_{test}(T)=
+% \begin{cases}
+% 1, & \text{if generated tests fail on buggy code and pass after a correct patch}\\
+% 0, & \text{otherwise}
+% \end{cases}
+% \]
+
+% \[
+% V_{patch}(P)=
+% \begin{cases}
+% 1, & \text{if } \mathrm{F2P}(P)=1.0 \text{ and } \mathrm{P2P}(P)=1.0\\
+% 0, & \text{otherwise}
+% \end{cases}
+% \]
+% The primary outcome for RQ1 is the success-rate difference between workflows:
+% \[
+% \Delta = S_{test\text{-}first} - S_{reactive}.
+% \]
+% For RQ2, we test whether stronger tests are associated with better repair outcomes by relating patch success to practical test attributes such as coverage, assertion density, and specificity.
+
+
+
+% \begin{figure}[!tbp]
+% \centering
+% \small
+% \fbox{%
+% \begin{minipage}{0.92\columnwidth}
+% \textbf{Agent pipeline:} Issue + context $\rightarrow$ test-generation agent $\rightarrow$ failing reproduction test $\rightarrow$ repair agent $\rightarrow$ validation $\rightarrow$ resolved or failed.\\
+% \textbf{Acceptance rules:} test must fail on buggy code; patch must pass generated and project tests.\\
+% \textbf{Isolation:} one Docker container per issue, with fixed budget and full logging.
+% \end{minipage}%
+% }
+% \caption{Compact summary of the two-stage agent architecture.}
+% \label{fig:agent-architecture-compact}
+% \end{figure}
+
+% ============================================================================
+% 5. EVALUATION
+% ============================================================================
+
+\section{Experiments}
+
+% ============================================================================
+% 6. DATASET
+% ============================================================================
+
+\subsection{Dataset}
+
+We use four datasets: SWE-bench Verified, SWE-bench Lite, BugsInPy, and GitBugs. Together they provide a balance between rigorous repair benchmarking and auxiliary bug-report analysis.
+
+SWE-bench Verified~jimenez et al.,~\cite{Jimenez2023SWEbench} is the main benchmark because it contains high-quality, human-validated real GitHub issues and supports reliable repair evaluation. SWE-bench Lite will be used as a lower-cost companion split for faster pilot runs, prompt tuning, and early debugging of the pipeline before larger runs on Verified.
+
+For each SWE-bench instance, key fields include \texttt{instance\_id}, \texttt{repo}, \texttt{base\_commit}, \texttt{patch}, \texttt{test\_patch}, \texttt{problem\_statement}, \texttt{FAIL\_TO\_PASS}, \texttt{PASS\_TO\_PASS}, and \texttt{difficulty}. These fields support reproducible environment setup, executable acceptance checks, and stratified reporting.
+
+SWE-bench Verified is the primary scoring dataset. SWE-bench Lite is reserved for pilot runs and prompt tuning. BugsInPy is used to test whether observed trends replicate on a second Python benchmark. GitBugs is used for bug-report quality and ambiguity analysis rather than primary repair scoring.
+
+BugsInPy will be used as a complementary reproducible Python benchmark. It helps us check whether findings from SWE-bench also appear in a second repair environment and provides additional material for failure-mode analysis.
+
+GitBugs will be used as an auxiliary bug-report dataset, not as the main repair benchmark. Its role is to support analysis of report clarity, issue ambiguity, and prompt sensitivity during test generation.
+
+\subsection{Evaluation Metrics}
+
+Evaluation follows a dual-track metric design: test-generation quality and bug-fixing quality.
+
+For test-generation quality, we track: FAIL\_TO\_PASS detection coverage, false-positive rate for tests that incorrectly pass on buggy code, line/branch/condition coverage, determinism, and assertion meaningfulness.
+
+In words, FAIL\_TO\_PASS detection coverage measures how often generated tests correctly reproduce benchmark failure behavior on buggy code. False-positive rate measures how often generated tests incorrectly pass on buggy code and therefore fail to capture the defect. Structural coverage summarizes how much relevant code is exercised, using line, branch, and condition coverage together. Determinism captures stability across repeated runs, and assertion meaningfulness captures whether assertions check semantically important behavior instead of superficial outputs.
+
+Rather than relying on a single opaque score, we report these test-quality dimensions separately and analyze them jointly when interpreting repair outcomes.
+
+For bug-fixing quality, we use the following core rates:
+\[
+\mathrm{F2P}(P) = \frac{\#\{\text{FAIL\_TO\_PASS tests passing after patch }P\}}{\#\{\text{FAIL\_TO\_PASS tests}\}},
+\]
+\[
+\mathrm{P2P}(P) = \frac{\#\{\text{PASS\_TO\_PASS tests still passing after patch }P\}}{\#\{\text{PASS\_TO\_PASS tests}\}}.
+\]
+Patch-level overall success is evaluated in plain terms: a patch is counted as successful only when it resolves all required failing tests and have F2P equals 1.0, also preserves all previously passing tests with P2P equals 1.0.
+
+Secondary metrics include patch minimality, style conformance, dead-code introduction risk, and performance impact when practical to measure.
+\subsection{Experimental Setup}
+
+All runs execute in isolated containers with one environment per benchmark instance. Baseline and test-first conditions use matched settings: same model family per run, same tool permissions, same per-instance timeout, and the same maximum attempt budget.
+
+The setup includes fixed repository checkout from benchmark metadata, deterministic environment initialization, and stage-level artifact capture for reproducibility. Logged artifacts include generated tests, syntax and import errors, stack traces, failing assertions, patch diffs, and final validation outcomes.
+
+To preserve fairness, the reactive baseline receives only issue text, repository context, and repository tests, while the test-first condition additionally receives validated Phase 1 reproduction tests. This controlled difference isolates the effect of pipeline ordering.
+\subsection{End-to-End Evaluation Protocol}
+
+Each instance follows a consistent execution path: environment setup, test generation, test validation on buggy code, patch generation, and final validation against generated and repository tests. Errors such as timeouts, execution failures, and invalid tests are logged and retained in the final analysis table.
+
+% \subsection{Baseline Comparisons}
+
+% The test-first system is compared against a reactive patch-first baseline under matched budgets (same model family, same tools, same timeout, same attempt limits). Where reproducible, we also include a published agentic baseline (SWE-agent-style configuration) and one simple non-agent baseline (template-guided patch search) to calibrate gains beyond orchestration effects.
+
+% For fairness, baseline agents do not consume generated pre-fix tests; they only use the issue description, repository context, and standard repository tests. This isolates the effect of test-first ordering.
+
+% \subsection{Analysis Strategy for RQ1--RQ3}
+
+% RQ1 is evaluated via success-rate deltas between test-first and baseline conditions with bootstrap confidence intervals. We will use 10,000 bootstrap resamples for 95\% confidence intervals and report two-sided significance using permutation tests with threshold $p < 0.05$.
+
+% RQ2 analyzes how measurable test properties correlate with final repair success using regression-style analysis. Core predictors include FAIL\_TO\_PASS detection coverage, line/branch coverage, assertion density, and test specificity. Optional mutation-score analysis will be included for a tractable subset of instances.
+
+% RQ3 uses ablations that vary attempt count, feedback channel richness, and optional test-regeneration policy after failed repair attempts. We will also stratify ablation outcomes by bug category to identify where orchestration choices are most effective.
+
+
+% ============================================================================
+% 5. EXPECTED CONTRIBUTIONS AND IMPACT
+% ============================================================================
+
+\section{Contributions and Impact}
+
+\subsection{Research Contributions}
+
+This thesis is expected to contribute empirical evidence that a test-first repair pipeline can outperform reactive agent-based bug fixing on realistic software engineering tasks. The key scientific claim is that reversing the usual order of operations---writing executable tests before generating a patch---is not merely a stylistic preference, but a design choice that can improve repair reliability in measurable terms. Because the evaluation is grounded in SWE-bench Verified, the findings should generalize to the kinds of issues that appear in modern open-source repositories rather than only to toy or synthetic benchmarks.
+
+A second contribution is architectural. By separating test generation from patch generation and measuring how information moves between the two phases, the study will identify practical coordination patterns for AI-assisted debugging systems. This includes understanding when feedback should be passed forward, how many repair attempts are worthwhile, and which intermediate signals actually help the model stay focused on the bug at hand. Those results will be useful not only for this project, but for any multi-stage workflow where one stage must constrain and guide the next.
+
+The third contribution is a characterization of BRT themselves. Instead of treating tests as a binary success condition, the thesis will examine which test properties make them effective as repair guides. That analysis should clarify how to prompt agents to produce tests that are not merely syntactically valid, but informative enough to drive a correct fix. In that sense, the work contributes a test-quality framework that can inform future research on automated testing, program repair, and bug localization.
+
+Finally, the methodology contribution is important in its own right. The project emphasizes observable outcomes, benchmark-grounded validation, and bootstrap-based confidence intervals, which together provide a more defensible evaluation than proxy code-generation metrics alone. This makes the study useful as a reproducible template for future agent-based software engineering experiments.
+
+% \subsection{Expected Quantitative Outcomes}
+
+% We hypothesize that test-first orchestration will improve success rates relative to reactive baselines by constraining the repair search process with executable pre-fix specifications. A conservative expectation is a 20\% relative gain over baseline, while the target working range is approximately 18--25\% absolute success depending on benchmark slice and budget. These bounds are informed by prior evidence that stronger reproduction signals improve downstream repair plausibility.
+
+\section{Future Work}
+
+\textbf{Language and benchmark scope} this study focuses on Python-centric repair benchmarks, with SWE-bench Verified as the primary scoring dataset. Future work should test transferability across Java, C++, and TypeScript benchmarks, and compare whether the same test-first ordering produces consistent gains across language ecosystems and project structures.
+
+\textbf{Evaluation scale and budget} the current compute budget restricts the number of benchmark instances and ablation combinations that can be executed. Future work should increase run scale, include broader stratified slices, and measure budget-performance frontiers to identify where added runtime or attempts stop delivering meaningful gains.
+
+\textbf{Repair paradigm coverage} the implementation assumes a tool-using language model workflow. A direct extension is to evaluate the same test-first constraint under other repair paradigms, including retrieval-heavy pipelines, search-based repair methods, and hybrid symbolic-neural systems.
+
+\textbf{Real-world interaction} results are currently benchmark-centered rather than developer-in-the-loop. Future work should include live IDE studies where the system can request clarifications about ambiguous bug reports, allowing evaluation of whether test-first ordering improves practical debugging workflows.
+
+\textbf{Pipeline adaptability} the present coordinator uses a fixed structure for generation, repair, and validation feedback. Future work should explore adaptive test regeneration, tighter fault-localization integration, and richer feedback routing from failing assertions to fix-generation prompts.
+
+
+% ============================================================================
+% 8. TIMELINE AND MILESTONES
+% ============================================================================
+
+\section{Timeline}
+The research is organized into five sequential phases spanning May through November 2026. The first phase focuses on gathering and reading papers related to test-driven bug fixing, automated program repair, and agentic AI systems. This phase prioritizes not only collecting ideas and contextual understanding but also developing sharp technical writing abilities and learning how to effectively frame and communicate research contributions. Proceeding to the second objective within this initial phase, we establish deep understanding of the SWE-bench database structure and begin baseline agent setup on a small pilot set of issues. Although the formal comparison between test-first and reactive pipelines will come later in the research timeline, early understanding of how the agent should execute, its computational limits, and its failure modes will directly inform the testing strategy and pipeline design decisions in Phases 2 and 3.
+
+The second and third phases focus on implementing the two core pipelines. Phase 2 designs and implements the test generation pipeline through prompt engineering and tuning. Phase 3 implements fix generation, orchestrates both test-first and reactive pipelines, and runs large-scale evaluation, ensuring all experimental data is collected and structured for analysis. Phase 4 performs statistical analysis, characterizes test properties that correlate with fix success, and conducts failure case analysis to answer all research questions while beginning to draft the paper. Finally, Phase 5 synthesizes findings into complete thesis chapters, incorporates committee feedback, and prepares the manuscript for submission.
+\begin{figure}[H]
+\centering
+\footnotesize
+\begin{ganttchart}[
+    hgrid,
+    vgrid,
+    x unit=0.42cm,
+    y unit chart=0.68cm,
+    bar height=0.48,
+    group height=0.33,
+    group top shift=0,
+    group right shift=0,
+    group left shift=0,
+    bar/.append style={fill=cyan!45},
+    group/.append style={fill=cyan!75},
+    milestone/.append style={fill=orange!90},
+    title label font=\bfseries\scriptsize,
+    bar label font=\scriptsize,
+    group label font=\bfseries\scriptsize,
+    milestone label font=\bfseries\scriptsize,
+    milestone label node/.append style={text width=3.6cm, align=right},
+    title/.append style={fill=gray!15}
+]{1}{28}
+\gantttitle{Timeline 2026 (May--Nov)}{28} \\
+\gantttitle{May}{4}\gantttitle{Jun}{4}\gantttitle{Jul}{4}\gantttitle{Aug}{4}\gantttitle{Sep}{4}\gantttitle{Oct}{4}\gantttitle{Nov}{4} \\
+\gantttitlelist{1,...,4}{1}\gantttitlelist{1,...,4}{1}\gantttitlelist{1,...,4}{1}\gantttitlelist{1,...,4}{1}\gantttitlelist{1,...,4}{1}\gantttitlelist{1,...,4}{1}\gantttitlelist{1,...,4}{1} \\
+
+\ganttgroup{Phase 1: Review and Set up}{1}{8} \\
+\ganttbar{Literature finalization}{3}{4} \\
+\ganttbar{SWE-Verified integration}{4}{8} \\
+\ganttbar{Baseline Agent Set up}{4}{8} \\
+\ganttmilestone{M1: Environment ready}{8} \\
+
+\ganttgroup{Phase 2: First Pipeline}{6}{12} \\
+\ganttbar{Test generation design}{6}{9} \\
+\ganttbar{Integration with SWE-bench lite}{10}{12} \\
+\ganttmilestone{M2: Test generation pipeline}{12} \\
+
+\ganttgroup{Phase 3: Second Pipeline}{14}{20} \\
+\ganttbar{Fix generation implementation}{14}{16} \\
+\ganttbar{Orchestration (test-first vs reactive)}{16}{18} \\
+\ganttbar{Large-scale run (200+ issues)}{18}{20} \\
+\ganttmilestone{M3: Data collected}{20} \\
+
+\ganttgroup{Phase 4: Analysis}{20}{24} \\
+\ganttbar{Baseline statistics and testing}{20}{22} \\
+\ganttbar{Failure case analysis}{22}{24} \\
+\ganttmilestone{M4: Results finalized}{24} \\
+
+\ganttgroup{Phase 5: Writing and Submission}{24}{28} \\
+\ganttbar{Draft writing + committee feedback}{24}{26} \\
+\ganttbar{Final revisions + submission}{27}{28} \\
+\ganttmilestone{M5: Final submission}{28}
+\end{ganttchart}
+\caption{Project Gantt chart with weekly slots, staged workstreams, and milestone checkpoints.}
+\label{fig:project-gantt}
+\end{figure}
+
+
+% ============================================================================
+% 7. CONCLUSION
+% ============================================================================
+
+\section{Conclusion}
+
+Current agent-based approaches to automated bug fixing achieve modest success rates ($\sim$12\%), representing a bottleneck in applying AI to real-world debugging. Recent empirical findings suggest that BRT substantially improve fix success, yet this insight has not been systematically applied to pipeline design.
+
+This thesis proposes a simple yet powerful idea: \emph{mandate that agents generate comprehensive BRT before attempting fixes}. This test-first approach mirrors human best practices and leverages agents' code understanding to improve outcomes.
+
+Through rigorous empirical evaluation on SWE-bench and proper statistical testing, we will quantify the impact of this approach, characterize effective test properties, and identify high-value pipeline characteristics. The results will inform the design of next-generation AI-assisted debugging tools and advance the broader field of agent-based software engineering.
+
+We expect this work to make both scientific (novel insights into agent design) and practical (improved debugging automation) contributions to the field.
+
+\clearpage
+
+% ============================================================================
+% REFERENCES
+% ============================================================================
+
+% Create a simple bibliography since references.bib is in another folder
+% Uncomment below to use references if provided
+% \bibliography{references}
+% \bibliographystyle{plain}
+
+% For now, we'll use plain citations without external .bib file
+% (Custom tight bibliography to avoid large gaps in two-column layout.)
+\begingroup
+\raggedbottom
+\setstretch{1.0}
+\small
+\raggedright
+
+\noindent{\normalfont\normalsize\bfseries References}\par
+\vspace{0.35\baselineskip}
+
+\makeatletter
+\renewenvironment{thebibliography}[1]
+    {\list{\@biblabel{\@arabic\c@enumiv}}%
+        {\settowidth\labelwidth{\@biblabel{#1}}%
+         \leftmargin\labelwidth
+         \advance\leftmargin\labelsep
+         \setlength{\labelsep}{0.5em}%
+         \setlength{\topsep}{0pt}%
+         \setlength{\partopsep}{0pt}%
+         \setlength{\parsep}{0pt}%
+         \setlength{\parskip}{0pt}%
+         \setlength{\itemsep}{0.22\baselineskip}%
+         \usecounter{enumiv}%
+         \let\p@enumiv\@empty
+         \renewcommand\theenumiv{\@arabic\c@enumiv}}%
+     \sloppy\clubpenalty4000\widowpenalty4000\sfcode`\.=1000\relax}
+    {\endlist}
+\makeatother
+
+\begin{thebibliography}{9}
+\bibitem{Yang2024SWEagent}
+John Yang, Carlos E. Jimenez, Alexander Wettig, Kilian Lieret, Shunyu Yao, Karthik Narasimhan, and Ofir Press.
+\newblock SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering.
+\newblock arXiv:2405.15793, 2024. \url{https://doi.org/10.48550/arXiv.2405.15793}
+
+\bibitem{Cheng2025Agentic}
+Runxiang Cheng, Michele Tufano, J\"urgen Cito, Jos\'e Cambronero, Pat Rondon, Renyao Wei, Aaron Sun, and Satish Chandra.
+\newblock Agentic Bug Reproduction for Effective Automated Program Repair at Google.
+\newblock arXiv:2502.01821, 2025. \url{https://doi.org/10.48550/arXiv.2502.01821}
+
+\bibitem{Tufano2020AthenaTest}
+Michele Tufano, Dawn Drain, Alexey Svyatkovskiy, Shao Kun Deng, and Neel Sundaresan.
+\newblock Unit Test Case Generation with Transformers and Focal Context.
+\newblock arXiv:2009.05617, 2020. \url{https://doi.org/10.48550/arXiv.2009.05617}
+
+\bibitem{Qureshi2025TestCase}
+Irtaza Sajid Qureshi, Zhen Ming, and Jiang.
+\newblock Test Case Generation from Bug Reports via Large Language Models: A Cognitive Layered Evaluation Framework.
+\newblock arXiv:2510.05365, 2025. \url{https://doi.org/10.48550/arXiv.2510.05365}
+
+\bibitem{Liu2024MarsCode}
+Yizhou Liu, Pengfei Gao, Xinchen Wang, Jie Liu, Yexuan Shi, Zhao Zhang, and Chao Peng.
+\newblock MarsCode Agent: AI-native Automated Bug Fixing.
+\newblock arXiv:2409.00899, 2024. \url{https://doi.org/10.48550/arXiv.2409.00899}
+
+\bibitem{Meng2024Empirical}
+Xiangxin Meng, Zexiong Ma, Pengfei Gao, and Chao Peng.
+\newblock An Empirical Study on LLM-based Agents for Automated Bug Fixing.
+\newblock arXiv:2411.10213, 2024. \url{https://doi.org/10.48550/arXiv.2411.10213}
+
+\bibitem{Jimenez2023SWEbench}
+Carlos E. Jimenez, John Yang, Alexander Wettig, Shunyu Yao, Kexin Pei, Ofir Press, and Karthik Narasimhan.
+\newblock SWE-bench: Can Language Models Resolve Real-World GitHub Issues?
+\newblock arXiv:2310.06770, 2023. \url{https://doi.org/10.48550/arXiv.2310.06770}
+
+\bibitem{Evtikhiev2023BLEU}
+Mikhail Evtikhiev, Egor Bogomolov, Yaroslav Sokolov, and Timofey Bryksin.
+\newblock Out of the BLEU: How should we assess quality of the Code Generation models?
+\newblock \emph{Journal of Systems and Software}, 203:111741, 2023.
+\newblock \url{https://doi.org/10.1016/j.jss.2023.111741} (arXiv:2208.03133)
+
+\bibitem{Kang2023LIBRO}
+Sungmin Kang, Juyeon Yoon, and Shin Yoo.
+\newblock Large Language Models are Few-shot Testers: Exploring LLM-based General Bug Reproduction.
+\newblock Accepted to ICSE 2023. arXiv:2209.11515. \url{https://doi.org/10.48550/arXiv.2209.11515}
+
+\bibitem{Cheng2025Cogeneration}
+Runxiang Cheng, Michele Tufano, José Cambronero, Renyao Wei, Sherry Shi, Grant Uy, Pat Rondon, and Franjo Ivančić.
+\newblock Dynamic Cogeneration of Bug Reproduction Test in Agentic Program Repair.
+\newblock Proceedings of the 34th ACM Joint European Software Engineering Conference and Symposium on the Foundations of Software Engineering (FSE Companion '26), July 5--9, 2026, Montreal, QC, Canada. ACM, New York, NY, USA, 2026.
+\newblock \url{https://doi.org/10.1145/3803437.3805237}
+
+\bibitem{Fan2023APRLLMs}
+Zhiyu Fan, XB Bauer, Michele Tufano, and Denys Poshyvanyk.
+\newblock Automated Repair of Programs from Large Language Models.
+\newblock Proceedings of the 45th International Conference on Software Engineering (ICSE '23), IEEE Press, 2023.
+\newblock \url{https://doi.org/10.1109/ICSE48619.2023.00125}
+
+\bibitem{Yuan2025TDFlow}
+Yuan, Wenhan, Junjie Wang, Yuchao Huang, Yunlong Luo, and John Grundy.
+\newblock TDFlow: Agentic Workflows for Test Driven Development.
+\newblock arXiv:2510.23761, 2025.
+\newblock \url{https://doi.org/10.48550/arXiv.2510.23761}
+
+\bibitem{Akita2026MethAI}
+Akita, Fabio.
+\newblock Do Zero a Pós Produção em 1 Semana: Como Usar IA em Projetos de Verdade - Bastidores do The M Akita Chronicles.
+\newblock Akita on Rails Blog, February 20, 2026.
+\newblock \url{https://akitaonrails.com/2026/02/20/do-zero-a-pos-producao-em-1-semana-como-usar-ia-em-projetos-de-verdade-bastidores-do-the-m-akita-chronicles/}
+
+\bibitem{Koyuncu2019iFixR}
+Anil Koyuncu, Kui Liu, Tegawendé F Bissyandé, Dongsun Kim, Martin Monperrus, Jacques Klein, and Yves Le Traon.
+\newblock iFixR: Bug Report driven Program Repair.
+\newblock Proceedings of the 26th IEEE International Conference on Software Analysis, Evolution and Reengineering (SANER), IEEE, 2019.
+
+\bibitem{Campos2012Gzoltar}
+José Campos, André Riboira, Alexandre Perez, and Rui Abreu.
+\newblock Gzoltar: An Eclipse Plug-in for Testing and Debugging.
+\newblock Proceedings of the 27th IEEE/ACM International Conference on Automated Software Engineering (ASE), IEEE/ACM, 2012.
+
+\end{thebibliography}
+\endgroup
+\end{document}
