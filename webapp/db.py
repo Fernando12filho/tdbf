@@ -417,18 +417,28 @@ def delete_doc(doc_id: int) -> None:
 
 
 def seed_docs() -> int:
-    """Insert the initial research-log docs once, when the table is empty."""
-    with get_conn() as conn:
-        if conn.execute("SELECT COUNT(*) FROM docs").fetchone()[0]:
-            return 0
+    """Insert seed docs that are not already present (matched by title slug).
+
+    Per-doc idempotent: docs whose slug already exists are skipped, so adding a
+    new entry to ``seed_docs.SEED_DOCS`` lands it in existing databases on the
+    next startup, while user edits to previously-seeded docs are never touched.
+    """
     from seed_docs import SEED_DOCS  # local import: seed data, not core schema
 
-    for d in SEED_DOCS:
-        create_doc(
-            title=d["title"],
-            body=d["body"],
-            topic=d.get("topic", ""),
-            pinned=bool(d.get("pinned")),
-            created_at=d.get("created_at"),
-        )
-    return len(SEED_DOCS)
+    added = 0
+    with get_conn() as conn:
+        for d in SEED_DOCS:
+            slug = slugify(d["title"])
+            if conn.execute(
+                "SELECT id FROM docs WHERE slug=?", (slug,)
+            ).fetchone():
+                continue
+            create_doc(
+                title=d["title"],
+                body=d["body"],
+                topic=d.get("topic", ""),
+                pinned=bool(d.get("pinned")),
+                created_at=d.get("created_at"),
+            )
+            added += 1
+    return added

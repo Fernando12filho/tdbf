@@ -339,4 +339,50 @@ set -a; source .env; set +a
   locally rather than pulling prebuilt registry images.
 """,
     },
+    {
+        "topic": "Decisions",
+        "title": "2026-07-21 — Lite, two arms, research plan locked",
+        "created_at": "2026-07-21",
+        "pinned": 1,
+        "body": """\
+**Dataset:** SWE-bench **Lite** is the scoring dataset — *not* Verified. The
+proposal (§Dataset) still names Verified as primary and must be updated.
+BugsInPy / GitBugs are descoped unless time allows.
+
+**Arms (RQ1):** two, committed:
+
+| Arm | Pipeline | BRT? |
+|---|---|---|
+| A | reactive baseline — same model, tools, budgets | none (`run_brt` removed; keeps `run_tests`) |
+| B | test-first (script 07, gold-free gate) | validated-failing BRT baked into `run_brt` |
+
+A third **test-last (TLD)** arm is an *open* decision, revisited after the
+pilot — it would engage the Cheng '26 cogeneration result empirically.
+
+**Sequence:** build arm A → freeze a random ~20-instance pilot sample → pilot
+both arms (~$25) → freeze ~150-instance stratified sample → sweep both arms
+(~$180, paired design, McNemar) → RQ2 offline artifact analysis (assertion
+density / determinism / gold-patch-line coverage — gold legal offline only).
+
+**The paper to beat / engage — Cheng et al., FSE '26**
+(*Dynamic Cogeneration of BRT in Agentic Program Repair*, arXiv:2601.19066):
+on 120 internal Google bugs with Gemini 2.5 Pro, **enforced TDD was not the
+best ordering** (Freeform ≥ TLD ≥ TDD), and the agent defaults to test-last
+when unconstrained. Why this does not sink the thesis:
+
+1. Their TDD is a **prompt nudge** inside one agent; ours is an
+   **architectural gate** — the BRT must verifiably fail on the buggy tree
+   before the fix agent ever starts, and the fix agent cannot edit the BRT.
+2. Their #1 cogeneration failure (agent deletes the test as "temporary") is
+   **impossible by construction** in our pipeline.
+3. Their data is private; ours is public and replicable (Lite).
+4. Their failure #3 — *fix overfits its BRT, fails the oracle* — is exactly
+   our independently-found **verification gap** (astropy-14182 / 7746,
+   django-11019): a cross-model, cross-benchmark replication.
+
+Caveat carried forward: the current 9/13 = 0.69 resolved is a **non-random
+sample** (all 6 astropy Lite + 7 early django). Do not headline it; the drawn
+sample decides the real number.
+""",
+    },
 ]
