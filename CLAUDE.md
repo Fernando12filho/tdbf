@@ -184,7 +184,12 @@ main experimental line** (the sweep runs the two main agents only).
 *Main pipeline agents:*
 - **BRT agent** (Phase A) — `brt_agent_tools`, `assert_gold_free`. Tools {read_file,
   grep, glob, run_python, run_test (buggy only), submit_test}. Writes the reproduction
-  test.
+  test. **Gate-retry:** if the submitted test lands L0/L1/L2 (does not fail cleanly on
+  the buggy tree = doesn't reproduce), `run_brt_phase` re-runs the agent from a fresh
+  conversation with gold-free feedback on what went wrong, up to `brt_retries` times
+  (default **2**, on by default, no flag). The decision reads only the buggy-side
+  outcome, so it stays gold-free; a capable model reproduces on attempt 0 and the loop
+  is a no-op.
 - **Fix agent** (Phase B) — `fix_agent_tools`, `assert_fix_gold_free`. Tools {read_file,
   grep, glob, edit_file, run_brt (validated BRT baked in), run_tests, revert,
   submit_fix}. Edits source until the BRT passes.

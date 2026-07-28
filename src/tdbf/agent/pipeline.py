@@ -305,6 +305,28 @@ class BrtPhaseResult:
         return self.outcome_buggy == "fail"
 
 
+def _brt_retry_feedback(outcome_buggy, submission: str | None) -> str:
+    """Gold-free feedback appended to the task when a submitted BRT lands L0/L1/L2
+    (it did not fail cleanly on the BUGGY tree). Reasons ONLY from the buggy-side
+    outcome — never the gold-fixed result — so the retry stays deployable."""
+    prev = f"\n\nYour previous test:\n{submission}\n" if submission and submission.strip() else "\n"
+    if outcome_buggy == "pass":  # L1 — the test does not reproduce the bug
+        why = ("It PASSED on the buggy code, so it does NOT reproduce the bug. A bug "
+               "reproduction test must FAIL on the buggy code. Use run_python to observe the "
+               "ACTUAL buggy behaviour, then assert the CORRECT expected value so the test "
+               "fails now and would pass once the bug is fixed.")
+    elif outcome_buggy == "error":  # L2 — broken test, not a clean assertion failure
+        why = ("It ERRORED on the buggy code instead of failing cleanly (an ImportError, "
+               "NameError, wrong API or setup error — not an assertion). Use run_test to see "
+               "the error and fix the test so it REACHES its assertion and fails there.")
+    else:  # L0 — absent / no usable test submitted
+        why = ("You did not submit a usable test that fails on the buggy code. Write the test, "
+               "use run_test to confirm it fails with failure_reason=assertion on the buggy "
+               "code, and only then call submit_test.")
+    return (f"\n\n--- Your previous attempt did NOT reproduce the bug ---{prev}"
+            f"{why}\n\nTry again.")
+
+
 def run_brt_phase(
     inst: SWEBenchInstance,
     client: LLMClient,
@@ -313,6 +335,7 @@ def run_brt_phase(
     max_total_tokens: int,
     prompt_harden: bool = False,
     submit_nudge_limit: int = 2,
+    brt_retries: int = 2,
     keep_container: bool = False,
     verbose: bool = False,
     score_fixed: bool = True,
@@ -327,6 +350,13 @@ def run_brt_phase(
     deployable pipeline, 07) runs the test on the BUGGY tree ONLY — the gold patch
     is never touched, so there is no L4 label, only the gold-free `outcome_buggy`
     (and `reproduces_on_buggy`). Use this when the gate must stay gold-free.
+
+    `brt_retries` (default 2): if the submitted test does NOT fail cleanly on the
+    buggy tree (L0 no test / L1 passes / L2 errors — it does not reproduce the bug),
+    the BRT agent is re-run with gold-free feedback on what went wrong, up to this
+    many extra times. The decision looks ONLY at the buggy-side outcome, so it stays
+    deployable/gold-free. A capable model reproduces on the first attempt, so the
+    loop breaks immediately and the run is byte-identical to `brt_retries=0`.
 
     Phase C (multi-agent): pass `critic_client` + `critic_rounds > 0` to add a
     Critic that reviews the candidate BRT for specificity; on a 'revise' verdict
@@ -355,17 +385,61 @@ def run_brt_phase(
         print(f"  [skip] {e}")
         return None
     reviews: list[Review] = []
-    try:
-        agent = Agent(
+    tot_in = tot_out = 0
+    submission = test_code = test_patch = None
+    outcome_buggy = outcome_fixed = None
+    classification = None
+
+    def _run_brt_agent(run_task: str):
+        a = Agent(
             client, brt_agent_tools(session), system,  # gold-free set + assert_gold_free guard
             max_iterations=max_iterations,
             max_total_tokens=max_total_tokens,
             submit_nudge_limit=submit_nudge_limit,
             verbose=verbose,
         )
-        print(f"Running BRT agent (max_iter={max_iterations}, max_tok={max_total_tokens}) ...")
-        result = agent.run(task)
-        tot_in, tot_out = result.total_input_tokens, result.total_output_tokens
+        return a, a.run(run_task)
+
+    def _score_on_buggy(sub):
+        # GOLD-FREE: run the submitted test on the BUGGY tree only. Returns
+        # (test_code, test_patch, outcome_on_buggy); the outcome is a ContainerResult
+        # (compares == "fail"/"pass"/"error"). (None, None, None) if nothing usable.
+        if not (sub and sub.strip()):
+            return None, None, None
+        tc = inject_setup_preamble(inst.repo, sub)
+        tp = make_test_patch(test_path, tc)
+        print("Scoring offline — BUGGY tree ...")
+        ob = run_test_in_container(inst, tp, test_path=test_path)
+        print(f"  outcome_on_buggy:  {ob}")
+        return tc, tp, ob
+
+    try:
+        # Gate-retry loop: a submitted BRT that does NOT fail cleanly on the buggy
+        # tree is L0 (no test), L1 (passes) or L2 (errors) — it does not reproduce
+        # the bug. Rather than give up, re-run the BRT agent (same tools/session, a
+        # fresh conversation) with gold-free feedback on what went wrong, up to
+        # `brt_retries` times. The decision uses ONLY the buggy-side outcome — never
+        # the gold-fixed result — so it stays deployable/gold-free. A capable model
+        # submits a clean-failing BRT on attempt 0, so the loop breaks immediately
+        # (byte-identical to the pre-retry behaviour).
+        run_task = task
+        for attempt in range(brt_retries + 1):
+            label = "BRT agent" if attempt == 0 else f"BRT agent retry {attempt}/{brt_retries}"
+            print(f"Running {label} (max_iter={max_iterations}, max_tok={max_total_tokens}) ...")
+            agent, result = _run_brt_agent(run_task)
+            tot_in += result.total_input_tokens
+            tot_out += result.total_output_tokens
+            submission = result.submission
+            test_code, test_patch, outcome_buggy = _score_on_buggy(submission)
+            if outcome_buggy == "fail":
+                break  # clean assertion failure on buggy = candidate BRT (L3/L4)
+            if attempt < brt_retries:
+                bad = ("L1 (passes on buggy)" if outcome_buggy == "pass"
+                       else "L2 (errors on buggy)" if outcome_buggy == "error"
+                       else "L0 (no usable test)")
+                print(f"  BRT does not reproduce the bug — {bad}. "
+                      f"Retrying with feedback ({attempt + 1}/{brt_retries}).")
+                run_task = task + _brt_retry_feedback(outcome_buggy, submission)
 
         # Phase C: Critic reviews the candidate BRT for specificity; on 'revise'
         # the worker re-runs with the feedback (bounded by critic_rounds). The
@@ -393,16 +467,12 @@ def run_brt_phase(
                 "Revise the test to address this feedback. Use run_test to confirm it still fails "
                 "cleanly (assertion) on the buggy code, then call submit_test."
             )
-            agent = Agent(
-                client, brt_agent_tools(session), system,
-                max_iterations=max_iterations,
-                max_total_tokens=max_total_tokens,
-                submit_nudge_limit=submit_nudge_limit,
-                verbose=verbose,
-            )
-            result = agent.run(revise_task)
+            agent, result = _run_brt_agent(revise_task)
             tot_in += result.total_input_tokens
             tot_out += result.total_output_tokens
+            # Re-score the revised submission on the buggy tree (gold-free).
+            submission = result.submission
+            test_code, test_patch, outcome_buggy = _score_on_buggy(submission)
     finally:
         session.close()
 
@@ -415,34 +485,24 @@ def run_brt_phase(
     )
 
     # =================== GOLD BARRIER =================== #
-    # Everything above is gold-free. Below, the gold patch is used PURELY to
-    # score the finished test into L0-L4. The agent never saw any of this.
-    submission = result.submission
-    classification = None
-    test_code = None
-    outcome_buggy = outcome_fixed = None
-    if not submission or not submission.strip():
+    # Everything above is gold-free (the retry loop scored the BUGGY tree only).
+    # Below, the gold patch is used PURELY to assign the offline L0-L4 label when
+    # score_fixed=True. The agent never saw any of this.
+    if not (submission and submission.strip()):
         print(f"  Agent did not submit a test (stop_cause={result.stop_cause}). Scoring as L0.")
+    elif score_fixed:
+        print("Scoring offline — gold-FIXED tree ...")
+        outcome_fixed = run_test_in_container(
+            inst, test_patch, gold_patch=inst.gold_patch, test_path=test_path
+        )
+        print(f"  outcome_on_fixed:  {outcome_fixed}")
+        classification = classify(outcome_buggy, outcome_fixed)
+        print(f"  -> {classification.level_label}  (valid BRT: {classification.is_valid_brt})")
     else:
-        test_code = inject_setup_preamble(inst.repo, submission)
-        test_patch = make_test_patch(test_path, test_code)
-        print("Scoring offline — BUGGY tree ...")
-        outcome_buggy = run_test_in_container(inst, test_patch, test_path=test_path)
-        print(f"  outcome_on_buggy:  {outcome_buggy}")
-        if score_fixed:
-            print("Scoring offline — gold-FIXED tree ...")
-            outcome_fixed = run_test_in_container(
-                inst, test_patch, gold_patch=inst.gold_patch, test_path=test_path
-            )
-            print(f"  outcome_on_fixed:  {outcome_fixed}")
-            classification = classify(outcome_buggy, outcome_fixed)
-            print(f"  -> {classification.level_label}  (valid BRT: {classification.is_valid_brt})")
-        else:
-            # Deployable pipeline: NO gold-fixed run, NO L4 label. The gate uses
-            # only the gold-free buggy-side outcome (reproduces_on_buggy).
-            reproduces = str(outcome_buggy) == "fail"
-            print(f"  gold-free: reproduces failure on buggy = {reproduces} "
-                  "(L3/L4 not distinguished — gold not consulted)")
+        # Deployable pipeline: NO gold-fixed run, NO L4 label. The gate uses only
+        # the gold-free buggy-side outcome (reproduces_on_buggy).
+        print(f"  gold-free: reproduces failure on buggy = {outcome_buggy == 'fail'} "
+              "(L3/L4 not distinguished — gold not consulted)")
 
     return BrtPhaseResult(
         agent=result,
