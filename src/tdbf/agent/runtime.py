@@ -71,6 +71,7 @@ class Agent:
         max_total_tokens: int = 200_000,
         max_tokens_per_turn: int = 4096,
         submit_nudge_limit: int = 2,
+        submit_grace: int = 3,
         verbose: bool = False,
     ) -> None:
         names = [t.name for t in tools]
@@ -86,6 +87,7 @@ class Agent:
         self.max_total_tokens = max_total_tokens
         self.max_tokens_per_turn = max_tokens_per_turn
         self.submit_nudge_limit = submit_nudge_limit
+        self.submit_grace = submit_grace
         self.verbose = verbose
 
     def _nudge_text(self) -> str:
@@ -94,6 +96,15 @@ class Agent:
             "You ended your turn without calling a tool. A plain-text answer is "
             f"not recorded — to finish you MUST call {names} with your result. "
             "If you are not finished yet, keep investigating with the available tools."
+        )
+
+    def _force_submit_text(self) -> str:
+        names = " or ".join(repr(n) for n in self.terminal_tools)
+        return (
+            "You have used your full investigation budget. Do NOT read, grep, or run "
+            f"anything else — call {names} NOW with the best result you can produce from "
+            "what you have already learned. A submitted result is REQUIRED; an imperfect "
+            "one is far better than none (a non-submission counts as a total failure)."
         )
 
     def _log(self, msg: str) -> None:
@@ -175,6 +186,53 @@ class Agent:
                 stop_cause = "submit"
                 break
 
+        # Explore budget exhausted without a terminal submission. The caller
+        # REQUIRES a submitted artifact whenever one can be produced, so spend a
+        # few closing turns forcing the model to commit its best result via the
+        # terminal tool instead of returning an empty L0. Bounded by submit_grace
+        # and the token cap; if the model still refuses, we accept max_iterations.
+        # These closing turns do NOT count toward `iterations` (the explore budget).
+        main_iterations = len(steps)
+        if stop_cause == "max_iterations" and submission is None and self.terminal_tools:
+            for g in range(self.submit_grace):
+                if in_tok + out_tok >= self.max_total_tokens:
+                    stop_cause = "max_tokens"
+                    break
+                messages.append(Message(role="user", content=self._force_submit_text()))
+                resp = self.client.run_tools(
+                    system=self.system,
+                    messages=messages,
+                    tools=self.schemas,
+                    max_tokens=self.max_tokens_per_turn,
+                )
+                in_tok += resp.input_tokens or 0
+                out_tok += resp.output_tokens or 0
+                final_text = resp.text
+                messages.append(
+                    Message(role="assistant", content=resp.text, tool_calls=resp.tool_calls)
+                )
+                self._log(
+                    f"[closing {g + 1}/{self.submit_grace}] "
+                    f"tools={[tc.name for tc in resp.tool_calls]}"
+                )
+                results = []
+                terminated = False
+                for tc in resp.tool_calls:
+                    res = self._execute(tc)
+                    messages.append(Message(role="tool", tool_call_id=tc.id, content=res.content))
+                    results.append(res.content)
+                    tool = self.tools.get(tc.name)
+                    if tool is not None and tool.terminal and not res.is_error:
+                        submission = res.content
+                        terminated = True
+                steps.append(
+                    AgentStep(main_iterations + g, resp.text, resp.tool_calls, results,
+                              resp.input_tokens, resp.output_tokens, resp.duration_seconds)
+                )
+                if terminated:
+                    stop_cause = "submit_forced"
+                    break
+
         return AgentResult(
             final_text=final_text,
             submission=submission,
@@ -183,7 +241,7 @@ class Agent:
             messages=messages,
             total_input_tokens=in_tok,
             total_output_tokens=out_tok,
-            iterations=len(steps),
+            iterations=main_iterations,
         )
 
     def _execute(self, tc: ToolCall) -> ToolResult:

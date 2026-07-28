@@ -252,8 +252,10 @@ def main() -> int:
     ap.add_argument("--model", default="anthropic:claude-sonnet-4-6",
                     help="Model spec used for BOTH phases: anthropic:<model>, "
                          "ollama:<model>@<url>, openai:<model>")
-    ap.add_argument("--max-iterations", type=int, default=20,
-                    help="Iteration cap per phase (BRT and fix each get this).")
+    ap.add_argument("--max-iterations", type=int, default=30,
+                    help="Iteration cap per phase (BRT and fix each get this). On top of "
+                         "this, an agent that exhausts the cap without submitting gets a "
+                         "bounded forced-submit grace so a test/fix is still produced.")
     ap.add_argument("--max-tokens", type=int, default=300_000,
                     help="Cumulative token budget per phase (hard cap).")
     ap.add_argument("--brt-only", action="store_true",

@@ -169,6 +169,11 @@ harness functions became the tools the agents call.
 
 - `runtime.py` — vendor-agnostic tool-use loop (`Agent`); termination = terminal
   `submit_*` tool or no-tool turn; iteration/token caps; real token capture.
+  **Forced-submit grace:** if an agent exhausts `max_iterations` without ever
+  submitting, it gets up to `submit_grace` (default 3) extra closing turns that
+  force it to call its terminal tool with its best result — so a stuck agent still
+  produces a test/fix instead of an empty L0 (`stop_cause="submit_forced"`). Those
+  closing turns don't count toward the reported `iterations`.
 - `session.py` — persistent per-instance container (`docker run -d sleep
   infinity` + `exec`) so an agent's many tool calls pay startup once.
 - `tools.py` — gold-free tools wrapping `runner.py`, one registry + an

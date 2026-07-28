@@ -171,6 +171,31 @@ def test_iteration_cap() -> None:
     assert res.iterations == 3
 
 
+def test_forced_submit_on_budget_exhaustion() -> None:
+    # The model burns the whole explore budget on non-terminal tools, then submits
+    # only when the forced-submit grace kicks in. The run MUST end with a captured
+    # submission, not an empty max_iterations (the caller requires a test/fix).
+    client = FakeClient([
+        _r("investigating", [ToolCall("a1", "add", {"a": 1, "b": 1})]),
+        _r("still investigating", [ToolCall("a2", "add", {"a": 2, "b": 2})]),
+        _r("ok, submitting my best", [ToolCall("s1", "submit_answer", {"answer": "55"})]),
+    ])
+    res = Agent(client, [ADD, SUBMIT], "calc agent", max_iterations=2, submit_grace=3).run("x")
+    assert res.stop_cause == "submit_forced", res.stop_cause
+    assert res.submission == "55", res.submission
+    assert res.iterations == 2, res.iterations  # grace turns don't inflate the explore count
+
+
+def test_forced_submit_gives_up_if_never_submits() -> None:
+    # If the model refuses to submit even during the grace window, we still stop
+    # cleanly as max_iterations (no crash, no infinite loop).
+    client = FakeClient([])  # always requests a non-terminal tool, forever
+    res = Agent(client, [ADD, SUBMIT], "calc agent", max_iterations=2, submit_grace=3).run("x")
+    assert res.stop_cause == "max_iterations", res.stop_cause
+    assert res.submission is None
+    assert res.iterations == 2, res.iterations
+
+
 def test_tool_raises_is_recoverable() -> None:
     boom = FunctionTool(
         "boom", "always raises", {"type": "object", "properties": {}},
@@ -266,6 +291,8 @@ def run_offline() -> None:
         test_malformed_args_recovery,
         test_unknown_tool_recovery,
         test_iteration_cap,
+        test_forced_submit_on_budget_exhaustion,
+        test_forced_submit_gives_up_if_never_submits,
         test_tool_raises_is_recoverable,
         test_anthropic_converter_merges_tool_results,
         test_openai_converter_one_message_per_result,
