@@ -4,7 +4,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-TDBF (Test-Driven Bug Fixing) is a research project implementing Phase 1 of a thesis methodology: given a SWE-bench issue, generate a Bug Reproduction Test (BRT) and classify it into levels L0–L4 based on how it behaves on the buggy code vs. the gold-patched code. Only **L4** (fail on buggy → pass on gold-fixed) counts as a validated BRT. The metric tracked across instances is the **C2P rate** = L4 / (L3 + L4).
+TDBF (Test-Driven Bug Fixing) is a thesis research project on an **agentic** approach
+to test-driven bug fixing on SWE-bench. Given a real GitHub issue, a real LLM agent
+(1) reproduces the bug, (2) writes a **Bug Reproduction Test (BRT)** that fails on the
+buggy code and passes once fixed, then (3) edits the source until that BRT passes. The
+contribution is the *agentic* framing (the model drives its own tool-use trajectory,
+not a fixed code loop) plus a way to validate BRTs **without the gold patch**.
+
+Two anchors run through everything:
+- **BRT levels (L0–L4)** classify a generated test by buggy-vs-fixed behavior; only
+  **L4** (fail on buggy → pass on gold-fixed) is a valid BRT. **C2P = L4 / (L3 + L4)**
+  is the headline BRT metric; **resolved-rate** (held-out FAIL_TO_PASS pass, no
+  PASS_TO_PASS regression) is the headline fix metric.
+- **Gold-free invariant** — no agent ever gets a tool that runs on the gold-fixed tree;
+  `gold_patch`/`test_patch` are offline scoring instruments only. See "Key invariants".
+
+**Authoritative status lives in `docs/agent_plan.md` and `docs/project_summary.md`**
+(detailed phase checklists, findings, glossary). This file is the working orientation;
+those two are the full record. Note: `docs/` is currently gitignored, so those files
+are not version-controlled — keep that in mind before relying on their git history.
 
 ## Commands
 
@@ -18,9 +36,16 @@ Install with live dependencies (HuggingFace datasets, LLM SDKs, SWE-bench harnes
 pip install -e ".[dev]"   # or: pip install swebench datasets anthropic openai
 ```
 
-Run the offline smoke test (no API keys, no Docker required):
+`.env` **auto-loads on `import tdbf`** (`load_env()` in `src/tdbf/__init__.py`) — no
+`source .env` needed. Put `ANTHROPIC_API_KEY` there (the Claude Code login is *not* the
+SDK key).
+
+Run the offline smoke tests (no API keys, no Docker required):
 ```
 python scripts/00_smoke_test.py
+python scripts/agent_pipeline_smoke.py   # end-to-end agent plumbing, fake client/session
+# all agent smokes: scripts/agent_*_smoke.py (runtime, tools, brt, fix, breaker,
+# multiagent, bestofn, deployable, pipeline)
 ```
 
 Build Docker image and validate gold patch for an instance (required before generating BRTs):
@@ -41,11 +66,33 @@ python scripts/02_generate_brt.py --model ollama:qwen3.5:9b@http://192.168.1.192
 python scripts/02_generate_brt.py --id astropy__astropy-14182 --model anthropic:claude-opus-4-7 --observe --attempts 3
 ```
 
-Run the full agentic pipeline end-to-end (BRT agent → gate on L4 → fix agent) for
-one instance (build the image first via `01_validate_gold.py`):
+### Agentic pipelines (build the image first via `01_validate_gold.py`)
+
+The **deployable, gold-free pipeline (`07`) is the primary experimental arm.** `06`
+is kept only as the *L4-gated ceiling* (its gate consults the gold tree — an oracle a
+real deployment can't have). Both accept `--brt-only` to stop after Phase A.
+
 ```
+# Primary: honest gold-free gate (accept a BRT that cleanly fails on buggy = L3∪L4) → fix
+python scripts/07_deployable_pipeline.py --id astropy__astropy-12907 --model anthropic:claude-sonnet-4-6 -v
+python scripts/07_deployable_pipeline.py --id astropy__astropy-12907 --score-brt   # also emit offline L0–L4 label (info only, never gates)
+python scripts/07_deployable_pipeline.py --id astropy__astropy-12907 --breaker      # + post-fix adversarial Breaker (RQ3 ablation; parked negative)
+
+# Ceiling reference only (L4 gate = oracle): BRT → gate-on-L4 → fix
 python scripts/06_agent_pipeline.py --id astropy__astropy-12907 --model anthropic:claude-sonnet-4-6 -v
-python scripts/06_agent_pipeline.py --id astropy__astropy-12907 --brt-only   # stop after the BRT
+
+# Single phases (share the same pipeline.py plumbing)
+python scripts/04_agent_brt.py --id astropy__astropy-12907 --model anthropic:claude-sonnet-4-6   # Phase A only
+python scripts/05_agent_fix.py --id astropy__astropy-12907 --model anthropic:claude-sonnet-4-6   # Phase B only (loads a validated BRT)
+
+# Multi-agent (Phase C, depth-light): same model self-reviews (Critic on A, Reviewer on B)
+python scripts/06_agent_pipeline.py --id astropy__astropy-12907 --multi --review-rounds 1
+```
+
+Metrics + reporting (read `results.jsonl`, no new runs):
+```
+python scripts/08_metrics_report.py            # C2P, Valid-BRT, Resolve@BRT, pipeline funnel, $/inst
+cd webapp && python3 app.py                    # http://localhost:5000 — /metrics /research /docs /commands
 ```
 
 ## Architecture
@@ -114,41 +161,91 @@ BRT level semantics:
 - The harness invocation uses `--namespace ''` (`build_locally=True`) to build Docker images locally rather than pulling prebuilt registry images.
 - Run outputs go to `runs/<run_id>/` and harness logs to `logs/run_evaluation/<run_id>/`.
 
-## Current status and validated results
+## Agent system (`src/tdbf/agent/`)
 
-The project has moved past the Phase 1 *workflow* into **real agents** (see
-`docs/agent_plan.md` for the authoritative, detailed status). Both the BRT agent
-and the fix agent are implemented and live-validated end-to-end.
+The project inverted control from *workflow* (our code steps a generate→run→repair
+loop) to **real agents** (the model drives its own tool-use trajectory). The old
+harness functions became the tools the agents call.
 
-**Agent system (`src/tdbf/agent/`):**
 - `runtime.py` — vendor-agnostic tool-use loop (`Agent`); termination = terminal
   `submit_*` tool or no-tool turn; iteration/token caps; real token capture.
 - `session.py` — persistent per-instance container (`docker run -d sleep
   infinity` + `exec`) so an agent's many tool calls pay startup once.
-- `tools.py` — gold-free tools wrapping `runner.py`. BRT set (Phase A):
-  {read_file, grep, glob, run_python, run_test, submit_test}. Fix set (Phase B):
-  {read_file, grep, glob, edit_file, run_brt, run_tests, revert, submit_fix}.
-  `assert_gold_free` / `assert_fix_gold_free` guard the registries.
-- `pipeline.py` — the shared phase logic both scripts and the end-to-end runner
-  build on: `run_brt_phase` / `run_fix_phase` (gold-free agent run + offline
-  gold-barrier scoring), the cost/serialise/step helpers, the system prompts, and
-  pure transcript/results-record builders. Single source of truth — 04/05/06 do
-  not re-implement the plumbing.
-- Scripts: `04_agent_brt.py` (Phase A), `05_agent_fix.py` (Phase B),
-  `06_agent_pipeline.py` (end-to-end BRT → gate-on-L4 → fix, in one command;
-  the BRT travels in memory, no results.jsonl round-trip). Offline smoke tests:
-  `scripts/agent_*_smoke.py` incl. `agent_pipeline_smoke.py` (no Docker/API needed).
+- `tools.py` — gold-free tools wrapping `runner.py`, one registry + an
+  `assert_*_gold_free` guard per role (see the role list below).
+- `roles.py` + `pipeline.py` — the agent roles and the orchestration that wires them.
+- `types.py` — shared agent dataclasses (`AgentResult`, step/usage records).
 
-**Validated results (Claude Sonnet `claude-sonnet-4-6`, astropy Lite):**
-- **Phase A (BRT):** C2P = 5/6 = **0.83**, ~$0.24/instance.
-- **Phase B (fix):** resolved 3/5 = **0.60**, ~$0.22/instance. The 2 non-resolved
-  passed their own BRT but failed the held-out test (BRT necessary-not-sufficient).
-- **RQ1 weak arm:** qwen2.5/3.5 can call tools but fail the autonomous loop
-  (Phase A C2P 0.00; Phase B empty patch). A prompt-harden + bigger-model ladder
-  did **not** close the gap → capability, not scaffolding.
+**The agents — 2 main + 4 auxiliary.** All are real gold-free `Agent`s with a terminal
+tool; only the two main ones form the pipeline. The four auxiliary roles are optional
+add-ons, and per the locked 2026-07-21 plan they are **RQ3 ablation material, not the
+main experimental line** (the sweep runs the two main agents only).
 
-**Non-agentic baseline (kept for comparison):** the `--attempts`/`--repair`
-workflow in `02_generate_brt.py` / `03_batch_brt.py`.
+*Main pipeline agents:*
+- **BRT agent** (Phase A) — `brt_agent_tools`, `assert_gold_free`. Tools {read_file,
+  grep, glob, run_python, run_test (buggy only), submit_test}. Writes the reproduction
+  test.
+- **Fix agent** (Phase B) — `fix_agent_tools`, `assert_fix_gold_free`. Tools {read_file,
+  grep, glob, edit_file, run_brt (validated BRT baked in), run_tests, revert,
+  submit_fix}. Edits source until the BRT passes.
+
+*Auxiliary roles (`roles.py`, each with a terminal verdict, fail-open to accept):*
+- **Critic** (`run_critic`) — reviews BRT specificity before accept (Phase A).
+  *Near-no-op on the strong arm* (on a capable model the first BRT is already specific).
+- **Reviewer** (`run_reviewer`) — judges fix minimality/correctness (Phase B).
+- **Breaker** (`run_breaker`) — post-fix adversarial verifier; probes the agent's *own*
+  fix for a case it still gets wrong. *Parked as an RQ3 negative result* (no oracle →
+  false negatives on the hardest verification-gap cases).
+- **Selector** (`run_selector`) — best-of-N: picks among several candidate BRTs; used by
+  `09_bestofn_pipeline.py`.
+
+- `pipeline.py` — the single source of truth for all phases: `run_brt_phase` /
+  `run_fix_phase` (gold-free agent run + offline gold-barrier scoring), optional
+  `critic_client`/`reviewer_client`/`breaker_client` orchestration loops, a `score_fixed=`
+  flag (True = 04/06 L0–L4 label; False = `07` buggy-only gold-free gate), plus the
+  cost/serialise/step helpers, system prompts, and transcript/record builders. Scripts
+  04–09 do not re-implement plumbing; `breaker_client=None` / single-agent paths stay
+  byte-identical (asserted by the smokes).
+
+**`src/tdbf/metrics.py`** — single source of truth for the metric suite (C2P,
+Valid-BRT = L4/N, Resolve@BRT, whole-pipeline funnel = GateRate × Resolve@Gated,
+$/inst, $/resolved, repo breakdown). `build_report` + `format_text`; consumed by both
+`scripts/08_metrics_report.py` and the webapp `/metrics` page so they can't drift.
+
+**Scripts (agentic):** `04_agent_brt.py` (Phase A), `05_agent_fix.py` (Phase B),
+`06_agent_pipeline.py` (L4-gated ceiling, end-to-end in memory), **`07_deployable_pipeline.py`
+(primary — gold-free gate; `--breaker`, `--score-brt`)**, `08_metrics_report.py`
+(reporting), `09_bestofn_pipeline.py` (best-of-N BRT + Selector + iterated fix). Offline
+smokes: `scripts/agent_*_smoke.py` (runtime, tools, brt, fix, breaker, multiagent,
+bestofn, deployable, pipeline) — no Docker/API needed.
+
+**`webapp/`** — Flask app (`app.py`, `db.py`, `research_data.py`, `seed_docs.py`)
+presenting results to the advisor: `/metrics` (live from `results.jsonl` via
+`metrics.py`), `/research` (locked plan + decisions + related-work), `/docs`,
+`/commands`. SQLite `tdbf.db` is regenerated from `results.jsonl`.
+
+## Status & findings (context, not official results)
+
+Phases 0 (runtime), A (BRT agent), B (fix agent) are built and live-validated on two
+repos (astropy, Django) with Claude Sonnet; the deployable `07` pipeline and the four
+auxiliary roles are built and offline-green. **No official results yet** — the numbers
+in `results.jsonl` / the webapp `/metrics` page are exploratory, from the analysis DB,
+not a frozen sweep. Don't quote them as final.
+
+Qualitative findings that steer the work (the *why*, no numbers):
+- **RQ1 weak arm** — local 7B models (qwen2.5-coder:7b, qwen3.5:9b) can call tools
+  correctly but can't sustain the autonomous loop to a terminal submit. Prompt-harden +
+  a bigger local model did *not* close it → the gap is **capability, not scaffolding**.
+  qwen stays as the free weak baseline; stop hacking on it.
+- **Verification gap (RQ3)** — the dominant fix failure is "valid BRT, fix passes it,
+  still not resolved": a BRT-passing fix is *necessary-not-sufficient*. This, not
+  localization, is what the auxiliary roles were meant to attack.
+- **Breaker parked** — with only ad-hoc `run_python` it has no oracle, so a
+  wrong-but-plausible value looks fine and it fails open to `robust`. Kept as an honest
+  RQ3 negative; no more Breaker tuning.
+
+**Non-agentic baseline (kept for comparison):** the `--attempts`/`--repair` workflow in
+`02_generate_brt.py` / `03_batch_brt.py`.
 
 ## Environment setup (macOS + Colima)
 
@@ -162,20 +259,43 @@ export DOCKER_HOST=unix://${HOME}/.colima/default/docker.sock
 # and Windows Firewall inbound rule for TCP 11434
 ```
 
-## Next steps
+## Research plan (LOCKED 2026-07-21) — what we're actually running
 
-**Read `docs/agent_plan.md` first** — it holds the authoritative phase checklists
-and findings. Phases 0 (runtime), A (BRT agent) and B (fix agent) are done and
-live-validated. Remaining:
-- **Broaden Phase B** beyond the 5 astropy instances (more repos/instances) for a
-  credible resolved-rate; add the qwen weak arm.
-- **Phase C** — multi-agent: split into reproduction / test-writer / (critic)
-  agents + an orchestrator; compare single-capable-agent vs multi-agent (RQ4).
+Read `docs/agent_plan.md` for the full checklists. The direction is locked:
 
-Hold the **gold-free invariant** in all new tools: no agent gets a tool that runs
-on the gold-fixed tree; `gold_patch`/`test_patch` are offline scoring only
-(`assert_gold_free` / `assert_fix_gold_free` enforce this). Budget ~$500 — Sonnet
-sweeps run ~$0.22–0.24/instance, qwen is the free weak arm.
+- **Dataset: SWE-bench Lite** (the scoring dataset — *not* Verified). BugsInPy/GitBugs
+  descoped unless time allows.
+- **Two arms (the main comparison):**
+  - **Arm A — reactive baseline:** same model / tools / budgets, but **drop `run_brt`**
+    from the fix agent (keep `run_tests`, no Phase A BRT). The `submit_fix` description
+    must lose its `run_brt` reference (`tools.py`). *Not built yet — this is the next
+    build.*
+  - **Arm B — test-first:** the deployable pipeline (`07`).
+  - A test-last (TLD) third arm is **open**, revisit after the pilot.
+- **Sequence:** build Arm A → freeze a random ~20 pilot → frozen stratified ~150 sample
+  → paired sweep (McNemar) → RQ2 offline artifact analysis (AST properties, determinism
+  3×, gold-patch-line coverage — gold is legal offline only).
+- **Auxiliary roles (Critic / Reviewer / Breaker / Selector / best-of-N) are RQ3
+  ablation material now**, including the negatives. No more Breaker tuning.
+
+**Binding constraint is Docker image builds, not budget** (spend to date is a small
+fraction of the ~$500; Sonnet runs are cheap, qwen is free). Getting instances built
+via `01_validate_gold.py` is the bottleneck for growing the sample.
+
+**Hold the gold-free invariant in all new tools** — see "Key invariants" below;
+`assert_gold_free` / `assert_fix_gold_free` / `assert_role_gold_free` /
+`assert_breaker_gold_free` enforce it per role.
+
+## Repo layout beyond the code
+
+- `docs/` — `agent_plan.md` (authoritative checklists), `project_summary.md`,
+  `cost_estimate.md`. **Gitignored** (not version-controlled) — heads-up.
+- `thesis/` — LaTeX thesis (report class, 7 chapters, `references.bib`). Source of the
+  written deliverable; `thesisproposal/` holds the original proposal source.
+- `figures/` — LaTeX/TikZ diagrams (`tdbf_*.tex` → PNG/PDF). **Gitignored.**
+- `results.jsonl` (repo root) — the append-only run store; webapp `tdbf.db` and all
+  metrics derive from it.
+- `goldjson/` — per-instance gold-validation outputs from `01_validate_gold.py`.
 
 ## Adding support for a new repo type
 
