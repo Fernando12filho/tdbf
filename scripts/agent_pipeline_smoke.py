@@ -158,7 +158,7 @@ def test_end_to_end_glue() -> None:
 
     # build_client/save_run are used by the script; container + gold scoring live
     # in tdbf.agent.pipeline (patch there).
-    mod.build_client = lambda spec: FakePipelineClient()
+    mod.build_client = lambda spec, **kw: FakePipelineClient()
     mod.save_run = lambda record: records.append(record)
     pipeline.ContainerSession = lambda instance, keep=False: PipelineFakeSession(instance.repo)
 
@@ -227,7 +227,7 @@ def test_gate_skips_fix_when_brt_not_l4() -> None:
         started.append(instance.instance_id)
         return PipelineFakeSession(instance.repo)
 
-    mod.build_client = lambda spec: FakePipelineClient()
+    mod.build_client = lambda spec, **kw: FakePipelineClient()
     mod.save_run = lambda record: records.append(record)
     pipeline.ContainerSession = _session
 

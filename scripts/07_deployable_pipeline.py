@@ -144,18 +144,25 @@ def run_one(
     breaker_rounds: int = 1,
     verbose: bool,
     num_ctx: int | None,
+    max_tokens_per_turn: int = 4096,
+    timeout: float | None = None,
+    temperature: float | None = None,
+    seed: int | None = None,
     brt_dir: Path,
     fix_dir: Path,
 ) -> DeployOutcome | None:
     print(f"\n{'#'*60}\n# Instance:  {inst.instance_id}\n# Repo:      {inst.repo}\n{'#'*60}")
 
-    client = build_client(model_spec)
+    client = build_client(model_spec, num_ctx=num_ctx, timeout=timeout,
+                          temperature=temperature, seed=seed)
     if isinstance(client, OllamaClient):
         if think:
             client._think = True
-        if num_ctx is not None:
-            client._num_ctx = num_ctx
-        print(f"Model:     {client.name}  (num_ctx={client._num_ctx})")
+        print(f"Model:     {client.name}  (num_ctx={client._num_ctx} "
+              f"max_tokens/turn={max_tokens_per_turn} "
+              f"prompt_budget={client._num_ctx - max_tokens_per_turn} "
+              f"temp={client._temperature} seed={client._seed} "
+              f"timeout={client._timeout}s)")
     else:
         print(f"Model:     {client.name}")
 
@@ -168,6 +175,7 @@ def run_one(
         inst, client,
         max_iterations=max_iterations,
         max_total_tokens=max_total_tokens,
+        max_tokens_per_turn=max_tokens_per_turn,
         prompt_harden=prompt_harden,
         keep_container=keep_container,
         verbose=verbose,
@@ -193,6 +201,9 @@ def run_one(
     brt_flags = {"max_iterations": max_iterations, "max_total_tokens": max_total_tokens,
                  "prompt_harden": prompt_harden,
                  "num_ctx": (client._num_ctx if isinstance(client, OllamaClient) else None),
+                 "max_tokens_per_turn": max_tokens_per_turn,
+                 "temperature": (client._temperature if isinstance(client, OllamaClient) else None),
+                 "seed": (client._seed if isinstance(client, OllamaClient) else None),
                  "submit_nudge_limit": brt.submit_nudge_limit,
                  "pipeline": "deployable"}
     save_run(brt_deployable_record(
@@ -221,6 +232,7 @@ def run_one(
         split=split,
         max_iterations=max_iterations,
         max_total_tokens=max_total_tokens,
+        max_tokens_per_turn=max_tokens_per_turn,
         keep_container=keep_container,
         verbose=verbose,
         run_dir=fix_dir,
@@ -275,7 +287,20 @@ def main() -> int:
                          "confidence signal only, no re-fix). Only used with --breaker.")
     ap.add_argument("--think", action="store_true", help="Enable Qwen3 thinking mode (Ollama).")
     ap.add_argument("--num-ctx", type=int, default=None,
-                    help="Override Ollama KV-cache window (num_ctx); see 04_agent_brt.py.")
+                    help="Ollama context window (prompt + generation). Default 16384. "
+                         "Effective prompt budget is num_ctx - max-tokens-per-turn.")
+    ap.add_argument("--max-tokens-per-turn", type=int, default=4096,
+                    help="Cap on ONE model turn (default 4096). Use ~1024 for local "
+                         "models: an agent turn is a tool call, and the remainder of "
+                         "num_ctx is what the transcript gets.")
+    ap.add_argument("--timeout", type=float, default=None,
+                    help="Per-request timeout in seconds (Ollama; default 900). Raise "
+                         "for a large local model on a slow card.")
+    ap.add_argument("--temperature", type=float, default=None,
+                    help="Sampling temperature (Ollama). Pin it (~0.2) for agent runs; "
+                         "unset means the server default, typically 0.7+.")
+    ap.add_argument("--seed", type=int, default=None,
+                    help="Sampling seed (Ollama). Pin for reproducible local runs.")
     ap.add_argument("--prompt-harden", action="store_true",
                     help="Append the tool-use protocol block to the BRT prompt (weak-arm ladder).")
     ap.add_argument("--keep-container", action="store_true",
@@ -309,6 +334,10 @@ def main() -> int:
             keep_container=args.keep_container,
             verbose=args.verbose,
             num_ctx=args.num_ctx,
+            max_tokens_per_turn=args.max_tokens_per_turn,
+            timeout=args.timeout,
+            temperature=args.temperature,
+            seed=args.seed,
             brt_dir=brt_dir,
             fix_dir=fix_dir,
         )

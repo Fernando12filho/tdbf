@@ -84,7 +84,7 @@ def main() -> int:
 
     # Patch external dependencies. build_client/save_run are called in the script;
     # the container + gold scoring now live in tdbf.agent.pipeline (patch there).
-    mod.build_client = lambda spec: FakeBRTClient()
+    mod.build_client = lambda spec, **kw: FakeBRTClient()
     mod.save_run = lambda record: captured.setdefault("record", record)
     pipeline.ContainerSession = lambda instance, keep=False: FakeLiveSession(instance.repo)
     # Fake the gold scoring: fail on buggy (assertion), pass on fixed -> L4.

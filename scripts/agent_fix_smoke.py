@@ -196,7 +196,7 @@ def test_orchestration_glue() -> None:
 
     # build_client/load_best_brt/save_run are called in the script; the container
     # + harness scoring now live in tdbf.agent.pipeline (patch there).
-    mod.build_client = lambda spec: FakeFixClient()
+    mod.build_client = lambda spec, **kw: FakeFixClient()
     mod.load_best_brt = lambda iid, min_level=4: {
         "test_code": "def test_brt():\n    assert compute() == 5\n", "level": 4, "model": "anthropic:claude-sonnet-4-6",
     }

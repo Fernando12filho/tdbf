@@ -68,7 +68,7 @@ def test_gate_accepts_reproducing_and_runs_fix() -> None:
     records: list[dict] = []
     gold_args: list = []
 
-    mod.build_client = lambda spec: FakePipelineClient()
+    mod.build_client = lambda spec, **kw: FakePipelineClient()
     mod.save_run = lambda record: records.append(record)
     pipeline.ContainerSession = lambda instance, keep=False: PipelineFakeSession(instance.repo)
 
@@ -128,7 +128,7 @@ def test_gate_rejects_nonreproducing() -> None:
         started.append(instance.instance_id)
         return PipelineFakeSession(instance.repo)
 
-    mod.build_client = lambda spec: FakePipelineClient()
+    mod.build_client = lambda spec, **kw: FakePipelineClient()
     mod.save_run = lambda record: records.append(record)
     pipeline.ContainerSession = _session
 
@@ -166,7 +166,7 @@ def test_gate_rejects_crashing_test() -> None:
         started.append(instance.instance_id)
         return PipelineFakeSession(instance.repo)
 
-    mod.build_client = lambda spec: FakePipelineClient()
+    mod.build_client = lambda spec, **kw: FakePipelineClient()
     mod.save_run = lambda record: records.append(record)
     pipeline.ContainerSession = _session
 

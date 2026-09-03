@@ -530,18 +530,35 @@ class OllamaClient(_OpenAIToolMixin):
     Ollama does not require an API key. Pass base_url pointing at the
     machine running Ollama, e.g. 'http://192.168.1.192:11434'.
 
-    num_ctx caps the KV-cache window. On an 8 GB card with Q4_K_M keep
-    this at 8192 — pushing higher spills to system RAM and kills decode
-    speed.
+    num_ctx is the WHOLE window (prompt + generation), not just the prompt:
+    Ollama truncates the prompt to `num_ctx - max_tokens`. With the old
+    defaults (8192 / 4096) an agent transcript was silently cut to 4096
+    tokens, which is under the measured peak of a hard run — the model lost
+    its history exactly when it needed it most. Default is 16384 so a real
+    agent trajectory fits; pair it with a smaller max_tokens_per_turn (an
+    agent turn is a tool call, not an essay).
+
+    VRAM: weights + KV cache share the card. A 12B at q4_K_M plus a 16k
+    window does not fit in 8 GB — either drop to a smaller quant or set
+    OLLAMA_KV_CACHE_TYPE=q8_0 on the server (roughly halves KV memory).
+    `ollama ps` reports the GPU/CPU split; any CPU fraction means the model
+    spilled and decode speed collapses.
+
+    temperature/seed are None by default (server defaults apply, typically
+    temperature 0.7+). Pin both for agent runs: tool selection is a decision,
+    not a sampling problem, and RQ2's determinism analysis is meaningless
+    while sampling is unpinned.
     """
 
     def __init__(
         self,
         model: str = "qwen3.5:9b",
         base_url: str = "http://localhost:11434",
-        num_ctx: int = 8192,
-        timeout: float = 300.0,
+        num_ctx: int = 16384,
+        timeout: float = 900.0,
         think: bool = False,
+        temperature: float | None = None,
+        seed: int | None = None,
     ) -> None:
         self.model = model
         self.name = f"ollama:{model}"
@@ -549,7 +566,23 @@ class OllamaClient(_OpenAIToolMixin):
         self._num_ctx = num_ctx
         self._timeout = timeout
         self._think = think
+        self._temperature = temperature
+        self._seed = seed
         self._client = None
+
+    def _options(self) -> dict:
+        """Ollama `options` block shared by complete() and run_tools().
+
+        num_ctx must be threaded through on EVERY call or the window silently
+        drops back to the model default (often 2048), truncating the growing
+        agent transcript mid-trajectory.
+        """
+        opts: dict = {"num_ctx": self._num_ctx}
+        if self._temperature is not None:
+            opts["temperature"] = self._temperature
+        if self._seed is not None:
+            opts["seed"] = self._seed
+        return opts
 
     def _ensure(self):
         if self._client is None:
@@ -584,7 +617,7 @@ class OllamaClient(_OpenAIToolMixin):
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            extra_body={"options": {"num_ctx": self._num_ctx}},
+            extra_body={"options": self._options()},
             stream=True,
             stream_options={"include_usage": True},
         )
@@ -607,10 +640,7 @@ class OllamaClient(_OpenAIToolMixin):
         )
 
     def _tool_extra_body(self) -> dict:
-        # num_ctx must be threaded through on every Ollama call or the KV window
-        # silently drops back to the model default (often 2048), truncating the
-        # growing agent transcript mid-trajectory.
-        return {"options": {"num_ctx": self._num_ctx}}
+        return {"options": self._options()}
 
     # NOTE: run_tools is inherited from _OpenAIToolMixin and is *non-streaming*
     # (unlike complete()). qwen2.5-coder has no silent thinking phase, so the
@@ -619,19 +649,40 @@ class OllamaClient(_OpenAIToolMixin):
     # used as an agent, revisit with streaming tool-call delta reassembly.
 
 
-def build_client(spec: str) -> LLMClient:
+def build_client(
+    spec: str,
+    *,
+    num_ctx: int | None = None,
+    timeout: float | None = None,
+    temperature: float | None = None,
+    seed: int | None = None,
+) -> LLMClient:
     """`spec` formats:
       'ollama:qwen3.5:9b@http://192.168.1.192:11434'
       'anthropic:claude-opus-4-7'
       'openai:gpt-4-turbo'
+
+    The keyword options apply to Ollama only (they are the local arm's fairness
+    knobs) and are ignored by the hosted vendors. Passing None keeps the
+    OllamaClient default, so callers that don't care are unaffected.
     """
     vendor, _, rest = spec.partition(":")
     if vendor == "ollama":
         # rest is '<model>@<base_url>' or just '<model>'
         model, _, base_url = rest.partition("@")
+        kw: dict = {}
+        if num_ctx is not None:
+            kw["num_ctx"] = num_ctx
+        if timeout is not None:
+            kw["timeout"] = timeout
+        if temperature is not None:
+            kw["temperature"] = temperature
+        if seed is not None:
+            kw["seed"] = seed
         return OllamaClient(
             model=model or "qwen3.5:9b",
             base_url=base_url or "http://localhost:11434",
+            **kw,
         )
     if vendor == "anthropic":
         return AnthropicClient(model=rest or "claude-opus-4-7")
