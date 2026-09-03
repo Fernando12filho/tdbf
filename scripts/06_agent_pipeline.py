@@ -194,7 +194,7 @@ def main() -> int:
     ap.add_argument("--num-ctx", type=int, default=None,
                     help="Override Ollama KV-cache window (num_ctx); see 04_agent_brt.py.")
     ap.add_argument("--prompt-harden", action="store_true",
-                    help="Append the tool-use protocol block to the BRT prompt (RQ1 weak-arm).")
+                    help="Append the tool-use protocol block to the BRT prompt (weak-arm ladder).")
     ap.add_argument("--multi", action="store_true",
                     help="Add multi-agent review to the FIX phase (Phase B Reviewer), same "
                          "model self-reviewing. Phase A (BRT) is always single-agent. "

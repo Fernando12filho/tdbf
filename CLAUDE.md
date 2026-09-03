@@ -243,7 +243,7 @@ in `results.jsonl` / the webapp `/metrics` page are exploratory, from the analys
 not a frozen sweep. Don't quote them as final.
 
 Qualitative findings that steer the work (the *why*, no numbers):
-- **RQ1 weak arm** — local 7B models (qwen2.5-coder:7b, qwen3.5:9b) can call tools
+- **Weak arm (scope condition, NOT an RQ)** — local 7B models (qwen2.5-coder:7b, qwen3.5:9b) can call tools
   correctly but can't sustain the autonomous loop to a terminal submit. Prompt-harden +
   a bigger local model did *not* close it → the gap is **capability, not scaffolding**.
   qwen stays as the free weak baseline; stop hacking on it.
@@ -273,6 +273,17 @@ export DOCKER_HOST=unix://${HOME}/.colima/default/docker.sock
 
 Read `docs/agent_plan.md` for the full checklists. The direction is locked:
 
+- **Research questions (canonical — proposal §3 = thesis §1.4 = `docs/agent_plan.md`):**
+  - **RQ1 — ordering:** does test-first (repair withheld until the test is *observed*
+    to fail on buggy) resolve more than a matched reactive arm? Paired Lite sweep.
+  - **RQ2 — test properties:** which measurable BRT properties predict resolved?
+    Offline over stored artifacts; gold is legal here (offline only).
+  - **RQ3 — orchestration:** which pipeline characteristics help under a fixed
+    budget? Ablations incl. the gold-free accept criterion, budgets, Critic/Reviewer,
+    Breaker, best-of-N. Negatives are findings.
+  - *Not RQs:* model capability (weak local arm) and the no-run-time-oracle
+    constraint are **scope conditions**. Older docs numbered the weak arm "RQ1" —
+    that numbering is superseded; see the mapping table in `docs/agent_plan.md`.
 - **Dataset: SWE-bench Lite** (the scoring dataset — *not* Verified). BugsInPy/GitBugs
   descoped unless time allows.
 - **Two arms (the main comparison):**

@@ -201,7 +201,7 @@ def main() -> int:
     ap.add_argument("--think", action="store_true", help="Enable Qwen3 thinking mode (Ollama).")
     ap.add_argument("--num-ctx", type=int, default=None, help="Override Ollama num_ctx.")
     ap.add_argument("--prompt-harden", action="store_true",
-                    help="Append the tool-use protocol block to the BRT prompt (RQ1 weak-arm).")
+                    help="Append the tool-use protocol block to the BRT prompt (weak-arm ladder).")
     ap.add_argument("--keep-container", action="store_true",
                     help="Do not remove agent containers after the run (debugging).")
     ap.add_argument("-v", "--verbose", action="store_true", help="Stream each agent's tool trace.")

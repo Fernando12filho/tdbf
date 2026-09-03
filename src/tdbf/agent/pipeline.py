@@ -361,7 +361,7 @@ def run_brt_phase(
     Phase C (multi-agent): pass `critic_client` + `critic_rounds > 0` to add a
     Critic that reviews the candidate BRT for specificity; on a 'revise' verdict
     the worker gets another round with the critic's feedback. `critic_client=None`
-    (default) is the single-agent RQ4 baseline — byte-identical to before.
+    (default) is the single-agent ablation baseline (RQ3) — byte-identical to before.
 
     Returns None only if the container could not be started (instance skipped).
     """
@@ -797,7 +797,7 @@ def run_fix_phase(
 
     Phase C (multi-agent): pass `reviewer_client` + `reviewer_rounds > 0` to add a
     Reviewer that judges the fix's minimality/root-cause before it is accepted.
-    `reviewer_client=None` (default) is the single-agent RQ4 baseline.
+    `reviewer_client=None` (default) is the single-agent ablation baseline (RQ3).
 
     Phase C (post-fix Breaker): pass `breaker_client` to add an adversarial verifier
     that runs AFTER the fix (and any Reviewer) and tries to defeat it gold-free —

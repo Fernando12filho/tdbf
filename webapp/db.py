@@ -422,8 +422,24 @@ def seed_docs() -> int:
     Per-doc idempotent: docs whose slug already exists are skipped, so adding a
     new entry to ``seed_docs.SEED_DOCS`` lands it in existing databases on the
     next startup, while user edits to previously-seeded docs are never touched.
+
+    Slugs listed in ``seed_docs.SUPERSEDED_DOC_SLUGS`` are deleted first. That
+    is how a correction (e.g. a renumbering) propagates to an existing database:
+    without it, the retired doc would sit alongside its replacement and the log
+    would state two incompatible things at once.
     """
-    from seed_docs import SEED_DOCS  # local import: seed data, not core schema
+    # local import: seed data, not core schema
+    from seed_docs import SEED_DOCS, SUPERSEDED_DOC_SLUGS
+
+    # Retirements commit on their own connection before the insert loop opens
+    # one. Holding a write lock across the loop would deadlock against the
+    # separate connection create_doc() opens per document.
+    if SUPERSEDED_DOC_SLUGS:
+        with get_conn() as conn:
+            conn.executemany(
+                "DELETE FROM docs WHERE slug=?",
+                [(slug,) for slug in SUPERSEDED_DOC_SLUGS],
+            )
 
     added = 0
     with get_conn() as conn:

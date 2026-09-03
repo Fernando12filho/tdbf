@@ -8,7 +8,8 @@ iterate -> submit. Termination is the model's call (the terminal submit_test
 tool), not a fixed loop.
 
 This is the agentic counterpart to scripts/02_generate_brt.py (the workflow
-baseline). The same Agent loop runs on Claude or qwen (RQ1) by changing --model.
+baseline). The same Agent loop runs on Claude or qwen by changing --model (the
+weak-arm capability comparison — a scope condition, not an RQ).
 
 GOLD-FREE: the agent's tools run only on the buggy checkout. The gold patch is
 applied ONLY in the offline scoring section below, after the agent has finished,

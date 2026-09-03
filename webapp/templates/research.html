@@ -7,17 +7,68 @@
   {%- elif status == "active" -%}<span class="badge bg-primary">active</span>
   {%- elif status == "decided" -%}<span class="badge bg-success">decided</span>
   {%- elif status == "open" -%}<span class="badge bg-warning text-dark">open</span>
+  {%- elif status == "partial" -%}<span class="badge bg-info text-dark">partial</span>
   {%- else -%}<span class="badge bg-secondary">pending</span>
   {%- endif -%}
 {%- endmacro %}
 
 <h1 class="h3 mb-1">Research</h1>
-<p class="text-muted">The plan to finish the thesis, the decisions behind it, and the papers we position against.
-One thesis question: <em>does mandating a validated bug-reproduction test <strong>before</strong> the fix
-improve agentic repair?</em> (Arm B = test-first pipeline, script 07 · Arm A = reactive baseline.)</p>
+<p class="text-muted">The questions, the plan to answer them, the decisions behind it, and the papers we
+position against. The thesis turns on one claim: <em>does mandating a validated bug-reproduction test
+<strong>before</strong> the fix improve agentic repair?</em> (Arm B = test-first pipeline, script 07 ·
+Arm A = reactive baseline.)</p>
 
-<!-- ── [1] Plan ────────────────────────────────────────────────────────── -->
-<h2 class="h5 mt-4 mb-3">1 · Plan to finish</h2>
+<!-- ── [1] Research questions ──────────────────────────────────────────── -->
+<h2 class="h5 mt-4 mb-2">1 · Research questions
+  <span class="text-muted fw-normal small">canonical numbering — matches the proposal §3 and thesis §1.4</span></h2>
+<div class="row g-3">
+  {% for q in questions %}
+  <div class="col-lg-4">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center py-2">
+        <span class="fw-semibold">{{ q.id }} <span class="text-muted fw-normal">· {{ q.short }}</span></span>
+        {{ status_badge(q.status) }}
+      </div>
+      <div class="card-body small">
+        <p class="fst-italic">{{ q.question }}</p>
+        <p class="mb-2"><span class="text-muted">How.</span> {{ q.method }}</p>
+        <p class="mb-2"><span class="text-muted">Outcome.</span> {{ q.outcome }}</p>
+        <p class="mb-0 text-muted">{{ q.note }}</p>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card mt-3 mb-2">
+  <div class="card-header py-2 small fw-semibold">Scope conditions
+    <span class="text-muted fw-normal">— bounds on all three questions, deliberately not questions</span></div>
+  <ul class="list-group list-group-flush">
+    {% for c in scope %}
+    <li class="list-group-item py-2 small">
+      <span class="fw-semibold">{{ c.name }}.</span> {{ c.text }}
+      <div class="text-muted mt-1">{{ c.bounds }}</div>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+
+<details class="mb-4">
+  <summary class="small text-muted">Superseded numbering (older docs and inline <code>(RQx)</code> tags may still use it)</summary>
+  <div class="card mt-2">
+    <table class="table table-sm mb-0 small">
+      <thead><tr><th>Old</th><th>Old meaning</th><th>Now</th></tr></thead>
+      <tbody>
+        {% for m in superseded %}
+        <tr><td class="text-nowrap">{{ m.old }}</td><td>{{ m.meaning }}</td><td>{{ m.now }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</details>
+
+<!-- ── [2] Plan ────────────────────────────────────────────────────────── -->
+<h2 class="h5 mt-4 mb-3">2 · Plan to finish</h2>
 <div class="row g-3">
   {% for phase in plan %}
   <div class="col-lg-6">
@@ -42,8 +93,8 @@ improve agentic repair?</em> (Arm B = test-first pipeline, script 07 · Arm A = 
   {% endfor %}
 </div>
 
-<!-- ── [2] Decisions ───────────────────────────────────────────────────── -->
-<h2 class="h5 mt-4 mb-3">2 · Decisions log</h2>
+<!-- ── [3] Decisions ───────────────────────────────────────────────────── -->
+<h2 class="h5 mt-4 mb-3">3 · Decisions log</h2>
 <div class="card mb-4">
   <ul class="list-group list-group-flush">
     {% for d in decisions %}
@@ -58,8 +109,8 @@ improve agentic repair?</em> (Arm B = test-first pipeline, script 07 · Arm A = 
   </ul>
 </div>
 
-<!-- ── [3] Related work ────────────────────────────────────────────────── -->
-<h2 class="h5 mt-4 mb-3">3 · Related work
+<!-- ── [4] Related work ────────────────────────────────────────────────── -->
+<h2 class="h5 mt-4 mb-3">4 · Related work
   <span class="text-muted fw-normal small">what each paper shows · how TDBF differs</span></h2>
 <div class="card mb-4">
   <div class="card-body p-0" style="overflow-x: auto;">

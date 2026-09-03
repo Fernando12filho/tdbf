@@ -16,6 +16,17 @@ from __future__ import annotations
 # Date the bulk of this knowledge was discussed / recorded.
 _D = "2026-06-16"
 
+# Docs retired by a later correction. ``db.seed_docs`` deletes these slugs
+# before inserting, so an existing database converges on the current set
+# instead of keeping a stale doc alongside its replacement. Only list slugs
+# whose content has been superseded — deletion is not reversible.
+SUPERSEDED_DOC_SLUGS: list[str] = [
+    # 2026-09-02 — RQ renumbering. Both replaced by "Research questions
+    # (RQ1-RQ3, canonical)" and "Weak arm - Claude vs qwen (scope condition)".
+    "rq1-rq4",
+    "rq1-claude-vs-qwen-as-agents-the-weak-arm",
+]
+
 SEED_DOCS: list[dict] = [
     {
         "topic": "Overview",
@@ -102,8 +113,8 @@ functions (`run_snippet_in_container`, `run_test_in_container`,
 
 ### Model-agnostic by design
 Hold the architecture fixed, vary the model. The agent loop is **not** bound to
-any vendor's SDK tool runner (that would make the Claude-vs-qwen RQ1 comparison
-unclean). One vendor-agnostic loop runs the same system prompt, same tools,
+any vendor's SDK tool runner (that would make the Claude-vs-qwen weak-arm
+comparison unclean). One vendor-agnostic loop runs the same system prompt, same tools,
 same termination logic — only the model swaps.
 """,
     },
@@ -189,7 +200,7 @@ astropy detail (3/5, ~$1.11):
 | 14182 | no  | 0.28 |
 | 7746  | no  | 0.15 |
 
-**RQ3 validity finding:** both astropy failures share a signature —
+**Verification-gap finding (RQ3):** both astropy failures share a signature —
 applied=True, `run_brt` PASSED (agent submitted), but the held-out FAIL_TO_PASS
 still fails. **A BRT-passing fix is necessary but not sufficient**; on those two
 the BRT under-specifies the correct fix.
@@ -209,9 +220,15 @@ the BRT under-specifies the correct fix.
     },
     {
         "topic": "Results",
-        "title": "RQ1 — Claude vs qwen as agents (the weak arm)",
+        "title": "Weak arm — Claude vs qwen (scope condition, not an RQ)",
         "created_at": "2026-06-12",
         "body": """\
+> **Renumbered 2026-09-02.** This was filed as "RQ1" under a superseded
+> numbering. Model capability is not one of the thesis questions — it is a
+> **scope condition** bounding all three (see *Research questions
+> (RQ1–RQ3, canonical)*). The finding below is unchanged and still reported,
+> in thesis §5.5.
+
 Same loop, same tools, same instances — **only the model swaps**.
 
 **qwen2.5-coder:7b** on the 6 astropy instances → **C2P = 0.00** (vs Claude
@@ -238,26 +255,77 @@ tool-call-as-text bug but exposed a deeper **reasoning** failure: qwen talks
 itself out of the bug ("replacement works correctly, no assertion failure") and
 quits — it even *lost* the baseline's one L3.
 
-**The RQ1 result, in its strongest form:** the gap is **capability, not
+**The finding, in its strongest form:** the gap is **capability, not
 tool-format or prompt scaffolding.** All free (local), so it costs nothing
-against the budget. This is itself a finding, not a setback.
+against the budget. This is itself a result, not a setback — it states the
+capability floor the pipeline presupposes, which is why it bounds every
+question rather than answering one.
 """,
     },
     {
         "topic": "Research questions",
-        "title": "RQ1–RQ4",
-        "created_at": _D,
+        "title": "Research questions (RQ1–RQ3, canonical)",
+        "created_at": "2026-09-02",
+        "pinned": 1,
         "body": """\
-- **RQ1** — Claude vs qwen *as agents* (same loop, different model). Hypothesis:
-  the 7B open model can't sustain an autonomous tool-use loop; this gap is
-  itself a result. *(Confirmed so far — see the weak-arm doc.)*
-- **RQ2** — does agentic TDD (BRT-in-the-loop) beat a no-test agent baseline on
-  resolved-rate? The clean control is *our* agent with the BRT tool removed
-  (comparing to a different paper's number is confounded by
-  scaffold/model/harness).
-- **RQ3** — does a gold-free BRT-confidence signal predict true validity (L4)?
-  *(The necessary-but-not-sufficient Phase B failures bear directly on this.)*
-- **RQ4** (optional) — single capable agent vs multi-agent decomposition.
+**This numbering is canonical.** It matches the thesis proposal (§3), the
+thesis (§1.4), `docs/agent_plan.md`, and `CLAUDE.md`. An earlier version of
+this log used a different, incompatible set of four questions; the mapping is
+at the bottom. **Do not renumber.**
+
+### RQ1 — ordering
+*Does a test-first agentic pipeline, in which repair is withheld until a
+generated test has been **observed** to fail on the buggy revision, resolve
+more real-world issues than a matched reactive pipeline?*
+
+- **How:** paired sweep on SWE-bench Lite. Every sampled instance goes through
+  both arms under the same model, tools, iteration/token budgets, container and
+  scoring harness. The arms differ **only** in the reproduction phase and the
+  `run_brt` tool.
+- **Outcome:** resolved-rate Δ + bootstrap 95% CI + McNemar on discordant pairs.
+- **Note the mechanism.** The claim is not "ordering helps" in the abstract —
+  it is that *architectural enforcement* helps. Cheng '26 tested TDD as a prompt
+  instruction and it lost to Freeform. Our gate is not a prompt.
+
+### RQ2 — test properties
+*Which properties of a generated BRT predict whether the fix it guides resolves
+the issue?*
+
+- **How:** offline over stored artifacts — assertion density, LOC, exact-value
+  vs raises-only assertions, determinism (3× re-run), overlap with the lines the
+  gold patch modifies. Logistic regression against `resolved`.
+- **Gold is legal here.** RQ2 runs after the fact, outside the loop. No agent
+  ever sees what this analysis sees.
+
+### RQ3 — orchestration
+*Which pipeline characteristics improve fix quality and reliability under a
+fixed budget?*
+
+- **How:** ablations — the gold-free accept criterion, per-instance attempt
+  budget, Critic/Reviewer self-review, post-fix Breaker, best-of-N + Selector.
+- **Outcome:** Δ resolved-rate per variant, reported against measured cost.
+- **Negatives are findings.** Breaker fails open without an oracle (n=2, both
+  false-negative `robust`); Critic is a near-no-op on the strong arm
+  (revise-rate 1/14). Both are reported, not dropped.
+
+### Not research questions — scope conditions
+
+| Condition | What it bounds |
+|---|---|
+| **Model capability** — 7–14B local models call tools correctly but cannot sustain the loop to a terminal submit; prompt-hardening and a bigger local model did not close it | The whole design presupposes an agent that can finish a trajectory. Reported as a finding (thesis §5.5), not a question. |
+| **No run-time oracle** — the gold-free invariant | Constrains what RQ3 may ablate and what RQ1 may claim. Every in-pipeline decision uses evidence a deployed system would also have. |
+
+### Mapping from the superseded numbering
+
+| old | old meaning | now |
+|---|---|---|
+| RQ1 | Claude vs qwen as agents | scope condition (model capability) |
+| RQ2 | agentic TDD vs no-test baseline | **RQ1** |
+| RQ3 | gold-free BRT-confidence predicts L4 | folded into **RQ3** (accept criterion) |
+| RQ4 | single agent vs multi-agent | folded into **RQ3** (self-review ablation) |
+
+Older docs in this log may still carry `(RQx)` tags in the superseded sense.
+Read them through this table.
 """,
     },
     {
@@ -274,7 +342,7 @@ against the budget. This is itself a finding, not a setback.
 - **Model reality:** real autonomous tool use is hard for a 7B model. The
   headline agentic results are on **Claude**; qwen is the documented weak
   baseline.
-- **Baseline validity (RQ2):** comparing our agent's resolved-rate to a
+- **Baseline validity (RQ1):** comparing our agent's resolved-rate to a
   *different paper's* no-test number is confounded. The clean control is *our*
   agent with the BRT tool removed.
 - **Docker latency:** every fresh `docker run` is ~10–40s → the persistent
@@ -302,17 +370,18 @@ split, start with **one collaborator role per phase**:
 
 Topology (working assumption): **orchestrator-mediated code-controller**, all
 roles share one `ContainerSession`, each role gold-free with its own
-iteration/token cap. The single-agent pipeline is the RQ4 baseline. Escalate to
+iteration/token cap. The single-agent pipeline is the ablation baseline (RQ3).
+Escalate to
 the full multi-role split only if the light version shows it's needed.
 
 ### Open items
 - **Refocus on local LLMs first** — make the local arm viable (other
   tool-tuned models, better Ollama tool-calling path, tailored scaffolding) so
-  RQ1 has a stronger local story before multi-agent.
+  the weak arm has a stronger local story before multi-agent.
 - Add the **qwen weak arm** to the Phase B sweep; broaden further (more repos)
   for a paper-grade resolved-rate.
 - Then: Phase A Critic + Phase B Reviewer + orchestrator wiring; compare
-  single-capable-agent vs light multi-agent (RQ4).
+  single-capable-agent vs light multi-agent (an RQ3 ablation).
 """,
     },
     {

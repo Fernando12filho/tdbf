@@ -126,6 +126,9 @@ def research():
     Content lives in research_data.py (git-versioned, reviewable in diffs)."""
     return render_template(
         "research.html",
+        questions=research_data.RESEARCH_QUESTIONS,
+        scope=research_data.SCOPE_CONDITIONS,
+        superseded=research_data.SUPERSEDED_RQ_MAP,
         plan=research_data.RESEARCH_PLAN,
         decisions=research_data.DECISIONS,
         related=research_data.RELATED_WORK,

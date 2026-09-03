@@ -1,4 +1,4 @@
-"""Research plan, decisions, and related-work comparison for the /research page.
+"""Research questions, plan, decisions, and related work for the /research page.
 
 Git-versioned Python data (not DB rows) on purpose: the plan and the
 related-work table are research artifacts — changes to them should show up in
@@ -10,6 +10,84 @@ Status vocabulary: "done" | "active" | "pending" (plan items and phases),
 """
 
 from __future__ import annotations
+
+# ── Research questions ───────────────────────────────────────────────────────
+# CANONICAL NUMBERING. Matches thesisproposal §3, thesis §1.4,
+# docs/agent_plan.md and CLAUDE.md. An earlier numbering (RQ1 = Claude vs qwen,
+# RQ2 = TDD vs no-test, RQ3 = confidence signal, RQ4 = multi-agent) is
+# superseded; SUPERSEDED_RQ_MAP records the translation. Do not renumber.
+
+RESEARCH_QUESTIONS: list[dict] = [
+    {
+        "id": "RQ1",
+        "short": "ordering",
+        "question": "Does a test-first agentic pipeline, in which repair is withheld until a "
+                    "generated test has been observed to fail on the buggy revision, resolve "
+                    "more real-world issues than a matched reactive pipeline?",
+        "method": "Paired sweep on SWE-bench Lite. Every sampled instance goes through both "
+                  "arms under the same model, tools, iteration/token budgets, container and "
+                  "scoring harness; the arms differ only in the reproduction phase and the "
+                  "run_brt tool.",
+        "outcome": "Resolved-rate Δ + bootstrap 95% CI + McNemar on discordant pairs.",
+        "note": "The claim is not that ordering helps in the abstract — it is that "
+                "architectural enforcement helps. Cheng '26 tested TDD as a prompt "
+                "instruction and it lost to Freeform. Our gate is not a prompt.",
+        "status": "pending",
+    },
+    {
+        "id": "RQ2",
+        "short": "test properties",
+        "question": "Which properties of a generated bug-reproduction test predict whether the "
+                    "fix it guides resolves the issue?",
+        "method": "Offline over stored artifacts: assertion density, LOC, exact-value vs "
+                  "raises-only assertions, determinism (3× re-run), overlap with the lines the "
+                  "gold patch modifies. Logistic regression against resolved.",
+        "outcome": "Which measurable properties separate resolved from unresolved.",
+        "note": "Gold is legal here — this analysis runs after the fact, outside the loop. "
+                "No agent ever sees what it sees.",
+        "status": "pending",
+    },
+    {
+        "id": "RQ3",
+        "short": "orchestration",
+        "question": "Which pipeline and orchestration characteristics improve fix quality and "
+                    "reliability under a fixed budget?",
+        "method": "Ablations: the gold-free accept criterion, per-instance attempt budget, "
+                  "Critic/Reviewer self-review, post-fix Breaker, best-of-N + Selector.",
+        "outcome": "Δ resolved-rate per variant against its measured cost.",
+        "note": "Negatives are findings: Breaker fails open without an oracle (n=2, both "
+                "false-negative 'robust'); Critic is a near-no-op on the strong arm "
+                "(revise-rate 1/14). Both reported, not dropped.",
+        "status": "partial",
+    },
+]
+
+# Bounds on all three questions — deliberately NOT questions of their own.
+SCOPE_CONDITIONS: list[dict] = [
+    {"name": "Model capability",
+     "text": "Local 7–14B models call tools correctly but cannot sustain the autonomous loop "
+             "to a terminal submit; prompt-hardening and a larger local model did not close "
+             "the gap.",
+     "bounds": "The design presupposes an agent that can finish a trajectory. Reported as a "
+               "finding (thesis §5.5), not as a question — it was previously mis-filed as "
+               "'RQ1'."},
+    {"name": "No run-time oracle",
+     "text": "The gold-free invariant: no agent ever holds a tool that observes the gold "
+             "patch, the fixed tree, or the held-out tests.",
+     "bounds": "Constrains what RQ3 may ablate and what RQ1 may claim. Every in-pipeline "
+               "decision rests on evidence a deployed system would also have."},
+]
+
+SUPERSEDED_RQ_MAP: list[dict] = [
+    {"old": "RQ1", "meaning": "Claude vs qwen as agents",
+     "now": "scope condition (model capability)"},
+    {"old": "RQ2", "meaning": "agentic TDD vs no-test baseline", "now": "RQ1"},
+    {"old": "RQ3", "meaning": "gold-free BRT-confidence predicts L4",
+     "now": "folded into RQ3 (accept criterion)"},
+    {"old": "RQ4", "meaning": "single agent vs multi-agent",
+     "now": "folded into RQ3 (self-review ablation)"},
+]
+
 
 # ── The plan to finish the research ──────────────────────────────────────────
 # One phase per card; items are the concrete, checkable steps.
@@ -104,6 +182,13 @@ RESEARCH_PLAN: list[dict] = [
 # ── Decisions log ────────────────────────────────────────────────────────────
 
 DECISIONS: list[dict] = [
+    {"date": "2026-09-02", "status": "decided",
+     "text": "RQ numbering realigned to the proposal: RQ1 ordering, RQ2 test properties, "
+             "RQ3 orchestration.",
+     "note": "docs/agent_plan.md and the research log had drifted to an incompatible set in "
+             "which the weak-arm model comparison occupied the RQ1 slot and the ordering "
+             "experiment — the thesis question — sat at RQ2. Model capability is now a scope "
+             "condition. Corrected in thesis §1.4, agent_plan.md, CLAUDE.md and this page."},
     {"date": "2026-07-21", "status": "decided",
      "text": "SWE-bench Lite is the scoring dataset (not Verified).",
      "note": "Proposal §Dataset must be updated — it currently names Verified as primary."},
