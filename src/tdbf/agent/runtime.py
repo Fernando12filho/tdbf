@@ -121,7 +121,8 @@ class Agent:
         submission: str | None = None
         stop_cause = "max_iterations"
         final_text = ""
-        nudges_used = 0
+        nudges_used = 0  # total, for telemetry
+        consecutive_no_tool = 0  # what the nudge limit actually bounds
 
         for i in range(self.max_iterations):
             if in_tok + out_tok >= self.max_total_tokens:
@@ -149,20 +150,30 @@ class Agent:
             # No tool calls. Weaker models often narrate the result in prose
             # instead of firing the terminal tool; nudge them to actually call
             # it, up to a bounded limit, before accepting the natural stop.
+            #
+            # The limit counts CONSECUTIVE no-tool turns and resets on any turn
+            # that calls a tool. Counting cumulatively ended runs that were
+            # working: a verbose local model narrates occasionally mid-trajectory
+            # and recovers when nudged (observed: 9 clean tool calls, 2 scattered
+            # narration turns, terminated as "natural" with 19 iterations of
+            # budget unused). The nudge exists to catch a model that has STOPPED
+            # acting, which is a run of consecutive no-tool turns, not a tally.
             if not resp.tool_calls:
                 steps.append(
                     AgentStep(i, resp.text, [], [], resp.input_tokens, resp.output_tokens, resp.duration_seconds)
                 )
-                if nudges_used < self.submit_nudge_limit and self.terminal_tools:
+                if consecutive_no_tool < self.submit_nudge_limit and self.terminal_tools:
+                    consecutive_no_tool += 1
                     nudges_used += 1
                     messages.append(Message(role="user", content=self._nudge_text()))
                     self._log(
-                        f"    -> [nudge {nudges_used}/{self.submit_nudge_limit}] "
-                        "no tool call; prompting to submit"
+                        f"    -> [nudge {consecutive_no_tool}/{self.submit_nudge_limit} "
+                        f"consecutive, {nudges_used} total] no tool call; prompting to submit"
                     )
                     continue
                 stop_cause = "natural"
                 break
+            consecutive_no_tool = 0  # the model is acting again
 
             results: list[str] = []
             terminated = False
