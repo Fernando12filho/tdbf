@@ -125,6 +125,7 @@ def brt_run_record(
         "iterations": r.iterations,
         "num_tool_calls": sum(len(s.tool_calls) for s in r.steps),
         "outcome_buggy": phase.outcome_buggy,
+        "failure_reason_buggy": phase.failure_reason_buggy,
         "outcome_fixed": phase.outcome_fixed,
         "test_code": phase.test_code,
         "input_tokens": phase.total_input_tokens if phase.total_input_tokens is not None else r.total_input_tokens,
@@ -286,6 +287,10 @@ class BrtPhaseResult:
     reviews: list = None  # type: ignore[assignment]
     total_input_tokens: int | None = None
     total_output_tokens: int | None = None
+    # How the buggy-tree run failed: "assertion" (reached and fired its assert),
+    # "runtime" (crashed before asserting) or None (undetermined). Gold-free —
+    # parsed from buggy-side pytest output only. Gates `reproduces_on_buggy`.
+    failure_reason_buggy: str | None = None
 
     @property
     def level(self) -> int:
@@ -301,16 +306,33 @@ class BrtPhaseResult:
         """GOLD-FREE accept signal: the test reached an assertion and FAILED on
         the buggy tree (a candidate BRT, L3 or L4). This is the only usability
         signal observable without a fix, so it — not `is_valid_brt` — is what a
-        deployable pipeline may gate on. (Cannot tell L3 from L4; that needs gold.)"""
-        return self.outcome_buggy == "fail"
+        deployable pipeline may gate on. (Cannot tell L3 from L4; that needs gold.)
+
+        A pytest exit code of 1 means "a test failed", which conflates two
+        opposite things: an ASSERTION that fired (a real reproduction) and a test
+        that CRASHED before reaching its assertion (invented API, bad import).
+        A crash fails identically on the fixed tree, so it can never be L4 and is
+        not a reproduction. `failure_reason` already distinguishes them, so the
+        gate consults it. Note the criterion is `!= "runtime"`, NOT
+        `== "assertion"`: a bare `assert x == y` with no message emits no
+        `E AssertionError:` line, so its reason is None while still being a
+        perfectly good reproduction."""
+        return self.outcome_buggy == "fail" and self.failure_reason_buggy != "runtime"
 
 
-def _brt_retry_feedback(outcome_buggy, submission: str | None) -> str:
+def _brt_retry_feedback(outcome_buggy, submission: str | None, failure_reason: str | None = None) -> str:
     """Gold-free feedback appended to the task when a submitted BRT lands L0/L1/L2
     (it did not fail cleanly on the BUGGY tree). Reasons ONLY from the buggy-side
     outcome — never the gold-fixed result — so the retry stays deployable."""
     prev = f"\n\nYour previous test:\n{submission}\n" if submission and submission.strip() else "\n"
-    if outcome_buggy == "pass":  # L1 — the test does not reproduce the bug
+    if outcome_buggy == "fail" and failure_reason == "runtime":  # L2 — crashed, never asserted
+        why = ("It FAILED on the buggy code, but it CRASHED before reaching its assertion "
+               "(an ImportError, NameError, AttributeError or wrong API — not an "
+               "AssertionError). A crashing test fails the same way on fixed code, so it "
+               "does NOT reproduce the bug. Use run_python to confirm the API you call "
+               "actually exists and behaves as you expect, then make the test REACH its "
+               "assertion and fail there.")
+    elif outcome_buggy == "pass":  # L1 — the test does not reproduce the bug
         why = ("It PASSED on the buggy code, so it does NOT reproduce the bug. A bug "
                "reproduction test must FAIL on the buggy code. Use run_python to observe the "
                "ACTUAL buggy behaviour, then assert the CORRECT expected value so the test "
@@ -388,6 +410,7 @@ def run_brt_phase(
     tot_in = tot_out = 0
     submission = test_code = test_patch = None
     outcome_buggy = outcome_fixed = None
+    failure_reason_buggy = None
     classification = None
 
     def _run_brt_agent(run_task: str):
@@ -431,15 +454,18 @@ def run_brt_phase(
             tot_out += result.total_output_tokens
             submission = result.submission
             test_code, test_patch, outcome_buggy = _score_on_buggy(submission)
-            if outcome_buggy == "fail":
-                break  # clean assertion failure on buggy = candidate BRT (L3/L4)
+            failure_reason_buggy = getattr(outcome_buggy, "failure_reason", None)
+            if outcome_buggy == "fail" and failure_reason_buggy != "runtime":
+                break  # reached its assertion and failed = candidate BRT (L3/L4)
             if attempt < brt_retries:
                 bad = ("L1 (passes on buggy)" if outcome_buggy == "pass"
+                       else "L2 (crashes before asserting)" if failure_reason_buggy == "runtime"
                        else "L2 (errors on buggy)" if outcome_buggy == "error"
                        else "L0 (no usable test)")
                 print(f"  BRT does not reproduce the bug — {bad}. "
                       f"Retrying with feedback ({attempt + 1}/{brt_retries}).")
-                run_task = task + _brt_retry_feedback(outcome_buggy, submission)
+                run_task = task + _brt_retry_feedback(
+                    outcome_buggy, submission, failure_reason_buggy)
 
         # Phase C: Critic reviews the candidate BRT for specificity; on 'revise'
         # the worker re-runs with the feedback (bounded by critic_rounds). The
@@ -473,6 +499,7 @@ def run_brt_phase(
             # Re-score the revised submission on the buggy tree (gold-free).
             submission = result.submission
             test_code, test_patch, outcome_buggy = _score_on_buggy(submission)
+            failure_reason_buggy = getattr(outcome_buggy, "failure_reason", None)
     finally:
         session.close()
 
@@ -501,8 +528,10 @@ def run_brt_phase(
     else:
         # Deployable pipeline: NO gold-fixed run, NO L4 label. The gate uses only
         # the gold-free buggy-side outcome (reproduces_on_buggy).
-        print(f"  gold-free: reproduces failure on buggy = {outcome_buggy == 'fail'} "
-              "(L3/L4 not distinguished — gold not consulted)")
+        print(f"  gold-free: reproduces failure on buggy = "
+              f"{outcome_buggy == 'fail' and failure_reason_buggy != 'runtime'} "
+              f"(outcome={outcome_buggy} reason={failure_reason_buggy}; "
+              "L3/L4 not distinguished — gold not consulted)")
 
     return BrtPhaseResult(
         agent=result,
@@ -515,6 +544,7 @@ def run_brt_phase(
         classification=classification,
         cost_usd=cost,
         submit_nudge_limit=agent.submit_nudge_limit,
+        failure_reason_buggy=failure_reason_buggy,
         reviews=reviews,
         total_input_tokens=tot_in,
         total_output_tokens=tot_out,
@@ -642,7 +672,10 @@ def run_brt_best_of_n(
             outcome, reason = (
                 _score_on_buggy_in_session(session, sub) if sub and sub.strip() else (None, None)
             )
-            viable = outcome == "fail" and reason == "assertion"
+            # `!= "runtime"`, not `== "assertion"`: a bare `assert x == y` with no
+            # message emits no `E AssertionError:` line, so reason is None while the
+            # test is still a valid reproduction. Matches `reproduces_on_buggy`.
+            viable = outcome == "fail" and reason != "runtime"
             print(f"  candidate {i}: submit={'yes' if sub else 'no'}  "
                   f"buggy={outcome} reason={reason}  viable={viable}")
             candidates.append(BrtCandidate(i, sub, outcome, reason, viable, result))
@@ -695,6 +728,7 @@ def run_brt_best_of_n(
             outcome_buggy=str(outcome_buggy) if outcome_buggy is not None else None,
             outcome_fixed=str(outcome_fixed) if outcome_fixed is not None else None,
             classification=classification, cost_usd=cost, submit_nudge_limit=submit_nudge_limit,
+            failure_reason_buggy=getattr(outcome_buggy, "failure_reason", None),
             reviews=[], total_input_tokens=tot_in, total_output_tokens=tot_out,
         )
     else:
