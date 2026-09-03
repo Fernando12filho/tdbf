@@ -312,6 +312,89 @@ def _parse_openai_response(
     )
 
 
+def _to_ollama_tools(tools: list[ToolSchema]) -> list[dict]:
+    """Ollama's native tool schema is the OpenAI shape."""
+    return _to_openai_tools(tools)
+
+
+def _to_ollama_messages(system: str, messages: list[Message]) -> list[dict]:
+    """Normalized -> Ollama native /api/chat messages.
+
+    Close to OpenAI's format with two differences that matter: tool-call
+    arguments are a JSON *object* (not a string), and a tool result carries the
+    tool's NAME rather than a tool_call_id, so results are matched by name.
+    """
+    out: list[dict] = [{"role": "system", "content": system}]
+    id_to_name: dict[str, str] = {}
+    for m in messages:
+        if m.role == "tool":
+            out.append({
+                "role": "tool",
+                "tool_name": id_to_name.get(m.tool_call_id or "", ""),
+                "content": m.content or "",
+            })
+        elif m.role == "assistant":
+            msg: dict = {"role": "assistant", "content": m.content or ""}
+            if m.tool_calls:
+                msg["tool_calls"] = [
+                    {"function": {"name": tc.name, "arguments": tc.arguments}}
+                    for tc in m.tool_calls
+                ]
+                for tc in m.tool_calls:
+                    id_to_name[tc.id] = tc.name
+            out.append(msg)
+        else:
+            out.append({"role": "user", "content": m.content or ""})
+    return out
+
+
+def _parse_ollama_response(
+    body: dict, model_name: str, duration: float, tool_names: set[str] | None = None
+) -> ToolUseResponse:
+    """Parse a native /api/chat response into the normalized ToolUseResponse."""
+    msg = body.get("message") or {}
+    text = msg.get("content") or ""
+    tool_calls: list[ToolCall] = []
+    for i, tc in enumerate(msg.get("tool_calls") or []):
+        fn = tc.get("function") or {}
+        args = fn.get("arguments", {})
+        if isinstance(args, str):  # some builds still send a JSON string
+            try:
+                args = json.loads(args)
+            except (json.JSONDecodeError, ValueError):
+                args = {}
+        tool_calls.append(
+            ToolCall(
+                id=tc.get("id") or f"call_{i}",
+                name=fn.get("name", ""),
+                arguments=args if isinstance(args, dict) else {},
+                malformed=not isinstance(args, dict),
+            )
+        )
+
+    done_reason = body.get("done_reason") or "stop"
+    stop_reason = {"stop": "end_turn", "length": "max_tokens"}.get(done_reason, "end_turn")
+
+    # Same rescue as the OpenAI path: a model that writes the call as prose is
+    # measured on its reasoning, not its wire-format compliance. The id marks it.
+    if not tool_calls and tool_names:
+        recovered = _recover_tool_calls_from_text(text, tool_names)
+        if recovered:
+            tool_calls = recovered
+    if tool_calls:
+        stop_reason = "tool_use"
+
+    return ToolUseResponse(
+        text=text,
+        tool_calls=tool_calls,
+        stop_reason=stop_reason,
+        input_tokens=body.get("prompt_eval_count"),
+        output_tokens=body.get("eval_count"),
+        duration_seconds=duration,
+        raw=body,
+    )
+
+
 class _OpenAIToolMixin:
     """`run_tools` for any client speaking the OpenAI function-calling format.
 
@@ -642,11 +725,48 @@ class OllamaClient(_OpenAIToolMixin):
     def _tool_extra_body(self) -> dict:
         return {"options": self._options()}
 
-    # NOTE: run_tools is inherited from _OpenAIToolMixin and is *non-streaming*
-    # (unlike complete()). qwen2.5-coder has no silent thinking phase, so the
-    # ReadTimeout that motivated streaming on complete() does not arise here; a
-    # generous `timeout` on the client covers it. If a future thinking model is
-    # used as an agent, revisit with streaming tool-call delta reassembly.
+    # run_tools does NOT use the inherited OpenAI-compatible path. Ollama's
+    # /v1/chat/completions ignores the `options` block entirely (verified against
+    # a live server: a request carrying options.num_ctx=16384 loaded the model at
+    # its default ctx=65536, while native /api/chat with options.num_ctx=4096
+    # loaded at ctx=4096). Since num_ctx is the local arm's main fairness knob,
+    # the agent path talks to the native endpoint, which honours it.
+    #
+    # Non-streaming, like the inherited path was: qwen/gemma have no silent
+    # thinking phase here, and a generous `timeout` covers slow prompt eval on a
+    # spilled model. Revisit with delta reassembly if a thinking model is used.
+    def run_tools(
+        self,
+        *,
+        system: str,
+        messages: list[Message],
+        tools: list[ToolSchema],
+        max_tokens: int = 4096,
+    ) -> ToolUseResponse:
+        import json as _json
+        import urllib.request
+
+        opts = self._options()
+        opts["num_predict"] = max_tokens
+        payload = {
+            "model": self.model,
+            "messages": _to_ollama_messages(system, messages),
+            "tools": _to_ollama_tools(tools),
+            "stream": False,
+            "options": opts,
+        }
+        req = urllib.request.Request(
+            f"{self._base_url}/api/chat",
+            data=_json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        t0 = time.perf_counter()
+        with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+            body = _json.loads(resp.read().decode())
+        duration = time.perf_counter() - t0
+        return _parse_ollama_response(
+            body, self.name, duration, {t.name for t in tools}
+        )
 
 
 def build_client(
