@@ -100,6 +100,7 @@ def brt_deployable_record(
         "iterations": r.iterations,
         "num_tool_calls": sum(len(s.tool_calls) for s in r.steps),
         "outcome_buggy": phase.outcome_buggy,
+        "failure_reason_buggy": phase.failure_reason_buggy,
         "test_code": phase.test_code,
         "input_tokens": r.total_input_tokens,
         "output_tokens": r.total_output_tokens,
@@ -121,6 +122,7 @@ def brt_deployable_record(
         "reproduces_on_buggy": phase.reproduces_on_buggy,
         "gate_accepted": gate_accepted,
         "outcome_buggy": phase.outcome_buggy,
+        "failure_reason_buggy": phase.failure_reason_buggy,
         "best_attempt": 1,
         "attempts": [attempt],
     }
@@ -201,7 +203,8 @@ def run_one(
 
     if not gate_accepted:
         print(f"\n[gate:gold-free] BRT does not reproduce a clean failure on the buggy code "
-              f"(outcome_on_buggy={brt.outcome_buggy}) — rejected, skipping the fix phase.")
+              f"(outcome_on_buggy={brt.outcome_buggy}, "
+              f"failure_reason={brt.failure_reason_buggy}) — rejected, skipping the fix phase.")
         return DeployOutcome(inst.instance_id, brt.reproduces_on_buggy, False, None, cost, brt_lvl)
     if brt_only:
         print(f"\n[gate:gold-free] --brt-only: gate accepted; stopping before the fix phase.")

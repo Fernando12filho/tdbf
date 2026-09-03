@@ -152,8 +152,49 @@ def test_gate_rejects_nonreproducing() -> None:
         assert len(started) == 1, "fix phase started a container despite the gate rejecting"
 
 
+def test_gate_rejects_crashing_test() -> None:
+    """A test that FAILS on buggy code but crashed before reaching its assertion
+    (failure_reason='runtime') is NOT a reproduction: it would fail identically on
+    fixed code. pytest exit code 1 covers both cases, so the gate must consult
+    failure_reason. Regression test — the gate previously accepted this."""
+    mod = _load_script_module()
+    inst = _inst("demo__pkg-3")
+    records: list[dict] = []
+    started: list[str] = []
+
+    def _session(instance, keep=False):
+        started.append(instance.instance_id)
+        return PipelineFakeSession(instance.repo)
+
+    mod.build_client = lambda spec: FakePipelineClient()
+    mod.save_run = lambda record: records.append(record)
+    pipeline.ContainerSession = _session
+
+    # Fails on buggy (exit 1) but via AttributeError, never reaching an assert.
+    pipeline.run_test_in_container = lambda instance, test_patch, *, gold_patch=None, test_path=None, **kw: \
+        ContainerResult("fail", failure_reason="runtime",
+                        output="E   AttributeError: 'Thing' object has no attribute 'nope'")
+
+    with tempfile.TemporaryDirectory() as td:
+        outcome = mod.run_one(
+            inst, "anthropic:claude-sonnet-4-6",
+            split="lite", max_iterations=8, max_total_tokens=300_000,
+            think=False, prompt_harden=False, brt_only=False,
+            keep_container=False, verbose=False, num_ctx=None,
+            brt_dir=Path(td) / "brt", fix_dir=Path(td) / "fix",
+        )
+        assert outcome is not None
+        assert outcome.reproduces_on_buggy is False, \
+            "a crashing test must NOT count as reproducing the bug"
+        assert outcome.gate_accepted is False, outcome
+        assert outcome.resolved is None, "fix phase must be skipped for a crashing BRT"
+        assert records[0]["failure_reason_buggy"] == "runtime", records[0]
+        assert len(started) == 1, "fix phase started a container despite the gate rejecting"
+
+
 def main() -> int:
-    tests = [test_gate_accepts_reproducing_and_runs_fix, test_gate_rejects_nonreproducing]
+    tests = [test_gate_accepts_reproducing_and_runs_fix, test_gate_rejects_nonreproducing,
+             test_gate_rejects_crashing_test]
     for t in tests:
         t()
         print(f"  ok  {t.__name__}")
