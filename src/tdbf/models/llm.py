@@ -139,6 +139,10 @@ def _parse_anthropic_response(resp, model_name: str, duration: float) -> ToolUse
         stop_reason=stop_map.get(resp.stop_reason, resp.stop_reason or "end_turn"),
         input_tokens=getattr(resp.usage, "input_tokens", None),
         output_tokens=getattr(resp.usage, "output_tokens", None),
+        # Billed separately from input_tokens when prompt caching is on; absent
+        # (None -> 0) on responses that never touched the cache.
+        cache_write_tokens=getattr(resp.usage, "cache_creation_input_tokens", None) or 0,
+        cache_read_tokens=getattr(resp.usage, "cache_read_input_tokens", None) or 0,
         duration_seconds=duration,
         raw=resp,
     )
@@ -411,6 +415,14 @@ class AnthropicClient:
             system=system,
             tools=_to_anthropic_tools(tools),
             messages=_to_anthropic_messages(messages),
+            # Prompt caching. An agent turn re-sends the entire transcript, so
+            # without this a 12-iteration phase bills the conversation ~12 times:
+            # measured across the 07 arm, input was 29x output and 85% of spend.
+            # The transcript is append-only and the tool list is fixed, which is
+            # the ideal prefix shape — auto-caching puts the breakpoint at the
+            # last cacheable block, so each turn reads back the previous prefix.
+            # Behaviour is unchanged; only billing and the usage split differ.
+            cache_control={"type": "ephemeral"},
         )
         duration = time.perf_counter() - t0
         return _parse_anthropic_response(resp, self.name, duration)
