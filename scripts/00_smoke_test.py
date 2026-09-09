@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from tdbf.data.instances import SWEBenchInstance
 from tdbf.generation.agent import TestGenerationAgent, _extract_code
-from tdbf.harness.runner import make_test_patch
+from tdbf.harness.runner import _parse_failure_reason, make_test_patch
 from tdbf.models.llm import LLMResponse
 from tdbf.validation.brt_levels import BRTLevel, classify, c2p_rate
 
@@ -118,6 +118,59 @@ def test_brt_matrix():
     print("  [ok] C2P rate (and None when no candidates)")
 
 
+def test_failure_reason_parsing():
+    """The gold-free gate accepts a BRT iff failure_reason != 'runtime', so this
+    parser decides which tests reach the fix phase. Both directions matter: a
+    crash misread as an assertion dispatches the fix agent at a test that can
+    never pass, and an assertion misread as a crash throws away a valid BRT."""
+    cases = [
+        # (label, pytest 'E' output, expected reason)
+        ("bare rewritten assert",
+         "E       assert [1, 2] == [1, 3]\nE         At index 1 diff: 2 != 3", "assertion"),
+        ("AssertionError with message",
+         "E       AssertionError: matrices differ", "assertion"),
+        ("pytest.raises saw nothing",
+         "E       Failed: DID NOT RAISE <class 'ValueError'>", "assertion"),
+        ("assert next to a deprecation warning",
+         "E       assert 1 == 2\nE       DeprecationWarning: old api", "assertion"),
+        ("missing fixture file",
+         "E       FileNotFoundError: [Errno 2] No such file or directory: 'test.qdp'", "runtime"),
+        ("django FieldDoesNotExist",
+         "E       django.core.exceptions.FieldDoesNotExist: no field named 'x'", "runtime"),
+        ("model DoesNotExist",
+         "E       myapp.models.Book.DoesNotExist: Book matching query does not exist.", "runtime"),
+        ("MultipleObjectsReturned",
+         "E       django.core.exceptions.MultipleObjectsReturned: got 2", "runtime"),
+        ("EmptyResultSet (no message)",
+         "E       django.core.exceptions.EmptyResultSet", "runtime"),
+        ("SystemExit", "E       SystemExit: 2", "runtime"),
+        ("StopIteration (no message)", "E       StopIteration", "runtime"),
+        ("import error", "E       ImportError: cannot import name 'X'", "runtime"),
+        ("no failure lines at all", "collected 1 item\n1 passed", None),
+        ("empty output", "", None),
+        # Verbatim from astropy__astropy-12907 on the buggy tree. This test is
+        # offline-labelled L4 — a perfect BRT — yet an earlier parser read the
+        # `Expected:` / `Got:` lines of its own assertion message as exception
+        # class names and reported "runtime", so the gate rejected it.
+        ("multi-line assertion message (astropy-12907, real output)",
+         "E   AssertionError: separability_matrix for nested CompoundModel gave wrong result.\n"
+         "E     Expected:\n"
+         "E     [[ True  True False False]\n"
+         "E      [False False False  True]]\n"
+         "E     Got:\n"
+         "E     [[ True  True False False]\n"
+         "E      [False False  True  True]]\n"
+         "E   assert False\n"
+         "E    +  where False = <function array_equal at 0x7ffffbaa6530>(array([[ True]]))",
+         "assertion"),
+        ("prose line that is not an exception", "E     Something:", None),
+    ]
+    for label, output, expected in cases:
+        got = _parse_failure_reason(output)
+        assert got == expected, f"{label!r}: got {got!r}, want {expected!r}"
+    print(f"  [ok] failure_reason parsing ({len(cases)} cases: crash vs assertion)")
+
+
 if __name__ == "__main__":
     print("Phase 1 smoke test (offline)\n" + "-" * 40)
     inst = test_instance_parsing()
@@ -125,5 +178,6 @@ if __name__ == "__main__":
     code = test_code_extraction()
     test_patch_format(code)
     test_brt_matrix()
+    test_failure_reason_parsing()
     print("-" * 40)
     print("ALL SMOKE CHECKS PASSED")
