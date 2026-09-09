@@ -24,6 +24,8 @@ import collections
 import json
 from pathlib import Path
 
+from .pricing import cost_usd
+
 
 # ── loading & record helpers ────────────────────────────────────────────────
 
@@ -58,6 +60,28 @@ def _best_attempt(rec: dict) -> dict:
     return max(atts, key=lambda a: (a.get("level") or 0))
 
 
+def attempt_cost(attempt: dict, model: str) -> float:
+    """Cost of one attempt, recomputed from tokens when it wasn't recorded.
+
+    `cost_usd` returns None for a model absent from the pricing table, and that
+    None was stored — 21 fable runs sit in the log at $0 despite recording their
+    token counts. Recomputing here (rather than rewriting the append-only log)
+    repairs those rows and any future pricing gap, and costs nothing when the
+    stored value is already right.
+    """
+    stored = attempt.get("cost_usd")
+    if stored:
+        return float(stored)
+    recomputed = cost_usd(
+        model,
+        attempt.get("input_tokens") or 0,
+        attempt.get("output_tokens") or 0,
+        cache_write_tok=attempt.get("cache_write_tokens") or 0,
+        cache_read_tok=attempt.get("cache_read_tokens") or 0,
+    )
+    return float(recomputed or 0.0)
+
+
 def short_model(m: str) -> str:
     return (m or "?").split("@")[0].replace("anthropic:", "").replace("ollama:", "")
 
@@ -68,6 +92,29 @@ def repo_of(rec: dict) -> str:
 
 def is_local(model: str) -> bool:
     return "ollama:" in (model or "")
+
+
+# Arm identity. `flags.arm` is written by current runs; older records are
+# classified from the `flags.pipeline` spelling they happen to carry:
+#   "deployable" -> 07 gold-free gate    True -> 06 L4-gated ceiling
+#   absent/None  -> 05 fix-phase-only
+# Every metric that compares arms must group on this, never on model alone.
+_LEGACY_ARM = {"deployable": "deployable", True: "ceiling", None: "fix-only"}
+
+
+def arm_of(rec: dict) -> str:
+    """Arm identity, qualified by `flags.run_group` when the run carries one.
+
+    The run group matters because the per-instance dedup keeps the BEST run of
+    an (arm, instance): re-running the same instances through a changed pipeline
+    would otherwise merge old and new results and report the max of the two,
+    hiding exactly the difference the re-run exists to measure.
+    """
+    flags = rec.get("flags") or {}
+    arm = flags.get("arm") or _LEGACY_ARM.get(
+        flags.get("pipeline"), str(flags.get("pipeline")))
+    group = flags.get("run_group")
+    return f"{arm}/{group}" if group else str(arm)
 
 
 # ── per-instance dedup ───────────────────────────────────────────────────────
@@ -138,9 +185,7 @@ def fix_arm(label: str, recs: list[dict], *, local: bool = False) -> dict:
     resolved = sum(1 for r in by.values() if r.get("resolved"))
     cost = 0.0
     for r in by.values():
-        c = _best_attempt(r).get("cost_usd")
-        if c:
-            cost += c
+        cost += attempt_cost(_best_attempt(r), r.get("model", ""))
     return {
         "label": label,
         "local": local,
@@ -172,11 +217,15 @@ def build_report(records: list[dict]) -> dict:
         brt_arms.append(brt_arm(label, rs, local=local))
     brt_arms.sort(key=lambda a: (a["local"], -a["instances"], a["label"]))
 
-    # [2] Fix arms, grouped by model
+    # [2] Fix arms, grouped by (ARM, model). Grouping by model alone pools the
+    # 05 / 06 / 07 runs of the same instance into one row — the ceiling arm's
+    # fixes land in the deployable arm's rate — which stays invisible while the
+    # arms agree and silently merges them the moment they diverge.
     fix_groups: dict = collections.defaultdict(list)
     for r in fix:
-        fix_groups[(short_model(r["model"]), is_local(r["model"]))].append(r)
-    fix_arms = [fix_arm(m, rs, local=local) for (m, local), rs in fix_groups.items()]
+        fix_groups[(arm_of(r), short_model(r["model"]), is_local(r["model"]))].append(r)
+    fix_arms = [fix_arm(f"{m}  [{a}]", rs, local=local)
+                for (a, m, local), rs in fix_groups.items()]
     fix_arms.sort(key=lambda a: (a["local"], -a["instances"]))
 
     # [3] Whole-pipeline funnel (assembled ceiling: L4 gate -> Phase B), per model
@@ -201,20 +250,40 @@ def build_report(records: list[dict]) -> dict:
         })
 
     # [4] Deployable pipeline (07), gold-free gate — pilot
+    #
+    # Fix runs are scoped to the DEPLOYABLE arm, not just to (instance, model).
+    # The same instance has been fixed by 05, 06 and 07 under one model (13 such
+    # pairs exist in the current store), so an unscoped filter pools the L4-gated
+    # ceiling's fixes into the gold-free arm's resolved count. That is invisible
+    # while the arms agree and silently merges them the moment they don't.
     deployable = []
-    for model in sorted({short_model(r["model"]) for r in deploy}):
-        d = [r for r in deploy if short_model(r["model"]) == model]
-        insts = {r["instance_id"] for r in d}
-        gate = sum(1 for r in d if r.get("gate_accepted") or r.get("reproduces_on_buggy"))
-        f_by = fix_by_instance([r for r in fix if r["instance_id"] in insts
-                                and short_model(r["model"]) == model])
+    # Keyed by (arm, model) like the fix arms: grouping on model alone merges
+    # runs of the same instances made under different pipeline versions, which
+    # is exactly what a re-run is meant to tell apart.
+    for arm, model in sorted({(arm_of(r), short_model(r["model"])) for r in deploy}):
+        d = [r for r in deploy if short_model(r["model"]) == model and arm_of(r) == arm]
+        d_by = {r["instance_id"]: r for r in d}  # per instance, not per run
+        gate_by_inst = {
+            iid: any(x.get("gate_accepted") or x.get("reproduces_on_buggy")
+                     for x in d if x["instance_id"] == iid)
+            for iid in d_by
+        }
+        f_by = fix_by_instance([r for r in fix
+                                if r["instance_id"] in d_by
+                                and short_model(r["model"]) == model
+                                and arm_of(r) == arm])
         resolved = sum(1 for r in f_by.values() if r.get("resolved"))
+        gated = sum(1 for v in gate_by_inst.values() if v)
         deployable.append({
-            "model": model,
+            "model": f"{model}  [{arm}]",
             "local": is_local(d[0]["model"]),
-            "instances": len(insts),
-            "gate_accept": gate,
-            "resolved": rate(resolved, len(f_by) or gate),
+            "runs": len(d),
+            "instances": len(d_by),
+            "gate_accept": gated,
+            "gate_rate": rate(gated, len(d_by)),
+            "scored": len(f_by),
+            "resolved": rate(resolved, len(f_by)),
+            "pipeline_resolve": rate(resolved, len(d_by)),
         })
 
     # [5] Repo breakdown (Claude Sonnet)
@@ -301,9 +370,11 @@ def format_text(rep: dict) -> str:
     if rep["deployable"]:
         out.append("\n[4] DEPLOYABLE PIPELINE  (07 — gold-free gate; pilot)")
         for d in rep["deployable"]:
-            out.append(f"  {d['model']}: instances={d['instances']}  "
-                       f"gate-accept={d['gate_accept']}  "
-                       f"resolved(of gated)={d['resolved']['label']}")
+            out.append(f"  {d['model']}: runs={d['runs']}  instances={d['instances']}")
+            out.append(f"    GateRate (gold-free)      = {d['gate_rate']['label']}")
+            out.append(f"    Resolve@Gated             = {d['resolved']['label']}"
+                       f"   (scored fixes: {d['scored']})")
+            out.append(f"    Pipeline resolve (res/N)  = {d['pipeline_resolve']['label']}")
 
     out.append("\n[5] REPO BREAKDOWN  (Claude Sonnet)")
     for r in rep["repo_breakdown"]:
