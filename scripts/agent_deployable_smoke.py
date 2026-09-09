@@ -2,8 +2,9 @@
 
 No Docker, no LLM, no budget. Reuses the fakes from agent_pipeline_smoke and
 asserts the HONEST contract that distinguishes 07 from 06:
-  - the BRT phase scores the BUGGY tree ONLY — run_test_in_container is never
-    called with a gold_patch (no L4 testing, gold never consulted);
+  - the BRT phase scores the BUGGY tree ONLY — it verifies the submitted test in
+    the live session and never reaches the patch-based container at all, so no
+    gold_patch can be applied (no L4 testing, gold never consulted);
   - the gold-free gate ACCEPTS a reproducing test (fail-on-buggy = candidate,
     which may secretly be L3) and proceeds to the fix phase;
   - the gold-free gate REJECTS a non-reproducing test (pass-on-buggy = L1) and
@@ -28,6 +29,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from agent_pipeline_smoke import FakePipelineClient, PipelineFakeSession
 
 from tdbf.agent import pipeline
+from tdbf.agent.session import ExecResult
 from tdbf.data.instances import SWEBenchInstance
 from tdbf.harness.runner import ContainerResult, HarnessResult
 
@@ -39,6 +41,28 @@ def _load_script_module():
     sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
     return mod
+
+
+class GatePytestSession(PipelineFakeSession):
+    """A fake session whose pytest run returns a scripted (returncode, output)
+    while the tree is unedited, so a gate test can drive the BUGGY-side outcome.
+
+    The deployable gate verifies the submitted BRT *in the session* rather than
+    in a fresh container, so the buggy-side outcome is produced here — stubbing
+    run_test_in_container no longer reaches it. Once a source edit lands the
+    scripted result stops applying and the normal fail->pass behaviour resumes,
+    which is what the fix phase needs.
+    """
+
+    def __init__(self, repo: str, returncode: int, output: str) -> None:
+        super().__init__(repo)
+        self._rc, self._out = returncode, output
+
+    def exec(self, command, *, timeout=120, activate=True, env=None) -> ExecResult:
+        if "pytest" in command and not self.edited:
+            self.execs.append(command)
+            return ExecResult(self._rc, self._out)
+        return super().exec(command, timeout=timeout, activate=activate, env=env)
 
 
 def _inst(iid: str) -> SWEBenchInstance:
@@ -76,6 +100,9 @@ def test_gate_accepts_reproducing_and_runs_fix() -> None:
         gold_args.append(gold_patch)  # capture whether gold was ever applied
         return ContainerResult("fail", failure_reason="assertion", output="E AssertionError")
     pipeline.run_test_in_container = fake_run_test
+    # The gate verifies in-session (PipelineFakeSession fails with an assertion
+    # while unedited), so the deployable path should not reach run_test_in_container
+    # at all — which is a stronger form of "no gold was consulted".
     _patch_fix_scoring(resolved=True)
 
     with tempfile.TemporaryDirectory() as td:
@@ -89,7 +116,9 @@ def test_gate_accepts_reproducing_and_runs_fix() -> None:
         )
 
         # --- the gold-free invariant: BRT phase scored buggy-only, no gold ever ---
-        assert gold_args == [None], f"BRT phase must score buggy-only; gold_patch args = {gold_args}"
+        assert gold_args == [], (
+            "the deployable BRT phase must verify in-session and never reach the "
+            f"patch-based container; run_test_in_container gold_patch args = {gold_args}")
 
         # --- gate accepted, fix ran and resolved ---
         assert outcome is not None
@@ -124,17 +153,14 @@ def test_gate_rejects_nonreproducing() -> None:
     records: list[dict] = []
     started: list[str] = []
 
+    # BRT passes on buggy => does not reproduce => L1 => gate must reject.
     def _session(instance, keep=False):
         started.append(instance.instance_id)
-        return PipelineFakeSession(instance.repo)
+        return GatePytestSession(instance.repo, 0, "1 passed in 0.1s")
 
     mod.build_client = lambda spec: FakePipelineClient()
     mod.save_run = lambda record: records.append(record)
     pipeline.ContainerSession = _session
-
-    # BRT passes on buggy => does not reproduce => L1 => gate must reject.
-    pipeline.run_test_in_container = lambda instance, test_patch, *, gold_patch=None, test_path=None, **kw: \
-        ContainerResult("pass", output="1 passed")
 
     with tempfile.TemporaryDirectory() as td:
         outcome = mod.run_one(
@@ -162,18 +188,16 @@ def test_gate_rejects_crashing_test() -> None:
     records: list[dict] = []
     started: list[str] = []
 
+    # Fails on buggy (exit 1) but via AttributeError, never reaching an assert.
     def _session(instance, keep=False):
         started.append(instance.instance_id)
-        return PipelineFakeSession(instance.repo)
+        return GatePytestSession(
+            instance.repo, 1,
+            "E   AttributeError: 'Thing' object has no attribute 'nope'\n1 failed in 0.1s")
 
     mod.build_client = lambda spec: FakePipelineClient()
     mod.save_run = lambda record: records.append(record)
     pipeline.ContainerSession = _session
-
-    # Fails on buggy (exit 1) but via AttributeError, never reaching an assert.
-    pipeline.run_test_in_container = lambda instance, test_patch, *, gold_patch=None, test_path=None, **kw: \
-        ContainerResult("fail", failure_reason="runtime",
-                        output="E   AttributeError: 'Thing' object has no attribute 'nope'")
 
     with tempfile.TemporaryDirectory() as td:
         outcome = mod.run_one(
