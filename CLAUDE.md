@@ -76,7 +76,7 @@ real deployment can't have). Both accept `--brt-only` to stop after Phase A.
 # Primary: honest gold-free gate (accept a BRT that cleanly fails on buggy = L3∪L4) → fix
 python scripts/07_deployable_pipeline.py --id astropy__astropy-12907 --model anthropic:claude-sonnet-4-6 -v
 python scripts/07_deployable_pipeline.py --id astropy__astropy-12907 --score-brt   # also emit offline L0–L4 label (info only, never gates)
-python scripts/07_deployable_pipeline.py --id astropy__astropy-12907 --breaker      # + post-fix adversarial Breaker (RQ3 ablation; parked negative)
+python scripts/07_deployable_pipeline.py --id astropy__astropy-12907 --breaker      # + post-fix adversarial Breaker (RQ2 ablation; parked negative)
 
 # Ceiling reference only (L4 gate = oracle): BRT → gate-on-L4 → fix
 python scripts/06_agent_pipeline.py --id astropy__astropy-12907 --model anthropic:claude-sonnet-4-6 -v
@@ -111,6 +111,23 @@ The pipeline flows: **instance loading → test generation → harness execution
 - `"ollama:qwen3.5:9b@http://192.168.1.192:11434"` → `OllamaClient`
 - `"anthropic:claude-opus-4-7"` → `AnthropicClient`
 - `"openai:gpt-4-turbo"` → `OpenAIClient`
+
+**Prompt caching (Anthropic only).** `AnthropicClient.run_tools` sends
+`cache_control={"type": "ephemeral"}`. An agent turn re-sends the whole transcript, so
+without it a 12-iteration phase bills the conversation ~12 times — measured, input was
+29× output and 85% of spend. With it: 90% cache hit rate, ~-70% cost. Two consequences
+you must respect when touching this path:
+- usage splits into three separately billed counts. `ToolUseResponse` /`AgentStep` /
+  `AgentResult` carry `cache_write_tokens` and `cache_read_tokens` beside
+  `input_tokens`, and `pricing.cost_usd` bills them at 1.25× and 0.10×. Reading only
+  `input_tokens` makes a cached run look nearly free.
+- `max_total_tokens` counts cached tokens too. Otherwise most input moves to
+  cache_read, the cap stops binding, and the arms are no longer budget-matched.
+
+Ollama reports no cache fields (they default to 0), so the open-weight comparison is
+unaffected. Its tool calls go over Ollama's **native `/api/chat`**, not the
+OpenAI-compatible path, because only the native API applies `options.num_ctx` — the
+compatible endpoint silently kept its own default context window.
 
 `OllamaClient` streams responses (avoids ReadTimeout during Qwen3's silent thinking phase). Pass `think=True` or prepend `/no_think` to suppress Qwen3's extended reasoning. The `--think` flag in `02_generate_brt.py` sets `client._think = True` on `OllamaClient`.
 
@@ -183,7 +200,7 @@ harness functions became the tools the agents call.
 
 **The agents — 2 main + 4 auxiliary.** All are real gold-free `Agent`s with a terminal
 tool; only the two main ones form the pipeline. The four auxiliary roles are optional
-add-ons, and per the locked 2026-07-21 plan they are **RQ3 ablation material, not the
+add-ons; they are **RQ2 ablation material, not the
 main experimental line** (the sweep runs the two main agents only).
 
 *Main pipeline agents:*
@@ -195,6 +212,26 @@ main experimental line** (the sweep runs the two main agents only).
   (default **2**, on by default, no flag). The decision reads only the buggy-side
   outcome, so it stays gold-free; a capable model reproduces on attempt 0 and the loop
   is a no-op.
+
+  **The gate criterion** (`BrtPhaseResult.reproduces_on_buggy`) is
+  `outcome_buggy == "fail" and failure_reason_buggy != "runtime"` — accept iff the test
+  *reached its assertion and failed there*. Note `!= "runtime"`, never `== "assertion"`.
+  Two traps, both hit for real:
+  - pytest exit code 1 conflates an assertion that fired with a test that crashed
+    before asserting. A crash fails identically on fixed code, so it can never be L4.
+  - `_parse_failure_reason` (`runner.py`) decides this **on assertion evidence first**
+    — an `AssertionError`, a rewritten bare `assert`, or pytest's `Failed:`. Only with
+    no assertion signal does it look for a crash, and a candidate exception name must
+    be dotted, end in Error/Exception, or be a known suffix-less builtin. Scanning for
+    exception names first rejected a valid L4 BRT whose own multi-line assertion
+    message contained `Expected:` and `Got:`.
+
+  **The gate verifies in the live session, always** — never in a fresh container, and
+  *not* conditional on `--score-brt`. The cold path gave the same test 120s covering
+  container start, pip install and `git apply` against the agent's 180s of warm test
+  time, plus a hand-built diff that can fail to apply. The offline L0–L4 label runs its
+  own buggy+fixed pair through the container so that comparison stays like-for-like.
+  A `[warn]` fires if the gate ever rejects a test the label calls L4.
 - **Fix agent** (Phase B) — `fix_agent_tools`, `assert_fix_gold_free`. Tools {read_file,
   grep, glob, edit_file, run_brt (validated BRT baked in), run_tests, revert,
   submit_fix}. Edits source until the BRT passes.
@@ -204,7 +241,7 @@ main experimental line** (the sweep runs the two main agents only).
   *Near-no-op on the strong arm* (on a capable model the first BRT is already specific).
 - **Reviewer** (`run_reviewer`) — judges fix minimality/correctness (Phase B).
 - **Breaker** (`run_breaker`) — post-fix adversarial verifier; probes the agent's *own*
-  fix for a case it still gets wrong. *Parked as an RQ3 negative result* (no oracle →
+  fix for a case it still gets wrong. *Parked as an RQ2 negative result* (no oracle →
   false negatives on the hardest verification-gap cases).
 - **Selector** (`run_selector`) — best-of-N: picks among several candidate BRTs; used by
   `09_bestofn_pipeline.py`.
@@ -222,12 +259,28 @@ Valid-BRT = L4/N, Resolve@BRT, whole-pipeline funnel = GateRate × Resolve@Gated
 $/inst, $/resolved, repo breakdown). `build_report` + `format_text`; consumed by both
 `scripts/08_metrics_report.py` and the webapp `/metrics` page so they can't drift.
 
+**Arm scoping is load-bearing.** Every comparison groups on `arm_of(rec)` —
+`flags.arm`, qualified by `flags.run_group` — never on model alone. The same instance
+has been run by 05, 06 and 07 under one model, and the per-instance dedup keeps the
+*best* run, so grouping by model pools the arms and a re-run reports max(old, new).
+Tag new runs with `--run-group` whenever you re-run instances already in the store.
+
+**`src/tdbf/pricing.py`** — the only pricing table; imported by both `pipeline.py` and
+`metrics.py`. Substring-matched **in order** (Sonnet 5 is $2/$10, Sonnet 4.6 $3/$15,
+Fable 5 $10/$50). A model missing from it costs `None`, which is recorded as $0 —
+correct for local Ollama, silently wrong for anything hosted (21 fable runs logged $0
+that way). `metrics.attempt_cost` recomputes a missing cost from stored tokens rather
+than rewriting the append-only log.
+
 **Scripts (agentic):** `04_agent_brt.py` (Phase A), `05_agent_fix.py` (Phase B),
 `06_agent_pipeline.py` (L4-gated ceiling, end-to-end in memory), **`07_deployable_pipeline.py`
 (primary — gold-free gate; `--breaker`, `--score-brt`)**, `08_metrics_report.py`
-(reporting), `09_bestofn_pipeline.py` (best-of-N BRT + Selector + iterated fix). Offline
-smokes: `scripts/agent_*_smoke.py` (runtime, tools, brt, fix, breaker, multiagent,
-bestofn, deployable, pipeline) — no Docker/API needed.
+(reporting), `09_bestofn_pipeline.py` (best-of-N BRT + Selector + iterated fix),
+`10_gate_ab.py` (paired per-instance A/B between two `run_group`s — one run per
+(instance, mode), so cost stays comparable across groups). Offline smokes:
+`scripts/agent_*_smoke.py` (runtime, tools, brt, fix, breaker, multiagent, bestofn,
+deployable, pipeline, nudge) + `00_smoke_test.py` — no Docker/API needed. **Run all of
+them before and after any change to the agent or harness path.**
 
 **`webapp/`** — Flask app (`app.py`, `db.py`, `research_data.py`, `seed_docs.py`)
 presenting results to the advisor: `/metrics` (live from `results.jsonl` via
@@ -238,21 +291,30 @@ presenting results to the advisor: `/metrics` (live from `results.jsonl` via
 
 Phases 0 (runtime), A (BRT agent), B (fix agent) are built and live-validated on two
 repos (astropy, Django) with Claude Sonnet; the deployable `07` pipeline and the four
-auxiliary roles are built and offline-green. **No official results yet** — the numbers
-in `results.jsonl` / the webapp `/metrics` page are exploratory, from the analysis DB,
-not a frozen sweep. Don't quote them as final.
+auxiliary roles are built and offline-green. **No official results yet** — nothing here
+comes from the frozen stratified sweep. Don't quote it as final.
+
+**Reference point (2026-09-09, n=14, Sonnet, Arm B):** gate 14/14, resolved 10/14,
+C2P 13/14, $2.73 total. Re-run under the corrected gate on the same 14 instances
+decided *identically per instance* to the earlier run, so 10/14 has reproduced
+independently. Still a non-random development set — pilot-quality evidence only.
 
 Qualitative findings that steer the work (the *why*, no numbers):
-- **Weak arm (scope condition, NOT an RQ)** — local 7B models (qwen2.5-coder:7b, qwen3.5:9b) can call tools
+- **Open-weight arm (now RQ3)** — local 7B models (qwen2.5-coder:7b, qwen3.5:9b) can call tools
   correctly but can't sustain the autonomous loop to a terminal submit. Prompt-harden +
   a bigger local model did *not* close it → the gap is **capability, not scaffolding**.
-  qwen stays as the free weak baseline; stop hacking on it.
-- **Verification gap (RQ3)** — the dominant fix failure is "valid BRT, fix passes it,
+  At 14b/30 iters it does submit, but fabricates expected values. Stop prompt-tuning
+  qwen; RQ3 now reports the *stage* at which each trajectory breaks down (terminal
+  submit? reproduces? resolves?) across a range of open-weight models via OpenRouter.
+- **Verification gap (RQ2)** — the dominant fix failure is "valid BRT, fix passes it,
   still not resolved": a BRT-passing fix is *necessary-not-sufficient*. This, not
   localization, is what the auxiliary roles were meant to attack.
 - **Breaker parked** — with only ad-hoc `run_python` it has no oracle, so a
   wrong-but-plausible value looks fine and it fails open to `robust`. Kept as an honest
-  RQ3 negative; no more Breaker tuning.
+  RQ2 negative; no more Breaker tuning.
+- **The gold-free gate is not merely a degraded L4 oracle** — L3-accepted instances
+  have resolved (django-10914 twice), so gating on L3∪L4 gained fixes that an L4 gate
+  would have dropped. This is the strongest RQ2 evidence for the design.
 
 **Non-agentic baseline (kept for comparison):** the `--attempts`/`--repair` workflow in
 `02_generate_brt.py` / `03_batch_brt.py`.
@@ -269,39 +331,50 @@ export DOCKER_HOST=unix://${HOME}/.colima/default/docker.sock
 # and Windows Firewall inbound rule for TCP 11434
 ```
 
-## Research plan (LOCKED 2026-07-21) — what we're actually running
+## Research plan — what we're actually running
 
-Read `docs/agent_plan.md` for the full checklists. The direction is locked:
+**`PLAN.md` (repo root) is the working plan to submission (deadline 2026-09-27,
+data freeze 09-24). Read it first; it holds the phase checklists, the measured
+constraints, and the decisions.** `docs/agent_plan.md` predates the current RQ
+numbering and is history, not instruction.
 
-- **Research questions (canonical — proposal §3 = thesis §1.4 = `docs/agent_plan.md`):**
+- **Research questions (canonical source = `thesis/chapters/1_introduction.tex`):**
   - **RQ1 — ordering:** does test-first (repair withheld until the test is *observed*
     to fail on buggy) resolve more than a matched reactive arm? Paired Lite sweep.
-  - **RQ2 — test properties:** which measurable BRT properties predict resolved?
-    Offline over stored artifacts; gold is legal here (offline only).
-  - **RQ3 — orchestration:** which pipeline characteristics help under a fixed
-    budget? Ablations incl. the gold-free accept criterion, budgets, Critic/Reviewer,
-    Breaker, best-of-N. Negatives are findings.
-  - *Not RQs:* model capability (weak local arm) and the no-run-time-oracle
-    constraint are **scope conditions**. Older docs numbered the weak arm "RQ1" —
-    that numbering is superseded; see the mapping table in `docs/agent_plan.md`.
+  - **RQ2 — orchestration:** which pipeline characteristics improve fix quality and
+    reliability under a fixed budget? Ablations incl. the gold-free accept criterion,
+    attempt budgets, Critic/Reviewer, Breaker, best-of-N. Negatives are findings.
+  - **RQ3 — open-weight models:** can they sustain the pipeline, and at which stage
+    does the trajectory break down (terminal submit? reproduces on buggy? resolves?).
+    Hosted open-weight models via OpenRouter give model variety; local Ollama is the
+    on-device configuration.
+  - **Superseded numbering:** the weak arm was once a scope condition and
+    orchestration was RQ3; "which BRT properties predict resolved" was RQ2 and is
+    **no longer an RQ** (kept as offline analysis). Older text in `docs/` and in
+    chapters 4–6 may still use the old sense — trust the introduction.
 - **Dataset: SWE-bench Lite** (the scoring dataset — *not* Verified). BugsInPy/GitBugs
   descoped unless time allows.
 - **Two arms (the main comparison):**
   - **Arm A — reactive baseline:** same model / tools / budgets, but **drop `run_brt`**
     from the fix agent (keep `run_tests`, no Phase A BRT). The `submit_fix` description
-    must lose its `run_brt` reference (`tools.py`). *Not built yet — this is the next
-    build.*
+    must lose its `run_brt` reference (`tools.py`). *Not built yet — PLAN.md task 1.3.*
   - **Arm B — test-first:** the deployable pipeline (`07`).
   - A test-last (TLD) third arm is **open**, revisit after the pilot.
 - **Sequence:** build Arm A → freeze a random ~20 pilot → frozen stratified ~150 sample
-  → paired sweep (McNemar) → RQ2 offline artifact analysis (AST properties, determinism
-  3×, gold-patch-line coverage — gold is legal offline only).
-- **Auxiliary roles (Critic / Reviewer / Breaker / Selector / best-of-N) are RQ3
-  ablation material now**, including the negatives. No more Breaker tuning.
+  → paired sweep (McNemar + bootstrap CI) → offline artifact analysis (AST properties,
+  determinism 3×, gold-patch-line coverage — gold is legal offline only; this is
+  analysis, no longer its own RQ).
+- **Auxiliary roles (Critic / Reviewer / Breaker / Selector / best-of-N) are RQ2
+  ablation material**, including the negatives. Prefer answering from stored runs.
+  No more Breaker tuning.
 
-**Binding constraint is Docker image builds, not budget** (spend to date is a small
-fraction of the ~$500; Sonnet runs are cheap, qwen is free). Getting instances built
-via `01_validate_gold.py` is the bottleneck for growing the sample.
+**Binding constraint is Docker image builds and wall clock, not budget or disk.**
+Measured 2026-09-10: a build (incl. gold validation) is ~3.4 min; a full pipeline run
+is ~2.5 min/instance/arm at ~$0.20 with caching on. Disk is *not* the ceiling it looks
+like — nominal image sizes sum to ~153 GB but the real store is ~29 GB because
+SWE-bench images share base and per-repo env layers, so a whole new repo family costs
+~1.8 GB actual (63 GB free). All 36 images built so far are astropy + django; Lite is
+django 114 / sympy 77 / matplotlib 23 / sklearn 23 / ... — sympy is proven to build.
 
 **Hold the gold-free invariant in all new tools** — see "Key invariants" below;
 `assert_gold_free` / `assert_fix_gold_free` / `assert_role_gold_free` /
