@@ -27,10 +27,54 @@ from pathlib import Path
 #   E   AssertionError: assert 'BEGIN' not in ...
 #   E   django.core.exceptions.ImproperlyConfigured: ...
 #   E   ImportError: cannot import name 'X'
-_EXCEPTION_LINE_RE = re.compile(
-    r"^E\s+([\w][\w.]*(?:Error|Exception|Configured|Warning)):",
-    re.MULTILINE,
+#   E   django.core.exceptions.EmptyResultSet          (no message, no colon)
+#
+# The name is deliberately NOT suffix-restricted. An earlier version required
+# it to end in Error/Exception/Configured/Warning, which silently matched
+# NOTHING for a large family of real crashes — Django's FieldDoesNotExist,
+# <Model>.DoesNotExist, MultipleObjectsReturned, EmptyResultSet, and the
+# builtins SystemExit / StopIteration — so those parsed as "no evidence" and
+# a crashing test was accepted as a reproduction.
+_E_LINE_RE = re.compile(r"^E\s+(.*)$", re.MULTILINE)
+
+# "The test reached its assertion and it fired." `assert ...` is pytest's
+# rewritten form (it prints no AssertionError line at all); `Failed` is pytest's
+# own — `pytest.fail(...)` and `Failed: DID NOT RAISE` from a pytest.raises block
+# that saw no exception. All three are assertions about behaviour, not crashes.
+_ASSERT_SIGNAL_RE = re.compile(r"^(?:AssertionError\b|Failed\b|assert\s)")
+
+# A leading `Name:` or `Name` on an E-line — a *candidate* exception only.
+_EXC_NAME_RE = re.compile(r"^([A-Za-z_][\w.]*)\s*(?::|$)")
+
+# Crash-y builtins whose names carry no Error/Exception suffix.
+_CRASH_BUILTIN_NAMES = frozenset(
+    {"SystemExit", "StopIteration", "KeyboardInterrupt", "GeneratorExit"}
 )
+
+
+def _looks_like_exception(dotted: str) -> bool:
+    """Does this leading `Name:` name a real exception class?
+
+    A plain "any identifier followed by a colon" test is far too loose: an
+    assertion *message* is printed on E-lines too, so a multi-line message like
+
+        E   AssertionError: separability_matrix gave wrong result.
+        E     Expected:
+        E     Got:
+
+    offers up `Expected` and `Got` as exception names. Requiring a dotted path,
+    an Error/Exception suffix, or a known suffix-less builtin keeps Django's
+    FieldDoesNotExist / DoesNotExist / MultipleObjectsReturned / EmptyResultSet
+    and SystemExit / StopIteration while rejecting ordinary prose.
+    """
+    leaf = dotted.split(".")[-1]
+    if leaf.endswith("Warning"):
+        return False  # a warning is never why a test failed
+    if "." in dotted:
+        return True  # module-qualified -> an exception, not prose
+    if leaf.endswith(("Error", "Exception")):
+        return True
+    return leaf in _CRASH_BUILTIN_NAMES
 
 BRT_TEST_FILENAME = "test_brt.py"
 BRT_TEST_PATH = BRT_TEST_FILENAME  # backward-compat alias (repo root default)
@@ -362,24 +406,35 @@ def _parse_failure_reason(output: str) -> str | None:
     """Inspect pytest output to distinguish how a 'fail' outcome occurred.
 
     Returns:
-      "assertion" — only AssertionError found; the test reached and fired
-                    its assertion (wrong expected value or direction).
+      "assertion" — the test reached its assertion and it fired: an
+                    AssertionError, a bare rewritten `assert`, or pytest's
+                    own Failed (pytest.fail / DID NOT RAISE).
       "runtime"   — a non-assertion exception was raised before or instead
-                    of an AssertionError (import error, Django mis-config,
-                    attribute error, etc.).
-      None        — output is empty or no recognisable exception lines.
+                    of an assertion (import error, Django mis-config,
+                    missing fixture file, wrong API, etc.).
+      None        — output is empty or carries no recognisable failure lines.
+
+    Assertion evidence WINS. The question the gate actually asks is "did the
+    test reach its assertion?", and if an assertion fired then it did — whatever
+    else the output mentions. Scanning for a crash name first gets this backwards
+    and rejects valid BRTs: astropy-12907's L4 test failed on `Expected:` inside
+    its own assertion message being read as an exception class.
+
+    Warnings are ignored entirely — a `DeprecationWarning` on an `E ` line is
+    never why a test failed.
     """
     if not output:
         return None
-    exc_types = {
-        m.group(1).split(".")[-1]
-        for m in _EXCEPTION_LINE_RE.finditer(output)
-    }
-    if not exc_types:
+    bodies = [m.group(1).strip() for m in _E_LINE_RE.finditer(output)]
+    if not bodies:
         return None
-    if exc_types == {"AssertionError"}:
+    if any(_ASSERT_SIGNAL_RE.match(b) for b in bodies):
         return "assertion"
-    return "runtime"
+    for body in bodies:
+        m = _EXC_NAME_RE.match(body)
+        if m and _looks_like_exception(m.group(1)):
+            return "runtime"
+    return None
 
 
 def _parse_pytest_outcome(returncode: int, output: str) -> str:

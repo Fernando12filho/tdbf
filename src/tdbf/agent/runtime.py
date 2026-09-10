@@ -34,6 +34,8 @@ class AgentStep:
     input_tokens: int | None
     output_tokens: int | None
     duration_seconds: float | None
+    cache_write_tokens: int = 0
+    cache_read_tokens: int = 0
 
 
 @dataclass
@@ -54,10 +56,16 @@ class AgentResult:
     total_input_tokens: int
     total_output_tokens: int
     iterations: int
+    # Prompt-caching split of the input side (0 when the provider doesn't cache).
+    # Kept separate from total_input_tokens because they are billed at different
+    # rates — folding them together would misstate the cost either way.
+    total_cache_write_tokens: int = 0
+    total_cache_read_tokens: int = 0
 
     @property
     def total_tokens(self) -> int:
-        return self.total_input_tokens + self.total_output_tokens
+        return (self.total_input_tokens + self.total_output_tokens
+                + self.total_cache_write_tokens + self.total_cache_read_tokens)
 
 
 class Agent:
@@ -118,13 +126,18 @@ class Agent:
         messages: list[Message] = [Message(role="user", content=task)]
         steps: list[AgentStep] = []
         in_tok = out_tok = 0
+        cache_w = cache_r = 0
         submission: str | None = None
         stop_cause = "max_iterations"
         final_text = ""
         nudges_used = 0
 
         for i in range(self.max_iterations):
-            if in_tok + out_tok >= self.max_total_tokens:
+            # Count cached input against the budget too. With prompt caching on,
+            # most of a turn's input arrives as cache_read rather than input, so
+            # a budget of `in_tok + out_tok` would quietly stop binding and the
+            # arms would no longer be running under matched budgets.
+            if in_tok + out_tok + cache_w + cache_r >= self.max_total_tokens:
                 stop_cause = "max_tokens"
                 break
 
@@ -136,6 +149,8 @@ class Agent:
             )
             in_tok += resp.input_tokens or 0
             out_tok += resp.output_tokens or 0
+            cache_w += resp.cache_write_tokens or 0
+            cache_r += resp.cache_read_tokens or 0
             final_text = resp.text
             messages.append(
                 Message(role="assistant", content=resp.text, tool_calls=resp.tool_calls)
@@ -151,7 +166,9 @@ class Agent:
             # it, up to a bounded limit, before accepting the natural stop.
             if not resp.tool_calls:
                 steps.append(
-                    AgentStep(i, resp.text, [], [], resp.input_tokens, resp.output_tokens, resp.duration_seconds)
+                    AgentStep(i, resp.text, [], [], resp.input_tokens, resp.output_tokens,
+                              resp.duration_seconds, resp.cache_write_tokens or 0,
+                              resp.cache_read_tokens or 0)
                 )
                 if nudges_used < self.submit_nudge_limit and self.terminal_tools:
                     nudges_used += 1
@@ -179,7 +196,9 @@ class Agent:
                     terminated = True
 
             steps.append(
-                AgentStep(i, resp.text, resp.tool_calls, results, resp.input_tokens, resp.output_tokens, resp.duration_seconds)
+                AgentStep(i, resp.text, resp.tool_calls, results, resp.input_tokens,
+                          resp.output_tokens, resp.duration_seconds,
+                          resp.cache_write_tokens or 0, resp.cache_read_tokens or 0)
             )
 
             if terminated:
@@ -195,7 +214,7 @@ class Agent:
         main_iterations = len(steps)
         if stop_cause == "max_iterations" and submission is None and self.terminal_tools:
             for g in range(self.submit_grace):
-                if in_tok + out_tok >= self.max_total_tokens:
+                if in_tok + out_tok + cache_w + cache_r >= self.max_total_tokens:
                     stop_cause = "max_tokens"
                     break
                 messages.append(Message(role="user", content=self._force_submit_text()))
@@ -207,6 +226,8 @@ class Agent:
                 )
                 in_tok += resp.input_tokens or 0
                 out_tok += resp.output_tokens or 0
+                cache_w += resp.cache_write_tokens or 0
+                cache_r += resp.cache_read_tokens or 0
                 final_text = resp.text
                 messages.append(
                     Message(role="assistant", content=resp.text, tool_calls=resp.tool_calls)
@@ -227,7 +248,8 @@ class Agent:
                         terminated = True
                 steps.append(
                     AgentStep(main_iterations + g, resp.text, resp.tool_calls, results,
-                              resp.input_tokens, resp.output_tokens, resp.duration_seconds)
+                              resp.input_tokens, resp.output_tokens, resp.duration_seconds,
+                              resp.cache_write_tokens or 0, resp.cache_read_tokens or 0)
                 )
                 if terminated:
                     stop_cause = "submit_forced"
@@ -242,6 +264,8 @@ class Agent:
             total_input_tokens=in_tok,
             total_output_tokens=out_tok,
             iterations=main_iterations,
+            total_cache_write_tokens=cache_w,
+            total_cache_read_tokens=cache_r,
         )
 
     def _execute(self, tc: ToolCall) -> ToolResult:

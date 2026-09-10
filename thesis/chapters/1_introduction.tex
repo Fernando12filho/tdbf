@@ -1,36 +1,21 @@
-% ============================================================================
-% CHAPTER 1 — INTRODUCTION
-%
-% HOW TO USE THE BRIEFS BELOW
-%   Each unwritten section carries a brief giving, per paragraph: the JOB it
-%   does, the rhetorical MOVES in order, a SKELETON sentence with blanks, and a
-%   MODEL sentence. The model sentences are scaffolds to be rewritten in your
-%   own words — they are there so you never face a blank page, not to be pasted
-%   verbatim. General prose rules live in thesis/WRITING_GUIDE.md.
-%   Delete each brief once its section is written.
-% ============================================================================
 \chapter{Introduction}
 \label{ch:introduction}
 
 \section{Context and Motivation}
 \label{sec:intro-context}
 Agentic AI systems are now used daily to write and maintain production software.
-Practitioners, however, are still establishing how to use them well; industry
-accounts of building complete systems with heavy AI assistance report that the
-outcome depends less on the model than on how the work is
-structured~\cite{Akita2026MethAI}. That observation has a technical reading.
+Developers, are still understanding how to use them well. 
 Software construction is not a single activity but a sequence of distinct phases
---- planning, implementation, debugging, review, and maintenance --- each with
-its own goals, its own notion of correctness, and its own failure modes. A
+(planning, implementation, debugging, review, and maintenance) each with
+its own goals, its own measure of correctness, and its own failure modes. A
 general-purpose language model that performs well in one phase offers no
 guarantee of doing so in another, which makes phase-specific study of agent
 behaviour necessary rather than optional.
 
 This thesis concerns the debugging phase. Debugging is expensive: before a single
 line of a fix is written, a developer typically writes or reads a bug report,
-gathers diagnostic information, constructs a test case that exhibits the failure,
-and investigates the root cause. That workflow is repetitive, time-consuming, and
-a well-recognised bottleneck in development cycles --- which makes it an
+gathers diagnostic information, construct or not, test cases that exposes the failure,
+and investigates the root cause. That workflow is repetitive and time-consuming in development cycles, which makes it an
 attractive target for automation, and a demanding one.
 
 Recent advances in large language models (LLMs) and agent-based software
@@ -38,29 +23,29 @@ engineering systems have shown promise on tasks such as code generation, test
 generation, and program repair. Real-world bug fixing nonetheless remains
 difficult. On SWE-bench, a benchmark of 2,294 genuine GitHub issues introduced by
 Jimenez et al.~\cite{Jimenez2023SWEbench}, the SWE-agent system of Yang et
-al.~\cite{Yang2024SWEagent} resolves approximately 12.5\% of issues --- a
+al.~\cite{Yang2024SWEagent} resolves approximately 12.5\% of issues. A
 state-of-the-art result at the time of publication, and still a reminder of how
 far automated repair is from reliability on real code.
 
 One finding from recent work is particularly relevant to that gap: the presence
-of a \emph{Bug Reproduction Test} (BRT) --- a test that fails on the buggy
-revision and passes once the bug is fixed --- materially improves repair
+of a \emph{Bug Reproduction Test} (BRT, a test that fails on the buggy
+revision and passes once the bug is fixed) materially improves repair
 outcomes. In a study on Google's internal codebase, Cheng et
 al.~\cite{Cheng2025Agentic} showed that supplying an automated program repair
 system with high-quality BRTs increased the proportion of bugs reaching a
-plausible fix by 30\%.
+plausible fix.
 
 That finding has not, however, been carried into agent \emph{architecture}.
 Contemporary repair agents remain reactive: they attempt a patch first and
 validate afterwards, so the test, when it appears at all, arrives as
-after-the-fact confirmation rather than as a constraint on the search. This
-thesis reverses that order, requiring an agent to produce and validate a targeted
-reproduction test from the bug report and repository context \emph{before} any
-fix is attempted --- mirroring test-driven practice in human development, and
+after-the-fact confirmation rather than as a constraint on the search. Also they have only testes on internal databse and issues, and not on real bug issues as SWE-Bench lite provides. This
+thesis changes the order, requiring an agent to produce and validate a bug
+reproduction test using the bug report and repository context \emph{before} any
+fix is attempted. Mirroring test-driven practice in human development, and
 using the agent's own code comprehension to sharpen the objective it is then
-asked to satisfy.
+asked to try to come up with a soloution for the issue.
 
-The rationale is that a reproduction test functions as an executable
+The theory is that a reproduction test functions as an executable
 specification of the failure, constraining the space of acceptable patches. By
 forcing reproduction first, the fix stage receives an earlier and sharper
 feedback signal than post-hoc validation can provide, which should reduce
@@ -68,258 +53,15 @@ unfocused edits and improve repair precision.
 
 \section{Problem Statement}
 \label{sec:intro-problem}
-Current agents are strucutured to resolve the bug right away, without holding a lot of specifications of the failure. That is the gap we working on. How do we engineer agentic systems that fix more bugs by adopting a test-first order rather than reactive validation? The thing with reactive agent is that they have no exectable specifications, the agent relies on its reading of the issue, which can lead to misinterpratation, unfocused edits, regressions in unrelated code, and a self-declared stopping criterion. The TDD comes to guide the LLM on throught those issues, so it can always test if what it's being changed its being done on the right place and not breaking other parts of the code. Test generation from LLM is well studied, and APR is well stablished, however it was not done all in one unique pipeline, rather are different systems that work separatelly. We focus on how making TDD mandatory for bug fixing in one agentic system only can make a difference.
+Current agents do not have a standard strcuture to solve bugs, it will depend on user prompt, without holding a lot of contrainsts on the failure. That is the gap we working on. How do we engineer agentic systems that fix more bugs by adopting a test-first order rather than reactive validation? The thing with reactive agent is that they have no exectable specifications, the agent relies on its reading of the issue, which can lead to misinterpratation, unfocused edits, regressions in unrelated code, and a self-declared stopping criterion. The TDD comes to guide the LLM on throught those issues, so it can always test if what it's being changed its being done on the right place and not breaking other parts of the code. Test generation from LLM is well studied, however it was not done all in one unique pipeline, rather are different systems that work separatelly. We focus on how making TDD mandatory for bug fixing in one agentic system only can make a difference.
 
-% ===========================================================================
-% REVISION BRIEF — §1.2   (your draft is above; revise it in place)
-%
-% The content is right. Almost every beat from the plan is in there. The
-% problem is packaging: four paragraphs' worth of argument is compressed into
-% one, and the order is inverted — you open with the diagnosis and reach the
-% research question third.
-%
-% ── FIX 1 · SPLIT IT INTO FOUR PARAGRAPHS ─────────────────────────────────
-% Your own sentences already map onto the four jobs. Cut here:
-%
-%   P1 (name the problem)   ← "How do we engineer agentic systems that fix
-%                              more bugs...?"  MOVE THIS TO THE TOP. Open with
-%                              the question; the diagnosis is its answer, not
-%                              its preamble.
-%   P2 (diagnose reactive)  ← "Current agents are structured to resolve the bug
-%                              right away..." + "reactive agents have no
-%                              executable specification..."
-%   P3 (what test-first     ← "The TDD comes to guide the LLM..." — this is
-%       changes)               your weakest sentence and your most important
-%                              idea. Rebuild it (see FIX 3).
-%   P4 (the gap)            ← "Test generation is well studied, APR is well
-%                              established, however..." Ends the section on the
-%                              pivot. Good instinct — keep it last.
-%
-% ── FIX 2 · YOU CITED NOTHING — HERE IS EXACTLY WHAT GOES WHERE ───────────
-% A problem statement with no citations reads as opinion. Six citations, each
-% attached to a specific sentence. Paste the \cite{} where marked.
-%
-% P1 (name the problem) — NO CITATION. A research question is yours to ask.
-%   Citing here would suggest someone else already asked it.
-%
-% P2 (diagnose reactive) — THREE, and each does a different job:
-%
-%   (a) Name what "reactive" concretely refers to, so the target is not a
-%       strawman of your own construction:
-%         "...as exemplified by SWE-agent~\cite{Yang2024SWEagent}, which
-%          navigates the repository, edits code, and runs tests, but is under
-%          no obligation to establish a failing test first."
-%
-%   (b) Independent support for your diagnosis — THE MOST IMPORTANT CITE IN
-%       THE SECTION. It converts your assertion into a sourced claim:
-%         "Meng et al.~\cite{Meng2024Empirical} compared six repair agents and
-%          identified fault localisation and bug reproduction — rather than
-%          patch synthesis — as the binding constraints on performance."
-%
-%   (c) Evidence that the missing-specification problem is long-recognised in
-%       repair, not something you invented for this thesis:
-%         "The difficulty is not new: iFixR~\cite{Koyuncu2019iFixR} was
-%          motivated by the observation that at the moment a bug is reported a
-%          failing test is typically not yet available."
-%       ↑ This one is worth the effort. It shows the committee you know the
-%         pre-LLM repair literature, not only the last three years.
-%
-% P3 (what test-first changes) — ONE, as the empirical warrant for a
-%   paragraph that is otherwise your own reasoning:
-%         "...an expectation supported by the finding that supplying a repair
-%          system with high-quality reproduction tests raises the proportion of
-%          bugs reaching a plausible fix~\cite{Cheng2025Agentic}."
-%   Re-citing a source already used in §1.1 is normal and correct.
-%
-% P4 (the gap) — TWO GROUPS. The structure is: field one is mature [cite],
-%   field two is mature [cite], the join is not.
-%
-%   (a) Test generation is mature — cite all three together; the range is the
-%       point, and they escalate toward your setting:
-%         "...from code context~\cite{Tufano2020AthenaTest}, and more recently
-%          from bug reports directly~\cite{Kang2023LIBRO,Qureshi2025TestCase}."
-%       Kang et al. (LIBRO) generate bug-reproduction tests from reports — the
-%       closest prior setting to your Phase A, so it must appear here.
-%
-%   (b) Repair on real-world issues is mature:
-%         "...an established problem with an accepted benchmark of real GitHub
-%          issues~\cite{Jimenez2023SWEbench}."
-%
-%   Then the pivot sentence, WITH NO CITATION — that absence is the argument.
-%
-% ── DO NOT CITE Fan2023APRLLMs FOR "APR IS ESTABLISHED" ───────────────────
-% It is in references.bib and looks apt from the title, but it studies
-% repairing programs *written by* LLMs, which is a different setting from
-% repairing real GitHub issues. Miscitations are the easiest thing for a
-% committee to catch and the most damaging. Use Jimenez2023SWEbench and
-% Koyuncu2019iFixR instead.
-%
-% ── HOW TO CHOOSE A CITATION, GENERALLY ──────────────────────────────────
-% Before placing one, answer: what would a sceptical reader doubt about this
-% sentence? The citation answers that doubt. If nothing in the sentence is
-% doubtable — because it is your question, your design, or your reasoning — it
-% takes no citation. This is why P1 has none and P2 has three.
-% See WRITING_GUIDE.md §5 for integral vs. non-integral form.
-%
-% ── FIX 3 · REBUILD THE TDD SENTENCE ──────────────────────────────────────
-% You wrote:
-%   "The TDD comes to guide the LLM on throught those issues, so it can always
-%    test if what it's being changed its being done on the right place and not
-%    breaking other parts of the code."
-% Three problems: it never says WHAT test-first gives the fix stage; "TDD" is
-% used before being expanded; and it is the one sentence a committee will
-% reread. Split it into the two things it is trying to say:
-%   (a) what the fix stage inherits:
-%       "Under a test-first ordering, the fix stage inherits a precise
-%        optimisation target: make this failing test pass while preserving
-%        existing behaviour."
-%   (b) why that matters — the sharp version of your "always test" idea:
-%       "This narrows the space of acceptable patches, and it converts the
-%        question of whether the agent is finished from a judgement it makes
-%        into a measurement it can run."
-% Then add the concession that costs you nothing and buys credibility:
-%       "The ordering is not free: the reproduction test must be generated and
-%        validated before any repair begins, and whether that cost is repaid is
-%        an empirical question."
-%
-% ── FIX 4 · CONCEDE BEFORE YOU ATTACK ─────────────────────────────────────
-% "Reactive agents have no executable specification" overstates it — they do
-% run tests, just afterwards. A reader who thinks you have misdescribed the
-% baseline stops trusting the comparison. Open P2 with the concession:
-%   "Reactive agents do run tests. What they lack is a test known to exhibit
-%    the reported failure before editing begins."
-%
-% ── FIX 5 · LINE EDITS ────────────────────────────────────────────────────
-%   strucutured → structured          exectable → executable
-%   misinterpratation → misinterpretation    stablished → established
-%   separatelly → separately          throught → through
-%   "we working on" → "we are working on"
-%   "what it's being changed its being done" → "what is being changed is done"
-%   "on the right place" → "in the right place"
-%   "a lot of specifications" → "an executable specification"  [not a quantity]
-%   "The thing with reactive agents is" → "Reactive agents"    [informal]
-%   "can make a difference" → "changes the rate at which issues are resolved"
-%   "TDD" → expand on first use: "test-driven development (TDD)". Better still,
-%     avoid TDD here — you mean test-FIRST ORDERING, which is narrower and is
-%     what you actually manipulate.
-%   Avoid contractions (it's, don't) throughout the thesis.
-%
-% ── WHAT TO CUT ───────────────────────────────────────────────────────────
-% "That is the gap we working on." Delete it. You announce the gap properly in
-% P4; announcing it twice weakens both. Also see WRITING_GUIDE.md §7.4 —
-% drafts often open with a windup, and the real claim is sentence two.
-%
-% ── WHAT IS ALREADY GOOD — KEEP IT ────────────────────────────────────────
-% · "self-declared stopping criterion" is exactly right, and it is the most
-%   precise phrase in your draft. Give it its own sentence so it lands.
-% · Ending on the gap rather than opening with it is the correct structure.
-% · "rather are different systems that work separately" is the real
-%   observation in P4 — that the two literatures exist but have not been
-%   composed. Say it in those terms.
-% ===========================================================================
-
-\section{Thesis Statement and Approach}
-\label{sec:intro-thesis}
-% ===========================================================================
-% WRITING BRIEF — §1.3 Thesis Statement and Approach      (3 paragraphs)
-%
-% THE JOB: state the claim under test in one sentence, then establish the
-% distinction the whole thesis rests on — an architectural gate is not a prompt
-% instruction.
-%
-% ── P1 · The thesis statement ──────────────────────────────────────────────
-% Job: one sentence a committee can quote back at you. Set it off with \emph{}.
-%   Move 1 — The statement.
-%     Skeleton: "This thesis tests the following claim: \emph{____}."
-%     Model:    "This thesis tests the following claim: \emph{requiring a
-%                validated bug-reproduction test — one observed to fail on the
-%                buggy revision — before any fix is attempted, and enforcing
-%                that requirement architecturally rather than through prompt
-%                instructions, improves the rate at which an agentic system
-%                resolves real-world issues relative to a matched reactive
-%                baseline}."
-%   Move 2 — Announce that every qualifier is load-bearing, then walk them.
-%     Model:    "Each qualifier in that statement does work. 'Validated' means
-%                the test's failure is observed rather than asserted;
-%                'architecturally' distinguishes a structural constraint from
-%                an instruction; and 'matched' means the baseline differs from
-%                the treatment in ordering alone."
-%
-% ── P2 · Gate versus nudge  ── THE MOST IMPORTANT PARAGRAPH IN CHAPTER 1 ────
-% Job: make the distinction concrete and mechanical, not rhetorical.
-%   Move 1 — What a prompt can do.
-%     Model:    "A prompt can ask an agent to write a test before fixing
-%                anything."
-%   Move 2 — What it cannot do. Enumerate the failure modes concretely.
-%     Model:    "It cannot prevent the agent from skipping the test, weakening
-%                it until it passes, or deleting it once it becomes
-%                inconvenient; compliance remains the model's decision."
-%   Move 3 — What a gate does instead. Two mechanisms, both from your system.
-%     Model:    "An architectural gate differs in kind. The repair phase does
-%                not begin until a submitted test has been executed and
-%                observed to fail on the buggy revision, and the tool by which
-%                the repair agent checks its own success has that validated
-%                test fixed in place, so the agent cannot alter the criterion
-%                it is judged by."
-%   Move 4 — Position against the closest prior work.
-%     Model:    "This is the point of departure from Cheng et
-%                al.~\cite{Cheng2025Cogeneration}, whose test-driven condition
-%                is a prompt-level instruction within a single agent."
-%
-% ── P3 · The approach in brief ─────────────────────────────────────────────
-% Job: three sentences of system, then forward-reference. Resist detail.
-%   Move 1 — The two agents.
-%     Model:    "The system comprises two agents over a real tool-use loop
-%                against a live container: one writes and validates the
-%                reproduction test, the other edits source until that test
-%                passes."
-%   Move 2 — The invariant, in one clause, named but not explained.
-%     Model:    "Neither agent is ever given a tool that can observe the
-%                reference patch, the fixed revision, or the benchmark's
-%                held-out tests — an invariant enforced in code rather than by
-%                convention, developed in Section~\ref{sec:method-goldfree}."
-%   Move 3 — How success is measured, and by whom.
-%     Model:    "Success is scored offline against those held-out tests, which
-%                no agent can see."
-%
-% ── STYLE NOTES ────────────────────────────────────────────────────────────
-%   · P1 Move 1 will run long. That is acceptable once, for the thesis
-%     statement, and only there.
-%   · P2 is built as: they can do X / they cannot do Y / we do Z instead. Keep
-%     that skeleton even if you replace every word.
-%   · Use \ref{} for the forward reference, never "see later".
-%
-% ── CITE ───────────────────────────────────────────────────────────────────
-%   P2 \cite{Cheng2025Cogeneration}   ← bib key says 2025; the venue is FSE'26.
-%
-% ── TRAPS ──────────────────────────────────────────────────────────────────
-%   · "Tests whether", never "shows that". The sweep has not been run. See
-%     WRITING_GUIDE.md §3.
-%   · Claim novelty ONLY over the mechanism (gate vs. prompt), the public
-%     benchmark, and the two-agent split. Not over test-first as an idea —
-%     that is Cheng's, and a committee will know.
-%   · Keep P3 to three sentences. Every extra sentence belongs in Chapter 3.
-% ===========================================================================
+% \section{Thesis Statement and Approach}
+% \label{sec:intro-thesis}
 
 \section{Research Questions}
 \label{sec:intro-rqs}
-% ===========================================================================
-% NUMBERING IS CANONICAL AND MATCHES THE PROPOSAL (thesisproposal §3):
-%   RQ1 = effect of ordering · RQ2 = test properties · RQ3 = orchestration.
-% Two later documents drifted to conflicting numberings; both were corrected
-% to this set (docs/agent_plan.md, CLAUDE.md). Do not renumber.
-% Changes from the proposal's wording, and why:
-%   · RQ1 asks WHETHER and by how much, not "how much" — the latter
-%     presupposes the sign of the effect. The proposal's 18–25% target is
-%     dropped from the question and becomes a hypothesis in §4.4.
-%   · RQ1 names the enforcement mechanism (phase withheld until observed
-%     failure); the proposal left "test-first" as ordering alone.
-%   · Dataset is SWE-bench Lite, not Verified (decided 2026-07-21; §4.1).
-%   · Model capability (weak local models) is a SCOPE CONDITION, not an RQ.
-%   · RQ3 keeps the proposal's orchestration framing and adds the gold-free
-%     acceptance criterion, which did not exist at proposal time.
-% ===========================================================================
-The literature establishes that test-generation quality, repair capability, and
+
+The literature brings test-generation quality, repair capability, and
 orchestration each affect how many real-world issues an agentic system
 resolves~\cite{Meng2024Empirical}. It does not establish how those components
 should be composed, nor in which order a practitioner should run them. The three
@@ -340,120 +82,11 @@ no obligation to establish a failing one before editing begins. The primary
 outcome is resolved-rate: the benchmark's held-out failing tests pass and its
 previously passing tests are preserved.
 
-\paragraph{RQ2 --- Which properties of a generated bug-reproduction test predict
-whether the fix it guides resolves the issue?}
-This question is answered offline, over the stored artifacts of every run, by
-relating measurable properties of each generated test---assertion density,
-length, whether assertions check exact values or only that an exception is
-raised, determinism under repeated execution, and overlap with the lines the
-reference patch modifies---to whether the fix produced under it resolved the
-issue. That reproduction-test quality matters is already
-established~\cite{Cheng2025Agentic}; RQ2 asks which properties carry the effect.
-Because the analysis runs offline and after the fact, it may consult the
-reference patch, which no agent at any point may.
+\paragraph{RQ2 --- Which pipeline and orchestration characteristics improve fix
+quality and reliability?}
+An agentic pipeline admits many designs: how many agents participate, which tools each may call, how they pass work to one another, and what evidence is required before a test or a fix is accepted. This question is answered by ablating the test-first pipeline one component at a time, holding the model, the instance sample, the container, and the scoring harness fixed: the criterion by which a generated test is accepted without access to the reference patch, the per-instance attempt budget, agent self-review of the test and of the fix, post-fix adversarial verification, and best-of-$N$ test selection. Each variant is reported as its change in resolved-rate against its measured cost per instance. Two ablations produced negative results; they are reported as findings rather than omitted. 
 
-\paragraph{RQ3 --- Which pipeline and orchestration characteristics improve fix
-quality and reliability under a fixed budget?}
-This question is answered by ablations over the test-first pipeline: the
-criterion by which a generated test is accepted without access to the reference
-patch, the per-instance attempt budget, agent self-review of the test and of the
-fix, post-fix adversarial verification, and best-of-$N$ test selection. The
-primary outcome is the change in resolved-rate attributable to each variant,
-reported against its measured cost. Two of these ablations produced negative
-results; they are reported as findings rather than omitted.
+\paragraph{RQ3 --- Can open-weight models running on local hardware sustain the test-first pipeline, and at which stage does the trajectory break down?}
+Open-weight models in the 7–14B range are attractive for repair work: they are free to run, and the code never leaves the machine. Whether they can act as agents is a separate question from whether they can write code. This question is answered by running the same pipeline, prompts, tools, and instances as the frontier arm, with the context window and iteration budget held fixed and reported, and by recording where each trajectory ends: whether the agent reaches a terminal submission within budget, whether the test it submits reproduces the failure on the buggy revision, and whether the fix it then produces resolves the issue. Reporting the stage at which the pipeline stops, rather than resolved-rate alone, distinguishes a scaffolding limit from a capability limit — a distinction that determines whether the gap is closable by prompt design. 
 
-Two conditions bound the scope of all three questions rather than forming
-questions of their own. The first is model capability: the pipeline presupposes
-an agent able to sustain an autonomous tool-use loop to a terminal submission,
-and Section~\ref{sec:results-weak} reports the configuration in which that
-presupposition fails. The second is the absence of a run-time oracle. No agent
-ever observes the reference patch, the fixed revision, or the benchmark's
-held-out tests (Section~\ref{sec:method-goldfree}), so every acceptance decision
-taken inside the pipeline rests on evidence a deployed system would also have ---
-a constraint that shapes what RQ3 can ask and what RQ1 can claim.
 
-\section{Contributions}
-\label{sec:intro-contributions}
-% ===========================================================================
-% WRITING BRIEF — §1.5 Contributions
-%
-% THE JOB: five contributions, ordered by strength, each one a reader could
-% point at an artifact for. Use \begin{enumerate}.
-%
-% ── The two-sentence pattern — every item, without exception ───────────────
-%   S1: the claim.            "A ____."     [a noun phrase, not a narrative]
-%   S2: the substantiation.   "____."       [what makes it true / defensible]
-%
-% ── The five items ─────────────────────────────────────────────────────────
-%
-%   (1) A controlled ordering experiment on public data.
-%       S2 model: "The two arms are matched on model, tool set, budgets,
-%                  container, and scoring harness, and differ only in ordering
-%                  and its enforcement; the prior evidence for test-first
-%                  agentic repair comes from a private codebase, whereas this
-%                  comparison is reproducible by others~\cite{Cheng2025Agentic}."
-%
-%   (2) A gold-free design and its programmatic enforcement.  ← YOUR STRONGEST
-%       S1 model: "A pipeline design in which no agent ever holds a tool
-%                  capable of observing the reference patch, the fixed
-%                  revision, or the benchmark's held-out tests."
-%       S2 model: "The invariant is enforced by allowlisted per-role tool
-%                  registries and explicit guards rather than by convention,
-%                  because a pipeline whose decisions depend on the reference
-%                  patch measures an oracle rather than a deployable system."
-%       ↑ That final clause is the argument. Do not lose it to concision.
-%
-%   (3) A gold-free validation gate, and an analysis of its limits.
-%       S2 model: "The gate accepts a test on evidence available at deployment
-%                  time — that it fails cleanly on the buggy revision — and we
-%                  characterise precisely which distinction that criterion
-%                  cannot draw."
-%       ↑ Presenting the limitation AS the contribution is the mature move
-%         here. Develop it in §3.4; one clause is enough in Chapter 1.
-%
-%   (4) A characterisation of which reproduction-test properties predict
-%       downstream fix success (RQ2).
-%
-%   (5) Two negative results, reported rather than suppressed.
-%       S2 model: "First, shallow agent self-review without an oracle fails
-%                  open: a reviewer that can only re-read and re-execute cannot
-%                  separate a plausible wrong answer from a correct one, and
-%                  therefore approves. Second, small local models in the 7–14B
-%                  range invoke tools correctly but cannot sustain an
-%                  autonomous loop to a terminal submission, and neither prompt
-%                  hardening nor a larger local model closed the gap —
-%                  indicating a capability limit rather than a scaffolding one."
-%
-% ── STYLE NOTES ────────────────────────────────────────────────────────────
-%   · Order by strength, not chronology. (2) is a genuine engineering
-%     contribution — do not bury it under (1).
-%   · Every item must name an artifact: a script, a guard, a table, a figure.
-%     If you cannot name one, cut the item.
-%   · Numbered lists tempt fragments. Each item is two complete sentences.
-%
-% ── NUMBERS ────────────────────────────────────────────────────────────────
-%   NONE in §1.5. Every number belongs to Chapter 5.
-%   DO NOT CLAIM YET: any resolved-rate, C2P value, or cost figure. The present
-%   results.jsonl (220 rows) is exploratory, mixed-model and non-random. It is
-%   not a frozen sweep and must not be quoted as a headline anywhere.
-% ===========================================================================
-
-\section{Thesis Organization}
-\label{sec:intro-organization}
-% ===========================================================================
-% WRITING BRIEF — §1.6 Thesis Organization      ← WRITE LAST, AFTER CHAPTER 4
-%
-% One paragraph. One clause per chapter, present tense, in order. Do not
-% editorialise; this is a map, not an argument.
-%
-% Skeleton: "Chapter~\ref{ch:related} ____. Chapter~\ref{ch:methodology} ____.
-%            …"
-% Model opening: "Chapter~\ref{ch:related} positions this work against research
-%                 on bug reproduction, agentic program repair, and the single
-%                 prior study of test-first ordering."
-%
-% Remaining clauses: Ch3 documents the system as built, including the gold-free
-% invariant and the L0–L4 test taxonomy; Ch4 gives the experimental design; Ch5
-% reports results per research question; Ch6 interprets them and states threats
-% to validity; Ch7 concludes and outlines future work.
-% ===========================================================================

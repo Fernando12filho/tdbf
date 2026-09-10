@@ -21,6 +21,7 @@ from pathlib import Path
 
 from ..data.instances import SWEBenchInstance
 from ..harness.runner import (
+    ContainerResult,
     PredictionRecord,
     _parse_failure_reason,
     _parse_pytest_outcome,
@@ -40,16 +41,9 @@ from .runtime import Agent, AgentResult
 from .session import ContainerSession
 from .tools import brt_agent_tools, fix_agent_tools
 
-# $/1M tokens (input, output), keyed by substring of the model id. Local = $0.
-_PRICING = {"opus": (5.0, 25.0), "sonnet": (3.0, 15.0), "haiku": (1.0, 5.0)}
-
-
-def cost_usd(model: str, in_tok: int, out_tok: int) -> float | None:
-    """USD cost for a run, or None for local/unknown (free) models."""
-    for key, (pin, pout) in _PRICING.items():
-        if key in model:
-            return round(in_tok / 1e6 * pin + out_tok / 1e6 * pout, 4)
-    return None
+# Pricing lives in tdbf.pricing so this module and metrics.py cost runs
+# identically (re-exported here: callers and smokes import it from pipeline).
+from ..pricing import cost_usd  # noqa: E402,F401  (re-export)
 
 
 def serialise_messages(messages) -> list[dict]:
@@ -130,6 +124,8 @@ def brt_run_record(
         "test_code": phase.test_code,
         "input_tokens": phase.total_input_tokens if phase.total_input_tokens is not None else r.total_input_tokens,
         "output_tokens": phase.total_output_tokens if phase.total_output_tokens is not None else r.total_output_tokens,
+        "cache_write_tokens": phase.total_cache_write_tokens,
+        "cache_read_tokens": phase.total_cache_read_tokens,
         "cost_usd": phase.cost_usd,
         "duration_seconds": sum((s.duration_seconds or 0) for s in r.steps),
         "step_summary": step_summary(r.steps),
@@ -187,6 +183,8 @@ def fix_run_record(
         "pass_to_pass_failed": h.pass_to_pass_failed if h else None,
         "input_tokens": phase.total_input_tokens if phase.total_input_tokens is not None else r.total_input_tokens,
         "output_tokens": phase.total_output_tokens if phase.total_output_tokens is not None else r.total_output_tokens,
+        "cache_write_tokens": phase.total_cache_write_tokens,
+        "cache_read_tokens": phase.total_cache_read_tokens,
         "cost_usd": phase.cost_usd,
         "duration_seconds": sum((s.duration_seconds or 0) for s in r.steps),
         "step_summary": step_summary(r.steps),
@@ -287,6 +285,8 @@ class BrtPhaseResult:
     reviews: list = None  # type: ignore[assignment]
     total_input_tokens: int | None = None
     total_output_tokens: int | None = None
+    total_cache_write_tokens: int = 0
+    total_cache_read_tokens: int = 0
     # How the buggy-tree run failed: "assertion" (reached and fired its assert),
     # "runtime" (crashed before asserting) or None (undetermined). Gold-free —
     # parsed from buggy-side pytest output only. Gates `reproduces_on_buggy`.
@@ -408,6 +408,7 @@ def run_brt_phase(
         return None
     reviews: list[Review] = []
     tot_in = tot_out = 0
+    tot_cw = tot_cr = 0
     submission = test_code = test_patch = None
     outcome_buggy = outcome_fixed = None
     failure_reason_buggy = None
@@ -427,13 +428,24 @@ def run_brt_phase(
         # GOLD-FREE: run the submitted test on the BUGGY tree only. Returns
         # (test_code, test_patch, outcome_on_buggy); the outcome is a ContainerResult
         # (compares == "fail"/"pass"/"error"). (None, None, None) if nothing usable.
+        #
+        # ALWAYS the live session. The gate is a deployment decision, so it is
+        # taken in the runtime the agent actually worked in, with the same
+        # budget — see _score_on_buggy_in_session for why the cold path skewed
+        # it. Crucially this does not depend on `score_fixed`: --score-brt is
+        # documented as "info only, never gates", and an earlier version of this
+        # branched the gate's substrate on it, so passing an informational flag
+        # silently changed which BRTs were accepted. The offline L0-L4 label
+        # runs its own buggy+fixed pair below, through one substrate, so that
+        # comparison stays like-for-like without touching the gate.
         if not (sub and sub.strip()):
             return None, None, None
         tc = inject_setup_preamble(inst.repo, sub)
         tp = make_test_patch(test_path, tc)
-        print("Scoring offline — BUGGY tree ...")
-        ob = run_test_in_container(inst, tp, test_path=test_path)
-        print(f"  outcome_on_buggy:  {ob}")
+        print("Verifying the submitted BRT — BUGGY tree, in-session ...")
+        ob = _score_on_buggy_in_session(session, sub)
+        print(f"  outcome_on_buggy:  {ob}"
+              + (f" (failure_reason={ob.failure_reason})" if ob.failure_reason else ""))
         return tc, tp, ob
 
     try:
@@ -452,6 +464,8 @@ def run_brt_phase(
             agent, result = _run_brt_agent(run_task)
             tot_in += result.total_input_tokens
             tot_out += result.total_output_tokens
+            tot_cw += result.total_cache_write_tokens
+            tot_cr += result.total_cache_read_tokens
             submission = result.submission
             test_code, test_patch, outcome_buggy = _score_on_buggy(submission)
             failure_reason_buggy = getattr(outcome_buggy, "failure_reason", None)
@@ -496,6 +510,8 @@ def run_brt_phase(
             agent, result = _run_brt_agent(revise_task)
             tot_in += result.total_input_tokens
             tot_out += result.total_output_tokens
+            tot_cw += result.total_cache_write_tokens
+            tot_cr += result.total_cache_read_tokens
             # Re-score the revised submission on the buggy tree (gold-free).
             submission = result.submission
             test_code, test_patch, outcome_buggy = _score_on_buggy(submission)
@@ -503,7 +519,8 @@ def run_brt_phase(
     finally:
         session.close()
 
-    cost = cost_usd(client.name, tot_in, tot_out)
+    cost = cost_usd(client.name, tot_in, tot_out,
+                    cache_write_tok=tot_cw, cache_read_tok=tot_cr)
     print(
         f"BRT agent done: stop={result.stop_cause}  iters={result.iterations}  "
         f"tokens={tot_in}/{tot_out}"
@@ -518,13 +535,25 @@ def run_brt_phase(
     if not (submission and submission.strip()):
         print(f"  Agent did not submit a test (stop_cause={result.stop_cause}). Scoring as L0.")
     elif score_fixed:
+        # The label observes BOTH sides through the patch-based container, so
+        # L3-vs-L4 is a like-for-like comparison. Its buggy run is separate from
+        # (and never feeds) the gate above, which is why the label can disagree
+        # with the gate — that disagreement is itself worth seeing.
+        print("Scoring offline — BUGGY tree (label) ...")
+        outcome_buggy_label = run_test_in_container(inst, test_patch, test_path=test_path)
+        print(f"  outcome_on_buggy(label):  {outcome_buggy_label}")
         print("Scoring offline — gold-FIXED tree ...")
         outcome_fixed = run_test_in_container(
             inst, test_patch, gold_patch=inst.gold_patch, test_path=test_path
         )
         print(f"  outcome_on_fixed:  {outcome_fixed}")
-        classification = classify(outcome_buggy, outcome_fixed)
+        classification = classify(outcome_buggy_label, outcome_fixed)
         print(f"  -> {classification.level_label}  (valid BRT: {classification.is_valid_brt})")
+        if classification.is_valid_brt and not (
+            outcome_buggy == "fail" and failure_reason_buggy != "runtime"
+        ):
+            print("  [warn] the gate REJECTED a test the offline label calls L4 — "
+                  "a valid BRT was thrown away; investigate before trusting GateRate.")
     else:
         # Deployable pipeline: NO gold-fixed run, NO L4 label. The gate uses only
         # the gold-free buggy-side outcome (reproduces_on_buggy).
@@ -548,6 +577,8 @@ def run_brt_phase(
         reviews=reviews,
         total_input_tokens=tot_in,
         total_output_tokens=tot_out,
+        total_cache_write_tokens=tot_cw,
+        total_cache_read_tokens=tot_cr,
     )
 
 
@@ -557,10 +588,22 @@ def run_brt_phase(
 # candidate is optionally scored through the gold barrier afterwards (scoreboard).
 
 
-def _score_on_buggy_in_session(session: ContainerSession, submission: str) -> tuple[str, str | None]:
+def _score_on_buggy_in_session(session: ContainerSession, submission: str) -> ContainerResult:
     """Gold-free: write a candidate BRT into the shared (buggy) session and run it.
-    Returns (outcome, failure_reason). Buggy tree only — the fixed tree is never
-    touched, so this is a valid pre-filter / gate signal."""
+
+    Buggy tree only — the fixed tree is never touched — so this is a valid gate /
+    pre-filter signal. It writes the SUBMISSION, not whatever the agent happened
+    to pass to its last `run_test` call, so the artifact that is actually kept is
+    the one that gets verified; the agent cannot submit code it never ran.
+
+    This is the substrate the deployable gate uses, in preference to a fresh
+    `run_test_in_container`, because the cold path gave the same test a strictly
+    worse deal: 120s total (covering container start, `pip install pytest` and
+    `git apply`) against the 180s of warm test time the agent's own `run_test`
+    got, plus a hand-built unified diff that can fail to apply and score L0. A
+    BRT could therefore be rejected on time or patch mechanics rather than on
+    whether it reproduces the bug.
+    """
     rel = brt_test_path(session.repo)
     code = inject_setup_preamble(session.repo, submission)
     session.write_file(f"/testbed/{rel}", code)
@@ -568,7 +611,7 @@ def _score_on_buggy_in_session(session: ContainerSession, submission: str) -> tu
     res = session.exec(f"python -m pytest {rel} -x --tb=short -q", timeout=180)
     outcome = _parse_pytest_outcome(res.returncode, res.output)
     reason = _parse_failure_reason(res.output) if outcome == "fail" else None
-    return outcome, reason
+    return ContainerResult(outcome, reason, res.output[-3000:])
 
 
 def _brt_passes_in_session(session: ContainerSession, brt_code: str) -> bool:
@@ -669,8 +712,9 @@ def run_brt_best_of_n(
             tot_in += result.total_input_tokens
             tot_out += result.total_output_tokens
             sub = result.submission
+            res = _score_on_buggy_in_session(session, sub) if sub and sub.strip() else None
             outcome, reason = (
-                _score_on_buggy_in_session(session, sub) if sub and sub.strip() else (None, None)
+                (res.outcome, res.failure_reason) if res is not None else (None, None)
             )
             # `!= "runtime"`, not `== "assertion"`: a bare `assert x == y` with no
             # message emits no `E AssertionError:` line, so reason is None while the
@@ -798,6 +842,8 @@ class FixPhaseResult:
     reviews: list = None  # type: ignore[assignment]
     total_input_tokens: int | None = None
     total_output_tokens: int | None = None
+    total_cache_write_tokens: int = 0
+    total_cache_read_tokens: int = 0
     breaks: list = None  # type: ignore[assignment]  # post-fix breaker verdicts
 
 
@@ -860,6 +906,7 @@ def run_fix_phase(
     reviews: list[Review] = []
     breaks: list[Break] = []
     tot_in = tot_out = 0
+    tot_cw = tot_cr = 0
     try:
         # Gold-free RETRY loop: try up to max_attempts, reverting between failures.
         result = None
@@ -879,6 +926,8 @@ def run_fix_phase(
             fix_patch = session.exec("git diff").output
             tot_in += result.total_input_tokens
             tot_out += result.total_output_tokens
+            tot_cw += result.total_cache_write_tokens
+            tot_cr += result.total_cache_read_tokens
             if attempt == max_attempts - 1:
                 break  # last (or only) attempt — keep whatever we have
             # Gold-free accept check: BRT passes on the edited tree AND a patch exists.
@@ -926,6 +975,8 @@ def run_fix_phase(
             fix_patch = session.exec("git diff").output
             tot_in += result.total_input_tokens
             tot_out += result.total_output_tokens
+            tot_cw += result.total_cache_write_tokens
+            tot_cr += result.total_cache_read_tokens
 
         # Phase C (post-fix Breaker): an adversarial verifier attacks the fix even
         # though the BRT passes (necessary-not-sufficient). It always runs at least
@@ -963,11 +1014,14 @@ def run_fix_phase(
             fix_patch = session.exec("git diff").output
             tot_in += result.total_input_tokens
             tot_out += result.total_output_tokens
+            tot_cw += result.total_cache_write_tokens
+            tot_cr += result.total_cache_read_tokens
             refixes += 1
     finally:
         session.close()
 
-    cost = cost_usd(client.name, tot_in, tot_out)
+    cost = cost_usd(client.name, tot_in, tot_out,
+                    cache_write_tok=tot_cw, cache_read_tok=tot_cr)
     print(
         f"Fix agent done: stop={result.stop_cause}  iters={result.iterations}  "
         f"tokens={tot_in}/{tot_out}"
@@ -1011,5 +1065,7 @@ def run_fix_phase(
         reviews=reviews,
         total_input_tokens=tot_in,
         total_output_tokens=tot_out,
+        total_cache_write_tokens=tot_cw,
+        total_cache_read_tokens=tot_cr,
         breaks=breaks,
     )

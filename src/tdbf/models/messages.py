@@ -75,6 +75,13 @@ class ToolUseResponse:
     "end_turn" (model is done), "max_tokens" (hit the per-turn cap).
     Token counts are surfaced on every call so the agent loop can accumulate
     real usage — fixing the `null` tokens the old Ollama path logged.
+
+    With prompt caching enabled, a provider splits input into three counts and
+    bills each differently: `input_tokens` (uncached, full rate),
+    `cache_write_tokens` (~1.25x) and `cache_read_tokens` (~0.1x). Reading only
+    `input_tokens` would make a cached run look nearly free, so all three are
+    carried through to the cost calculation. Providers without caching (Ollama)
+    simply leave the two cache counts at 0.
     """
 
     text: str
@@ -82,5 +89,7 @@ class ToolUseResponse:
     stop_reason: str
     input_tokens: int | None = None
     output_tokens: int | None = None
+    cache_write_tokens: int | None = None
+    cache_read_tokens: int | None = None
     duration_seconds: float | None = None
     raw: object = None

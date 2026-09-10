@@ -282,6 +282,63 @@ def test_text_fallback_takes_first_when_second_is_malformed() -> None:
     assert len(out.tool_calls) == 1 and out.tool_calls[0].name == "read_file"
 
 
+def test_cache_tokens_accumulate_and_price() -> None:
+    """Prompt caching splits input into three separately-billed counts. If the
+    runtime tracked only `input_tokens`, a cached run would look nearly free —
+    the same class of silent-zero bug that recorded 21 fable runs at $0."""
+    from tdbf.pricing import cost_usd
+
+    resp = ToolUseResponse(
+        text="", tool_calls=[ToolCall(id="s1", name="submit_answer", arguments={"answer": "ok"})],
+        stop_reason="tool_use", input_tokens=100, output_tokens=50,
+        cache_write_tokens=1000, cache_read_tokens=8000,
+    )
+    agent = Agent(FakeClient([resp]), [ADD, SUBMIT], "calc agent", max_iterations=4)
+    result = agent.run("go")
+    assert result.total_input_tokens == 100, result.total_input_tokens
+    assert result.total_cache_write_tokens == 1000, result.total_cache_write_tokens
+    assert result.total_cache_read_tokens == 8000, result.total_cache_read_tokens
+    assert result.total_tokens == 9150, result.total_tokens
+
+    # sonnet-4-6 = $3/$15 per 1M; cache write 1.25x input, cache read 0.10x input
+    got = cost_usd("anthropic:claude-sonnet-4-6", 100, 50,
+                   cache_write_tok=1000, cache_read_tok=8000)
+    want = round(100 / 1e6 * 3 + 50 / 1e6 * 15 + 1000 / 1e6 * 3 * 1.25 + 8000 / 1e6 * 3 * 0.10, 4)
+    assert got == want, (got, want)
+    # A cache-blind cost would be strictly smaller — that is the bug being guarded.
+    assert got > cost_usd("anthropic:claude-sonnet-4-6", 100, 50)
+
+
+def test_token_budget_counts_cached_tokens() -> None:
+    """The budget must count cached input too. Otherwise enabling caching moves
+    most input into cache_read, the cap silently stops binding, and the arms are
+    no longer running under matched budgets."""
+    heavy = ToolUseResponse(
+        text="working", tool_calls=[ToolCall(id="a1", name="add", arguments={"a": 1, "b": 1})],
+        stop_reason="tool_use", input_tokens=10, output_tokens=10,
+        cache_write_tokens=0, cache_read_tokens=5_000,
+    )
+    agent = Agent(FakeClient([heavy] * 10), [ADD, SUBMIT], "calc agent",
+                  max_iterations=10, max_total_tokens=6_000, submit_grace=0)
+    result = agent.run("go")
+    assert result.stop_cause == "max_tokens", result.stop_cause
+    assert result.iterations <= 2, result.iterations
+
+
+def test_pricing_table_distinguishes_model_tiers() -> None:
+    """Substring matching is order-sensitive: Sonnet 5 ($2/$10) must not be
+    priced at Sonnet 4.6's rate ($3/$15), and every hosted model we actually
+    run must be priced at all (an unpriced model silently costs $0)."""
+    from tdbf.pricing import cost_usd, rates_for
+
+    assert rates_for("anthropic:claude-sonnet-5") == (2.0, 10.0)
+    assert rates_for("anthropic:claude-sonnet-4-6") == (3.0, 15.0)
+    assert rates_for("anthropic:claude-fable-5") == (10.0, 50.0)
+    assert rates_for("anthropic:claude-opus-5") == (5.0, 25.0)
+    assert rates_for("ollama:qwen2.5-coder:14b") is None  # local = free
+    assert cost_usd("ollama:qwen2.5-coder:14b", 10_000, 500) is None
+
+
 def run_offline() -> None:
     tests = [
         test_submit_terminates,
@@ -299,6 +356,9 @@ def run_offline() -> None:
         test_text_fallback_recovers_known_tool_call,
         test_text_fallback_ignores_unknown_name,
         test_text_fallback_takes_first_when_second_is_malformed,
+        test_cache_tokens_accumulate_and_price,
+        test_token_budget_counts_cached_tokens,
+        test_pricing_table_distinguishes_model_tiers,
     ]
     for t in tests:
         t()

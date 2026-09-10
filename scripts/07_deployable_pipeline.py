@@ -104,6 +104,8 @@ def brt_deployable_record(
         "test_code": phase.test_code,
         "input_tokens": r.total_input_tokens,
         "output_tokens": r.total_output_tokens,
+        "cache_write_tokens": phase.total_cache_write_tokens,
+        "cache_read_tokens": phase.total_cache_read_tokens,
         "cost_usd": phase.cost_usd,
         "duration_seconds": sum((s.duration_seconds or 0) for s in r.steps),
         "step_summary": step_summary(r.steps),
@@ -142,6 +144,7 @@ def run_one(
     score_brt: bool = False,
     breaker: bool = False,
     breaker_rounds: int = 1,
+    run_group: str | None = None,
     verbose: bool,
     num_ctx: int | None,
     brt_dir: Path,
@@ -194,7 +197,7 @@ def run_one(
                  "prompt_harden": prompt_harden,
                  "num_ctx": (client._num_ctx if isinstance(client, OllamaClient) else None),
                  "submit_nudge_limit": brt.submit_nudge_limit,
-                 "pipeline": "deployable"}
+                 "pipeline": "deployable", "arm": "deployable", "run_group": run_group}
     save_run(brt_deployable_record(
         inst, client.name, split=split, flags=brt_flags, phase=brt,
         gate_accepted=gate_accepted, scored=score_brt))
@@ -235,7 +238,8 @@ def run_one(
         json.dumps(fix_transcript_dict(inst, client.name, fix), indent=2)
     )
     fix_flags = {"max_iterations": max_iterations, "max_total_tokens": max_total_tokens,
-                 "pipeline": "deployable", "breaker": breaker,
+                 "pipeline": "deployable", "arm": "deployable", "run_group": run_group,
+                 "breaker": breaker,
                  "breaker_rounds": breaker_rounds if breaker else 0,
                  "breaker_verdicts": [b.verdict for b in (fix.breaks or [])]}
     save_run(fix_run_record(inst, client.name, split=split, flags=fix_flags, phase=fix))
@@ -249,7 +253,13 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--split", default="lite", choices=["lite", "verified"])
-    ap.add_argument("--id", default=None, help="instance_id (default: first in split)")
+    ap.add_argument("--id", default=None, nargs="+",
+                    help="one or more instance_ids (default: first in split)")
+    ap.add_argument("--run-group", default=None,
+                    help="Tag every record from this run with flags.run_group. Metrics dedup "
+                         "per (arm, instance), so re-running instances that are already in "
+                         "results.jsonl without a distinct group reports the best of old and "
+                         "new and hides the change being measured.")
     ap.add_argument("--limit", type=int, default=None,
                     help="Run the first N instances of the split (ignored if --id given).")
     ap.add_argument("--model", default="anthropic:claude-sonnet-4-6",
@@ -285,7 +295,7 @@ def main() -> int:
 
     store = InstanceStore(args.split)
     if args.id:
-        instances = [store.get(args.id)]
+        instances = [store.get(i) for i in args.id]
     elif args.limit:
         instances = list(store.iter_instances(limit=args.limit))
     else:
@@ -306,6 +316,7 @@ def main() -> int:
             score_brt=args.score_brt,
             breaker=args.breaker,
             breaker_rounds=args.breaker_rounds,
+            run_group=args.run_group,
             keep_container=args.keep_container,
             verbose=args.verbose,
             num_ctx=args.num_ctx,
