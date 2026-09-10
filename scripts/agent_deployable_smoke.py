@@ -92,7 +92,7 @@ def test_gate_accepts_reproducing_and_runs_fix() -> None:
     records: list[dict] = []
     gold_args: list = []
 
-    mod.build_client = lambda spec: FakePipelineClient()
+    mod.build_client = lambda spec, **kw: FakePipelineClient()
     mod.save_run = lambda record: records.append(record)
     pipeline.ContainerSession = lambda instance, keep=False: PipelineFakeSession(instance.repo)
 
@@ -158,7 +158,7 @@ def test_gate_rejects_nonreproducing() -> None:
         started.append(instance.instance_id)
         return GatePytestSession(instance.repo, 0, "1 passed in 0.1s")
 
-    mod.build_client = lambda spec: FakePipelineClient()
+    mod.build_client = lambda spec, **kw: FakePipelineClient()
     mod.save_run = lambda record: records.append(record)
     pipeline.ContainerSession = _session
 
@@ -195,7 +195,7 @@ def test_gate_rejects_crashing_test() -> None:
             instance.repo, 1,
             "E   AttributeError: 'Thing' object has no attribute 'nope'\n1 failed in 0.1s")
 
-    mod.build_client = lambda spec: FakePipelineClient()
+    mod.build_client = lambda spec, **kw: FakePipelineClient()
     mod.save_run = lambda record: records.append(record)
     pipeline.ContainerSession = _session
 

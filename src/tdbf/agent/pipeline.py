@@ -355,6 +355,7 @@ def run_brt_phase(
     *,
     max_iterations: int,
     max_total_tokens: int,
+    max_tokens_per_turn: int = 4096,
     prompt_harden: bool = False,
     submit_nudge_limit: int = 2,
     brt_retries: int = 2,
@@ -419,6 +420,7 @@ def run_brt_phase(
             client, brt_agent_tools(session), system,  # gold-free set + assert_gold_free guard
             max_iterations=max_iterations,
             max_total_tokens=max_total_tokens,
+            max_tokens_per_turn=max_tokens_per_turn,
             submit_nudge_limit=submit_nudge_limit,
             verbose=verbose,
         )
@@ -660,6 +662,7 @@ def run_brt_best_of_n(
     n_candidates: int,
     max_iterations: int,
     max_total_tokens: int,
+    max_tokens_per_turn: int = 4096,
     selector_client: LLMClient,
     prompt_harden: bool = False,
     submit_nudge_limit: int = 2,
@@ -705,6 +708,7 @@ def run_brt_best_of_n(
             agent = Agent(
                 client, brt_agent_tools(session), system,
                 max_iterations=max_iterations, max_total_tokens=max_total_tokens,
+                max_tokens_per_turn=max_tokens_per_turn,
                 submit_nudge_limit=submit_nudge_limit, verbose=verbose,
             )
             print(f"Generating candidate {i + 1}/{n_candidates} ...")
@@ -855,6 +859,7 @@ def run_fix_phase(
     split: str,
     max_iterations: int,
     max_total_tokens: int,
+    max_tokens_per_turn: int = 4096,
     keep_container: bool = False,
     verbose: bool = False,
     run_dir: Path = Path("runs") / "agent_fix",
@@ -917,6 +922,7 @@ def run_fix_phase(
                 client, fix_agent_tools(session, brt_code), system,  # gold-free; BRT baked into run_brt
                 max_iterations=max_iterations,
                 max_total_tokens=max_total_tokens,
+                max_tokens_per_turn=max_tokens_per_turn,
                 verbose=verbose,
             )
             print(f"Running fix agent (attempt {attempt + 1}/{max_attempts}, "
@@ -969,6 +975,7 @@ def run_fix_phase(
                 client, fix_agent_tools(session, brt_code), system,
                 max_iterations=max_iterations,
                 max_total_tokens=max_total_tokens,
+                max_tokens_per_turn=max_tokens_per_turn,
                 verbose=verbose,
             )
             result = agent.run(revise_task)
@@ -1008,6 +1015,7 @@ def run_fix_phase(
                 client, fix_agent_tools(session, brt_code), system,
                 max_iterations=max_iterations,
                 max_total_tokens=max_total_tokens,
+                max_tokens_per_turn=max_tokens_per_turn,
                 verbose=verbose,
             )
             result = agent.run(break_task)
