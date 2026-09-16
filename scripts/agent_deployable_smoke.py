@@ -76,6 +76,7 @@ def _inst(iid: str) -> SWEBenchInstance:
 def _patch_fix_scoring(resolved: bool = True) -> None:
     pipeline.write_predictions = lambda recs, path: Path(path)
     pipeline.run_harness = lambda *a, **k: 0
+    pipeline._verify_scored = lambda *a, **k: None  # stubbed harness: no report on disk
     pipeline.read_report = lambda run_id, model, instance: HarnessResult(
         instance_id=instance.instance_id, resolved=resolved,
         fail_to_pass_passed=["test_brt"] if resolved else [],

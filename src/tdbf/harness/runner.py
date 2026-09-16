@@ -288,15 +288,25 @@ def run_harness(
     return proc.returncode
 
 
+def report_dir(run_id: str, model_name: str, instance_id: str) -> Path:
+    """Where the SWE-bench harness writes one instance's evaluation artifacts.
+
+    The harness replaces "/" in the model name with "__" when it names this
+    directory. Reading the raw name instead silently finds nothing for any model
+    id containing a slash — every OpenRouter id does — and a missing report reads
+    as "not resolved".
+    """
+    return (Path("logs") / "run_evaluation" / run_id
+            / model_name.replace("/", "__") / instance_id)
+
+
 def read_report(
     run_id: str,
     model_name: str,
     instance: "object",
 ) -> HarnessResult:
     instance_id: str = instance.instance_id  # type: ignore[attr-defined]
-    report_path = (
-        Path("logs") / "run_evaluation" / run_id / model_name / instance_id / "report.json"
-    )
+    report_path = report_dir(run_id, model_name, instance_id) / "report.json"
 
     if not report_path.exists():
         return HarnessResult(

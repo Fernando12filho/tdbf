@@ -16,6 +16,8 @@ POST) and CLI presentation stay in the scripts.
 
 from __future__ import annotations
 
+import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,6 +31,7 @@ from ..harness.runner import (
     inject_setup_preamble,
     make_test_patch,
     read_report,
+    report_dir,
     repo_test_hint,
     run_harness,
     run_test_in_container,
@@ -211,6 +214,8 @@ def fix_run_record(
     if getattr(phase, "breaks", None):  # Phase C — post-fix breaker only
         attempt["breaker_rounds"] = len(phase.breaks)
         attempt["breaker_verdicts"] = [bk.verdict for bk in phase.breaks]
+    if getattr(phase, "scoring_error", None):
+        attempt["scoring_error"] = phase.scoring_error
     return {
         "instance_id": inst.instance_id,
         "repo": inst.repo,
@@ -220,6 +225,8 @@ def fix_run_record(
         "flags": flags,
         "best_level": 4 if phase.resolved else 0,  # reuse field: resolved -> sentinel
         "resolved": phase.resolved,
+        **({"scoring_error": phase.scoring_error}
+           if getattr(phase, "scoring_error", None) else {}),
         "best_attempt": 1,
         "attempts": [attempt],
     }
@@ -804,6 +811,50 @@ def run_brt_best_of_n(
     )
 
 
+# ── offline scoring (gold barrier) ────────────────────────────────────────────
+
+def _verify_scored(run_id: str, model_name: str, instance_id: str,
+                   fix_patch: str, started: float) -> str | None:
+    """Return why a harness verdict cannot be trusted for THIS patch, or None.
+
+    The harness skips any instance whose report.json already exists for the same
+    run id and model. With a fixed run id, every re-run of an instance silently
+    re-read the FIRST run's verdict: 20 of 64 stored fix verdicts (2026-09-16
+    audit) belonged to a different patch, and a reactive-vs-test-first pair would
+    always have tied. So: the report must have been written by this call, and the
+    patch the harness scored must be the one we submitted.
+    """
+    d = report_dir(run_id, model_name, instance_id)
+    report, patch = d / "report.json", d / "patch.diff"
+    if not report.exists():
+        return f"harness wrote no report at {report}"
+    if report.stat().st_mtime < started - 1:
+        return "report predates this scoring call (harness skipped the instance)"
+    if not patch.exists():
+        return f"harness left no patch.diff beside {report}"
+    if patch.read_text().strip() != fix_patch.strip():
+        return "the patch the harness scored is not the submitted patch"
+    return None
+
+
+def score_fix_patch(inst: SWEBenchInstance, model_name: str, fix_patch: str, *,
+                    split: str, run_dir: Path, tag: str = "fix"):
+    """Score one fix patch through the SWE-bench harness. Returns (harness, error).
+
+    Every call gets a fresh run id, so the harness can never skip it as already
+    evaluated, and the verdict is checked against the submitted patch before it is
+    believed. `error` is None only when both hold.
+    """
+    run_id = f"{tag}_{inst.instance_id}_{uuid.uuid4().hex[:8]}"
+    pred = PredictionRecord(instance_id=inst.instance_id,
+                            model_name_or_path=model_name, model_patch=fix_patch)
+    pred_path = write_predictions([pred], run_dir / f"{run_id}.jsonl")
+    started = time.time()
+    run_harness(pred_path, split, run_id, [inst.instance_id])
+    harness = read_report(run_id, model_name, inst)
+    return harness, _verify_scored(run_id, model_name, inst.instance_id, fix_patch, started)
+
+
 # ── Phase B: fix agent ────────────────────────────────────────────────────────
 
 FIX_SYSTEM_PROMPT = """You are an autonomous bug-fixing agent. Your single goal is to FIX the bug \
@@ -855,7 +906,7 @@ class FixPhaseResult:
     system: str
     task: str
     fix_patch: str
-    resolved: bool
+    resolved: bool | None  # None = the harness verdict could not be verified
     harness: object | None
     cost_usd: float | None
     # Phase C (multi-agent). Empty/None in the single-agent path.
@@ -865,6 +916,9 @@ class FixPhaseResult:
     total_cache_write_tokens: int = 0
     total_cache_read_tokens: int = 0
     breaks: list = None  # type: ignore[assignment]  # post-fix breaker verdicts
+    # Set when the harness verdict could not be verified as belonging to this
+    # patch; `resolved` is then None and the run must not be counted.
+    scoring_error: str | None = None
 
 
 def run_fix_phase(
@@ -1060,23 +1114,21 @@ def run_fix_phase(
     # decide resolved/not. The agent never saw any of this.
     resolved = False
     harness = None
+    scoring_error = None
     if not fix_patch.strip():
         print("  Agent produced no source edits — not resolved.")
     else:
-        run_id = f"agent_fix_{inst.instance_id}"
-        pred = PredictionRecord(
-            instance_id=inst.instance_id,
-            model_name_or_path=client.name,
-            model_patch=fix_patch,
-        )
-        pred_path = write_predictions([pred], run_dir / f"{run_id}.jsonl")
         print("Scoring offline via SWE-bench harness (held-out test_patch) ...")
-        run_harness(pred_path, split, run_id, [inst.instance_id])
-        harness = read_report(run_id, client.name, inst)
-        resolved = harness.resolved
-        print(f"  applied={harness.applied}  resolved={resolved}  "
-              f"FAIL_TO_PASS pass/fail={len(harness.fail_to_pass_passed)}/"
-              f"{len(harness.fail_to_pass_failed)}  PASS_TO_PASS fail={len(harness.pass_to_pass_failed)}")
+        harness, scoring_error = score_fix_patch(
+            inst, client.name, fix_patch, split=split, run_dir=run_dir)
+        if scoring_error:
+            resolved = None
+            print(f"  [SCORING INVALID] {scoring_error} — resolved left unset")
+        else:
+            resolved = harness.resolved
+            print(f"  applied={harness.applied}  resolved={resolved}  "
+                  f"FAIL_TO_PASS pass/fail={len(harness.fail_to_pass_passed)}/"
+                  f"{len(harness.fail_to_pass_failed)}  PASS_TO_PASS fail={len(harness.pass_to_pass_failed)}")
 
     return FixPhaseResult(
         agent=result,
@@ -1092,4 +1144,5 @@ def run_fix_phase(
         total_cache_write_tokens=tot_cw,
         total_cache_read_tokens=tot_cr,
         breaks=breaks,
+        scoring_error=scoring_error,
     )

@@ -127,6 +127,7 @@ def test_fix_phase_with_breaker() -> None:
     pipeline.ContainerSession = lambda instance, keep=False: PipelineFakeSession(instance.repo)
     pipeline.write_predictions = lambda recs, path: Path(path)
     pipeline.run_harness = lambda *a, **k: 0
+    pipeline._verify_scored = lambda *a, **k: None  # stubbed harness: no report on disk
     pipeline.read_report = lambda run_id, model, instance: HarnessResult(
         instance_id=instance.instance_id, resolved=True,
         fail_to_pass_passed=["test_brt"], fail_to_pass_failed=[],

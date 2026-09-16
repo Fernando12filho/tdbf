@@ -204,7 +204,9 @@ def fix_arm(label: str, recs: list[dict], *, local: bool = False) -> dict:
 
 def build_report(records: list[dict]) -> dict:
     agent = [r for r in records if r.get("mode") == "agent"]
-    fix = [r for r in records if r.get("mode") == "fix_agent"]
+    # A fix whose harness verdict could not be verified as belonging to its own
+    # patch (`scoring_error`) is not a result and must not count either way.
+    fix = [r for r in records if r.get("mode") == "fix_agent" and not r.get("scoring_error")]
     deploy = [r for r in records if r.get("mode") == "agent_deployable"]
     baseline = [r for r in records if r.get("mode") is None]
 
