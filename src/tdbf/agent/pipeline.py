@@ -46,6 +46,22 @@ from .tools import brt_agent_tools, fix_agent_tools
 from ..pricing import cost_usd  # noqa: E402,F401  (re-export)
 
 
+def take_served(client) -> dict | None:
+    """Which model + provider actually answered since the last call, then reset.
+
+    Only clients that track provenance (OpenRouter) return anything; for the rest
+    this is None and callers leave their records unchanged. Free endpoints can
+    re-point or withdraw a model id mid-sweep, so this is the record of what a
+    run was really made with.
+    """
+    snap = getattr(client, "served_snapshot", None)
+    if not callable(snap):
+        return None
+    served = snap()
+    client.reset_served()
+    return served
+
+
 def serialise_messages(messages) -> list[dict]:
     """Flatten the agent message trace to JSON-serialisable dicts (transcripts)."""
     out = []

@@ -16,6 +16,10 @@ from __future__ import annotations
 # keys must come first: Sonnet 5 is $2/$10 while Sonnet 4.6 is $3/$15, and a
 # bare "sonnet" key would silently price both at the 4.6 rate.
 PRICING: dict[str, tuple[float, float]] = {
+    # OpenRouter free models: an explicit $0.00, never None. They are hosted, so
+    # "unpriced" would be the wrong record, and it must precede every other key
+    # because a free id can contain any vendor or family name.
+    ":free": (0.0, 0.0),
     "fable": (10.0, 50.0),
     "sonnet-5": (2.0, 10.0),
     "sonnet": (3.0, 15.0),   # 4.6 and earlier

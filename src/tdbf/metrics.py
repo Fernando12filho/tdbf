@@ -83,7 +83,8 @@ def attempt_cost(attempt: dict, model: str) -> float:
 
 
 def short_model(m: str) -> str:
-    return (m or "?").split("@")[0].replace("anthropic:", "").replace("ollama:", "")
+    return ((m or "?").split("@")[0]
+            .replace("anthropic:", "").replace("ollama:", "").replace("openrouter:", ""))
 
 
 def repo_of(rec: dict) -> str:

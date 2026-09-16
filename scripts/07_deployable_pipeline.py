@@ -48,6 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from tdbf.agent.pipeline import (
     brt_transcript_dict,
+    take_served,
     fix_run_record,
     fix_transcript_dict,
     run_brt_phase,
@@ -209,6 +210,9 @@ def run_one(
                  "seed": (client._seed if isinstance(client, OllamaClient) else None),
                  "submit_nudge_limit": brt.submit_nudge_limit,
                  "pipeline": "deployable", "arm": "deployable", "run_group": run_group}
+    served = take_served(client)
+    if served is not None:  # OpenRouter: record what actually answered Phase A
+        brt_flags["served_by"] = served
     save_run(brt_deployable_record(
         inst, client.name, split=split, flags=brt_flags, phase=brt,
         gate_accepted=gate_accepted, scored=score_brt))
@@ -254,6 +258,9 @@ def run_one(
                  "breaker": breaker,
                  "breaker_rounds": breaker_rounds if breaker else 0,
                  "breaker_verdicts": [b.verdict for b in (fix.breaks or [])]}
+    served = take_served(client)
+    if served is not None:  # OpenRouter: record what actually answered Phase B
+        fix_flags["served_by"] = served
     save_run(fix_run_record(inst, client.name, split=split, flags=fix_flags, phase=fix))
 
     cost += fix.cost_usd or 0.0

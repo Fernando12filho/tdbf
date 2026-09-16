@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
@@ -619,6 +620,157 @@ class GeminiClient(_OpenAIToolMixin):
         )
 
 
+class OpenRouterClient(_OpenAIToolMixin):
+    """Hosted open-weight models through OpenRouter's OpenAI-compatible endpoint.
+
+    The no-budget arm (2026-09-16): new runs use `:free` model ids. Three things
+    differ from the other OpenAI-format clients, all because free endpoints are
+    shared, throttled, and not stable over time:
+
+    - Throttling. HTTP 429/5xx are retried by the SDK with back-off
+      (`max_retries`). OpenRouter can also answer 200 with an error body and no
+      choices when the upstream provider fails; that is retried here, a bounded
+      number of times, rather than crashing the agent run on a transient fault.
+    - Provenance. A free model id can be re-pointed or withdrawn mid-sweep, and
+      one id may be served by different providers. Every response's served model
+      and provider is counted in `served`, so a run record can name exactly what
+      answered it.
+    - No auto-routing. `openrouter/free` and `openrouter/auto` choose a model per
+      request, so a run made with them can be neither named nor reproduced.
+      They are refused.
+
+    Reads OPENROUTER_API_KEY. Model ids look like
+    'nvidia/nemotron-3-super-120b-a12b:free'.
+    """
+
+    _BASE_URL = "https://openrouter.ai/api/v1"
+
+    def __init__(
+        self,
+        model: str,
+        api_key_env: str = "OPENROUTER_API_KEY",
+        *,
+        timeout: float = 120.0,
+        max_retries: int = 3,
+        empty_retries: int = 3,
+        empty_backoff: float = 5.0,
+    ) -> None:
+        # Worst case for a dead endpoint is (max_retries + 1) x timeout, because
+        # the SDK retries timeouts as well as 429/5xx. It was 6 x 300 s = 30 min
+        # per call until a live probe hung on nemotron-3-ultra; now 4 x 120 s.
+        if not model:
+            raise ValueError("OpenRouterClient needs an explicit model id.")
+        if model.startswith("openrouter/"):
+            raise ValueError(
+                f"{model!r} is an OpenRouter auto-router: it picks a different model "
+                "per request, so the run could not be named or reproduced. Pin an "
+                "exact model id instead."
+            )
+        self.model = model
+        self.name = f"openrouter:{model}"
+        self._api_key_env = api_key_env
+        self._timeout = timeout
+        self._max_retries = max_retries
+        self._empty_retries = empty_retries
+        self._empty_backoff = empty_backoff
+        self._client = None
+        self.served: Counter = Counter()
+
+    def _ensure(self):
+        if self._client is None:
+            from openai import OpenAI  # lazy — reuses the openai SDK
+
+            key = os.environ.get(self._api_key_env)
+            if not key:
+                raise RuntimeError(
+                    f"{self._api_key_env} not set; cannot call OpenRouter."
+                )
+            self._client = OpenAI(
+                base_url=self._BASE_URL,
+                api_key=key,
+                timeout=self._timeout,
+                max_retries=self._max_retries,
+            )
+        return self._client
+
+    # -- provenance ---------------------------------------------------------- #
+
+    def served_snapshot(self) -> dict[str, int]:
+        """{'<served model>|<provider>': calls} since the last reset."""
+        return dict(self.served)
+
+    def reset_served(self) -> None:
+        self.served.clear()
+
+    def _record_served(self, resp) -> None:
+        extra = getattr(resp, "model_extra", None) or {}
+        provider = getattr(resp, "provider", None) or extra.get("provider") or "?"
+        served_model = getattr(resp, "model", None) or self.model
+        self.served[f"{served_model}|{provider}"] += 1
+
+    def _checked(self, create):
+        """Call `create()`, retrying a 200 response that carries no choices."""
+        error = None
+        for attempt in range(self._empty_retries + 1):
+            resp = create()
+            if getattr(resp, "choices", None):
+                self._record_served(resp)
+                return resp
+            extra = getattr(resp, "model_extra", None) or {}
+            error = extra.get("error") or getattr(resp, "error", None)
+            if attempt < self._empty_retries:
+                time.sleep(self._empty_backoff * (attempt + 1))
+        raise RuntimeError(
+            f"OpenRouter returned no choices for {self.model!r} after "
+            f"{self._empty_retries + 1} attempts: {error}"
+        )
+
+    # -- calls --------------------------------------------------------------- #
+
+    def run_tools(
+        self,
+        *,
+        system: str,
+        messages: list[Message],
+        tools: list[ToolSchema],
+        max_tokens: int = 4096,
+    ) -> ToolUseResponse:
+        client = self._ensure()
+        t0 = time.perf_counter()
+        resp = self._checked(lambda: client.chat.completions.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            messages=_to_openai_messages(system, messages),
+            tools=_to_openai_tools(tools),
+        ))
+        duration = time.perf_counter() - t0  # includes any retry back-off
+        return _parse_openai_response(resp, self.name, duration, {t.name for t in tools})
+
+    def complete(
+        self, system: str, user: str, *, max_tokens: int = 4096
+    ) -> LLMResponse:
+        client = self._ensure()
+        t0 = time.perf_counter()
+        resp = self._checked(lambda: client.chat.completions.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        ))
+        duration = time.perf_counter() - t0
+        usage = getattr(resp, "usage", None)
+        return LLMResponse(
+            text=resp.choices[0].message.content or "",
+            model=self.name,
+            input_tokens=getattr(usage, "prompt_tokens", None),
+            output_tokens=getattr(usage, "completion_tokens", None),
+            duration_seconds=duration,
+            raw=resp,
+        )
+
+
 class OllamaClient(_OpenAIToolMixin):
     """Local Ollama instance via its OpenAI-compatible API.
 
@@ -793,6 +945,7 @@ def build_client(
       'ollama:qwen3.5:9b@http://192.168.1.192:11434'
       'anthropic:claude-opus-4-7'
       'openai:gpt-4-turbo'
+      'openrouter:nvidia/nemotron-3-super-120b-a12b:free'
 
     The keyword options apply to Ollama only (they are the local arm's fairness
     knobs) and are ignored by the hosted vendors. Passing None keeps the
@@ -822,4 +975,8 @@ def build_client(
         return OpenAIClient(model=rest or "gpt-4-turbo")
     if vendor == "gemini":
         return GeminiClient(model=rest or "gemini-2.0-flash")
+    if vendor == "openrouter":
+        # rest is the full OpenRouter id, which may itself contain a colon
+        # ('nvidia/nemotron-3-super-120b-a12b:free') — partition split on the first.
+        return OpenRouterClient(model=rest)
     raise ValueError(f"Unknown vendor in spec {spec!r}")

@@ -80,15 +80,19 @@ There is no more paid API budget. Every new run uses **free OpenRouter models** 
 
 ## Phase 1 — Infrastructure (Wed 16 Sep)
 
-- [ ] **1.0** Fernando: add the $10 OpenRouter credit; confirm `is_free_tier` flips
+- [x] **1.0** $10 OpenRouter credit added — `is_free_tier: False`, `total_credits: 10`, usage 0 (checked 09-16)
 - [ ] **1.1** Fix RQ numbering in `4_experiments.tex`, `5_results.tex`,
       `6_discussion.tex`; rewrite the RQ3 paragraph in `1_introduction.tex`
-- [ ] **1.2** OpenRouter client (`openrouter:<model>` in `build_client`), with:
+- [x] **1.2** OpenRouter client (`openrouter:<model>` in `build_client`), with:
       - retry with exponential back-off on 429 / 5xx (free endpoints throttle often)
       - `:free` models priced at an **explicit $0.00**, never `None`
       - the served model id and provider recorded on every run (free models change
         or vanish; this is a reproducibility record)
       - an offline smoke; one live call to confirm tool calling
+      - **Live check 09-16** (one `add` tool call each): nemotron-3-super-120b ✅ 3.5 s,
+        gemma-4-31b-it ✅ 1.4 s, north-mini-code ✅ 1.2 s — all *structured* tool calls,
+        none text-recovered. **nemotron-3-ultra-550b timed out** (60 s) → dropped from
+        the probe for now.
 - [ ] **1.3** Arm A, the reactive baseline: drop `run_brt` from `_FIX_TOOL_NAMES`,
       strip it from `submit_fix`'s description, no Phase A. Offline smoke asserting the
       arms differ *only* in that.
@@ -99,7 +103,8 @@ There is no more paid API budget. Every new run uses **free OpenRouter models** 
 
 ## Phase 2 — Capability probe and freeze (Thu 17 Sep)
 
-- [ ] **2.1** **Capability probe:** 3 free models × 5 known-good instances, Arm B only,
+- [ ] **2.1** **Capability probe:** 3 free models (nemotron-3-super-120b, gemma-4-31b-it,
+      north-mini-code) × 5 known-good instances, Arm B only,
       `--score-brt`. Record C2P, gate rate, resolved, turns per phase.
 - [ ] **2.2** **Pick the RQ1 model** (best resolved, then C2P). If no free model
       resolves anything, stop and rescope RQ1 before sweeping.
