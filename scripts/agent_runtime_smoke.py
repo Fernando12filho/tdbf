@@ -339,6 +339,30 @@ def test_pricing_table_distinguishes_model_tiers() -> None:
     assert cost_usd("ollama:qwen2.5-coder:14b", 10_000, 500) is None
 
 
+def test_truncated_turn_is_named_as_such() -> None:
+    """A reasoning model that exhausts max_tokens_per_turn while thinking has not
+    chosen to stop. It gets told it was cut off, and the run records the count."""
+    cut = ToolUseResponse(text="Let me think about the separability matrix...",
+                          tool_calls=[], stop_reason="max_tokens",
+                          input_tokens=10, output_tokens=4096)
+    done = _r("done", [ToolCall("s1", "submit_answer", {"answer": "42"})])
+    agent = Agent(FakeClient([cut, done]), [ADD, SUBMIT], "calc agent", max_iterations=5)
+    res = agent.run("What is 17 + 25?")
+    assert res.stop_cause == "submit", res.stop_cause
+    assert res.truncated_turns == 1, res.truncated_turns
+    user_msgs = [m.content for m in res.messages if m.role == "user"]
+    assert any("cut off at the per-turn output limit" in m for m in user_msgs), user_msgs
+    assert not any("You ended your turn" in m for m in user_msgs), user_msgs
+
+
+def test_plain_no_tool_turn_still_gets_the_submit_nudge() -> None:
+    idle = _r("I think the answer is 42.", [], stop="end_turn")
+    done = _r("done", [ToolCall("s1", "submit_answer", {"answer": "42"})])
+    res = Agent(FakeClient([idle, done]), [ADD, SUBMIT], "calc agent", max_iterations=5).run("q")
+    assert res.truncated_turns == 0
+    assert any("You ended your turn" in (m.content or "") for m in res.messages if m.role == "user")
+
+
 def run_offline() -> None:
     tests = [
         test_submit_terminates,
@@ -359,6 +383,8 @@ def run_offline() -> None:
         test_cache_tokens_accumulate_and_price,
         test_token_budget_counts_cached_tokens,
         test_pricing_table_distinguishes_model_tiers,
+        test_truncated_turn_is_named_as_such,
+        test_plain_no_tool_turn_still_gets_the_submit_nudge,
     ]
     for t in tests:
         t()

@@ -123,6 +123,21 @@ def test_read_file_line_range() -> None:
     assert past.is_error
 
 
+def test_read_file_rejects_malformed_line_args() -> None:
+    """A live free model leaked tool-call markup into start_line. Silently dropping
+    it returned the file from line 1, three turns running; it must be an error."""
+    tools = brt_agent_tools(FakeSession())  # type: ignore[arg-type]
+    bad = _tool(tools, "read_file").execute(
+        {"path": "multi.py", "start_line": "219\n<parameter=end_line>\n250"})
+    assert bad.is_error and "single integer" in bad.content, bad.content
+    bad_end = _tool(tools, "read_file").execute({"path": "multi.py", "end_line": "three"})
+    assert bad_end.is_error, bad_end.content
+    # absent or empty stays "not given", and string integers still coerce
+    assert not _tool(tools, "read_file").execute({"path": "multi.py", "start_line": ""}).is_error
+    ok = _tool(tools, "read_file").execute({"path": "multi.py", "start_line": "2", "end_line": "3"})
+    assert ok.content == "2\tb = 2\n3\tc = 3", repr(ok.content)
+
+
 def test_run_test_tool_parses_outcome_and_writes_file() -> None:
     sess = FakeSession()
     tools = brt_agent_tools(sess)  # type: ignore[arg-type]
@@ -156,6 +171,7 @@ def run_offline() -> None:
         test_schemas_are_object_schemas,
         test_read_file_tool,
         test_read_file_line_range,
+        test_read_file_rejects_malformed_line_args,
         test_run_test_tool_parses_outcome_and_writes_file,
         test_run_python_tool,
         test_submit_tool_is_terminal_and_captures_code,

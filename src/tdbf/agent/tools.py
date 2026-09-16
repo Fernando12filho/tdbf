@@ -85,6 +85,19 @@ class ReadFileTool(_SessionTool):
         n = len(lines)
         start = _as_int(arguments.get("start_line"))
         end = _as_int(arguments.get("end_line"))
+        # A line argument that is present but not an integer is a malformed call,
+        # not an absent one. Dropping it silently returned the file from line 1:
+        # a live free model leaked tool-call markup into start_line
+        # ('219\n<parameter=end_line>\n250') and got the same wrong page three
+        # turns running with no hint of why.
+        for key, parsed in (("start_line", start), ("end_line", end)):
+            raw = arguments.get(key)
+            if parsed is None and raw not in (None, ""):
+                return ToolResult(
+                    f"read_file {key} must be a single integer, got {raw!r}. "
+                    "Pass start_line and end_line as separate integer arguments.",
+                    is_error=True,
+                )
         if start is not None or end is not None:
             first = max(1, start or 1)
             last = min(n, end if end is not None else n)

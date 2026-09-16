@@ -61,6 +61,9 @@ class AgentResult:
     # rates — folding them together would misstate the cost either way.
     total_cache_write_tokens: int = 0
     total_cache_read_tokens: int = 0
+    # No-tool turns that ended because they hit max_tokens_per_turn. Separates a
+    # budget artefact from a model that stopped acting (RQ3's stage question).
+    truncated_turns: int = 0
 
     @property
     def total_tokens(self) -> int:
@@ -106,6 +109,13 @@ class Agent:
             "If you are not finished yet, keep investigating with the available tools."
         )
 
+    def _truncated_text(self) -> str:
+        return (
+            "Your response was cut off at the per-turn output limit before you called "
+            "a tool, so nothing happened. Keep your reasoning short and call a tool "
+            "in this turn."
+        )
+
     def _force_submit_text(self) -> str:
         names = " or ".join(repr(n) for n in self.terminal_tools)
         return (
@@ -131,6 +141,7 @@ class Agent:
         stop_cause = "max_iterations"
         final_text = ""
         nudges_used = 0  # total, for telemetry
+        truncations = 0  # no-tool turns cut off by max_tokens_per_turn
         consecutive_no_tool = 0  # what the nudge limit actually bounds
 
         for i in range(self.max_iterations):
@@ -182,10 +193,18 @@ class Agent:
                 if consecutive_no_tool < self.submit_nudge_limit and self.terminal_tools:
                     consecutive_no_tool += 1
                     nudges_used += 1
-                    messages.append(Message(role="user", content=self._nudge_text()))
+                    # A reasoning model that exhausts max_tokens_per_turn while still
+                    # thinking did not choose to stop; telling it that it "ended its
+                    # turn" is false and pushes it toward submitting too early.
+                    truncated = resp.stop_reason == "max_tokens"
+                    messages.append(Message(role="user", content=(
+                        self._truncated_text() if truncated else self._nudge_text())))
+                    truncations += truncated
                     self._log(
                         f"    -> [nudge {consecutive_no_tool}/{self.submit_nudge_limit} "
-                        f"consecutive, {nudges_used} total] no tool call; prompting to submit"
+                        f"consecutive, {nudges_used} total] no tool call"
+                        + ("; turn TRUNCATED at the output limit" if truncated
+                           else "; prompting to submit")
                     )
                     continue
                 stop_cause = "natural"
@@ -277,6 +296,7 @@ class Agent:
             iterations=main_iterations,
             total_cache_write_tokens=cache_w,
             total_cache_read_tokens=cache_r,
+            truncated_turns=truncations,
         )
 
     def _execute(self, tc: ToolCall) -> ToolResult:

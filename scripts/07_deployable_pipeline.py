@@ -99,6 +99,7 @@ def brt_deployable_record(
         "mode": "agent_deployable",
         "stop_cause": r.stop_cause,
         "iterations": r.iterations,
+        "truncated_turns": r.truncated_turns,
         "num_tool_calls": sum(len(s.tool_calls) for s in r.steps),
         "outcome_buggy": phase.outcome_buggy,
         "failure_reason_buggy": phase.failure_reason_buggy,
@@ -254,6 +255,7 @@ def run_one(
         json.dumps(fix_transcript_dict(inst, client.name, fix), indent=2)
     )
     fix_flags = {"max_iterations": max_iterations, "max_total_tokens": max_total_tokens,
+                 "max_tokens_per_turn": max_tokens_per_turn,
                  "pipeline": "deployable", "arm": "deployable", "run_group": run_group,
                  "breaker": breaker,
                  "breaker_rounds": breaker_rounds if breaker else 0,
