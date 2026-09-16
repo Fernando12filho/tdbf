@@ -362,6 +362,17 @@ class RevertTool(_SessionTool):
     )
     input_schema = {"type": "object", "properties": {}}
 
+    # Reactive arm: the same text minus the sentence about a BRT it does not have.
+    REACTIVE_DESCRIPTION = (
+        "Discard ALL your source edits and restore the original buggy checkout. Use this to start "
+        "over if your changes made things worse."
+    )
+
+    def __init__(self, session: ContainerSession, *, reactive: bool = False) -> None:
+        super().__init__(session)
+        if reactive:
+            self.description = self.REACTIVE_DESCRIPTION
+
     def execute(self, arguments: dict) -> ToolResult:
         self.session.reset_tree()
         return ToolResult("Reverted all source edits to the original buggy state.")
@@ -379,8 +390,18 @@ class SubmitFixTool(Tool):
         "Submit your fix and finish. Call this only once run_brt reports outcome=pass AND any "
         "existing tests you ran still pass. Your source edits are captured automatically."
     )
+    # Reactive arm (RQ1 baseline): identical except it cannot name run_brt, a tool
+    # that arm does not have.
+    REACTIVE_DESCRIPTION = (
+        "Submit your fix and finish. Call this only once your change addresses the issue AND any "
+        "existing tests you ran still pass. Your source edits are captured automatically."
+    )
     input_schema = {"type": "object", "properties": {}}
     terminal = True
+
+    def __init__(self, *, reactive: bool = False) -> None:
+        if reactive:
+            self.description = self.REACTIVE_DESCRIPTION
 
     def execute(self, arguments: dict) -> ToolResult:
         return ToolResult("FIX_SUBMITTED")
@@ -537,6 +558,10 @@ _FIX_TOOL_NAMES = frozenset(
     {"read_file", "grep", "glob", "edit_file", "run_brt", "run_tests", "revert", "submit_fix"}
 )
 
+# The reactive baseline (RQ1 Arm A) is the fix agent WITHOUT run_brt — nothing
+# else. Deriving it from _FIX_TOOL_NAMES keeps the arms from drifting apart.
+_REACTIVE_FIX_TOOL_NAMES = _FIX_TOOL_NAMES - {"run_brt"}
+
 
 def _assert_allowed(tools: list[Tool], allowed: frozenset[str]) -> None:
     for t in tools:
@@ -561,6 +586,12 @@ def assert_fix_gold_free(tools: list[Tool]) -> None:
     tree but must never apply the gold patch nor run the held-out test_patch /
     FAIL_TO_PASS — resolution is scored offline only."""
     _assert_allowed(tools, _FIX_TOOL_NAMES)
+
+
+def assert_reactive_fix_gold_free(tools: list[Tool]) -> None:
+    """Guard the reactive-baseline surface: the fix tools minus run_brt. Same
+    gold-free rule; and no BRT tool can slip in, or Arm A stops being reactive."""
+    _assert_allowed(tools, _REACTIVE_FIX_TOOL_NAMES)
 
 
 def assert_role_gold_free(tools: list[Tool]) -> None:
@@ -615,6 +646,27 @@ def fix_agent_tools(session: ContainerSession, brt_code: str) -> list[Tool]:
         SubmitFixTool(),
     ]
     assert_fix_gold_free(tools)
+    return tools
+
+
+def reactive_fix_agent_tools(session: ContainerSession) -> list[Tool]:
+    """The reactive baseline's toolset (RQ1 Arm A): `fix_agent_tools` minus run_brt.
+
+    Same tools, same order, same budgets. The agent may still run existing repo
+    tests; it is simply under no obligation to observe a failing test first,
+    which is what "reactive" means here. Descriptions that would name run_brt or
+    a BRT use their reactive variants.
+    """
+    tools: list[Tool] = [
+        ReadFileTool(session),
+        GrepTool(session),
+        GlobTool(session),
+        EditFileTool(session),
+        RunTestsTool(session),
+        RevertTool(session, reactive=True),
+        SubmitFixTool(reactive=True),
+    ]
+    assert_reactive_fix_gold_free(tools)
     return tools
 
 

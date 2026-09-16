@@ -11,6 +11,9 @@ fresh, verified run id, and updates them in place. The superseded value is kept
 beside the new one (`resolved_stale`) so the correction stays auditable, and git
 holds the file's previous state.
 
+**Run it alone.** It rewrites the whole of results.jsonl after each re-score, so a
+pipeline that appends a record meanwhile would have that record overwritten.
+
     python3 scripts/rescore_stale.py --dry-run          # list what is stale
     python3 scripts/rescore_stale.py --limit 1          # validate on one first
     python3 scripts/rescore_stale.py                    # all of them

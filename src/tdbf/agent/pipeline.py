@@ -42,7 +42,7 @@ from ..validation.brt_levels import BRTClassification, classify
 from .roles import Break, Review, Selection, run_breaker, run_critic, run_reviewer, run_selector
 from .runtime import Agent, AgentResult
 from .session import ContainerSession
-from .tools import brt_agent_tools, fix_agent_tools
+from .tools import brt_agent_tools, fix_agent_tools, reactive_fix_agent_tools
 
 # Pricing lives in tdbf.pricing so this module and metrics.py cost runs
 # identically (re-exported here: callers and smokes import it from pipeline).
@@ -896,6 +896,37 @@ YOUR change introduced. When unsure, keep the fix and submit. revert discards AL
 - Be efficient — you have a limited number of steps and a token budget."""
 
 
+
+# RQ1 Arm A — the reactive baseline. Written line-for-line against
+# FIX_SYSTEM_PROMPT with only the reproduction-test content removed: the arms
+# must differ in the BRT and its tool, not in how the task is otherwise worded.
+# agent_reactive_smoke asserts the shared lines stay verbatim in both.
+REACTIVE_FIX_SYSTEM_PROMPT = """You are an autonomous bug-fixing agent. Your single goal is to FIX the bug \
+described in a GitHub issue by editing the source code of `{repo}` (checked out at the buggy commit \
+`{base_commit}`).
+
+Your real target is the ROOT CAUSE described in the issue.
+
+Recommended workflow (you decide the specifics and when you are done):
+1. Read the issue. Use glob/grep/read_file to locate the buggy code.
+2. Use edit_file to apply a root-cause fix to the source.
+3. Use run_tests on the SPECIFIC existing test file(s) closest to your change (e.g. the test module \
+for the file you edited) to check you did not break related behaviour. Do NOT run whole test \
+directories — they are slow and full of failures unrelated to your change.
+4. Submit once your fix addresses the issue (see the submit rules below).
+
+Rules:
+- Fix the ROOT CAUSE in the source.
+- Keep the change minimal and targeted; do not reformat unrelated code.
+- DEFAULT: call submit_fix once your change addresses the issue.
+- IMPORTANT: existing tests in this repo may already fail for reasons unrelated to you (environment, \
+network, pre-existing flakiness). A failure reported by run_tests does NOT by itself mean your fix is \
+wrong. Only treat it as a regression if you can point to a specific test that your edit plausibly broke.
+- Do NOT call revert on a fix you believe addresses the issue unless you have clearly identified a \
+regression YOUR change introduced. When unsure, keep the fix and submit. revert discards ALL your edits.
+- Call submit_fix EXACTLY ONCE.
+- Be efficient — you have a limited number of steps and a token budget."""
+
 @dataclass
 class FixPhaseResult:
     """Outcome of the fix phase. `harness` is the SWE-bench report (None if no
@@ -923,7 +954,7 @@ class FixPhaseResult:
 
 def run_fix_phase(
     inst: SWEBenchInstance,
-    brt_code: str,
+    brt_code: str | None,
     client: LLMClient,
     *,
     split: str,
@@ -944,6 +975,13 @@ def run_fix_phase(
     """Run the fix agent (gold-free, BRT baked into run_brt) then score the fix
     patch through the gold barrier (held-out test_patch via the harness).
 
+    `brt_code=None` runs the REACTIVE baseline (RQ1 Arm A) instead: the same
+    agent, budgets, container and scoring, but no BRT in the task, no run_brt
+    tool, and a prompt with the BRT content removed. That is the whole
+    difference between the arms, and it lives here so it stays visible. The
+    BRT-dependent options (retry-until-BRT-passes, Reviewer, Breaker) have no
+    meaning without a BRT and are refused.
+
     `max_attempts > 1` adds a gold-free RETRY loop: after each attempt, if the BRT
     does not pass on the (edited) tree, the tree is reverted and the agent tries
     again with a hint about what the previous attempt did — up to `max_attempts`
@@ -963,14 +1001,27 @@ def run_fix_phase(
 
     Returns None only if the container could not be started (instance skipped).
     """
-    system = FIX_SYSTEM_PROMPT.format(repo=inst.repo, base_commit=inst.base_commit)
+    reactive = brt_code is None
+    if reactive and (max_attempts > 1 or reviewer_client is not None
+                     or breaker_client is not None):
+        raise ValueError(
+            "The reactive arm has no BRT: max_attempts > 1, the Reviewer and the "
+            "Breaker all depend on one and cannot run here.")
+    prompt = REACTIVE_FIX_SYSTEM_PROMPT if reactive else FIX_SYSTEM_PROMPT
+    system = prompt.format(repo=inst.repo, base_commit=inst.base_commit)
     ctx = inst.context_safe_dict()
-    task = (
+    header = (
         f"GitHub issue for `{ctx['instance_id']}` ({ctx['repo']} @ {ctx['base_commit']}):\n\n"
-        f"{ctx['problem_statement']}\n\n"
-        f"--- Bug-reproduction test (currently FAILS; make it PASS by fixing the source) ---\n"
-        f"{brt_code}"
+        f"{ctx['problem_statement']}"
     )
+    if reactive:
+        task = header
+    else:
+        task = (
+            f"{header}\n\n"
+            f"--- Bug-reproduction test (currently FAILS; make it PASS by fixing the source) ---\n"
+            f"{brt_code}"
+        )
 
     # --- AGENT (gold-free): the model edits the buggy tree. ---
     try:
@@ -988,14 +1039,17 @@ def run_fix_phase(
         fix_patch = ""
         attempt_hint = ""
         for attempt in range(max_attempts):
+            tools = (reactive_fix_agent_tools(session) if reactive
+                     else fix_agent_tools(session, brt_code))  # gold-free; BRT baked into run_brt
             agent = Agent(
-                client, fix_agent_tools(session, brt_code), system,  # gold-free; BRT baked into run_brt
+                client, tools, system,
                 max_iterations=max_iterations,
                 max_total_tokens=max_total_tokens,
                 max_tokens_per_turn=max_tokens_per_turn,
                 verbose=verbose,
             )
-            print(f"Running fix agent (attempt {attempt + 1}/{max_attempts}, "
+            print(f"Running {'REACTIVE (no BRT) ' if reactive else ''}fix agent "
+                  f"(attempt {attempt + 1}/{max_attempts}, "
                   f"max_iter={max_iterations}, max_tok={max_total_tokens}) ...")
             result = agent.run(task + attempt_hint)
             # Capture the fix patch = tracked source edits (the untracked BRT is excluded).
