@@ -155,7 +155,14 @@ def run_one(
     seed: int | None = None,
     brt_dir: Path,
     fix_dir: Path,
+    extra_flags: dict | None = None,
+    save=None,
 ) -> DeployOutcome | None:
+    # extra_flags: merged into both records (the paired sweep adds pair_id/order).
+    # save: where records go (default save_run). The sweep collects them and writes
+    # a pair only once both arms finished, so a half-finished pair leaves no trace.
+    _save = save or save_run
+    extra_flags = extra_flags or {}
     print(f"\n{'#'*60}\n# Instance:  {inst.instance_id}\n# Repo:      {inst.repo}\n{'#'*60}")
 
     client = build_client(model_spec, num_ctx=num_ctx, timeout=timeout,
@@ -211,10 +218,11 @@ def run_one(
                  "seed": (client._seed if isinstance(client, OllamaClient) else None),
                  "submit_nudge_limit": brt.submit_nudge_limit,
                  "pipeline": "deployable", "arm": "deployable", "run_group": run_group}
+    brt_flags.update(extra_flags)
     served = take_served(client)
     if served is not None:  # OpenRouter: record what actually answered Phase A
         brt_flags["served_by"] = served
-    save_run(brt_deployable_record(
+    _save(brt_deployable_record(
         inst, client.name, split=split, flags=brt_flags, phase=brt,
         gate_accepted=gate_accepted, scored=score_brt))
 
@@ -260,10 +268,11 @@ def run_one(
                  "breaker": breaker,
                  "breaker_rounds": breaker_rounds if breaker else 0,
                  "breaker_verdicts": [b.verdict for b in (fix.breaks or [])]}
+    fix_flags.update(extra_flags)
     served = take_served(client)
     if served is not None:  # OpenRouter: record what actually answered Phase B
         fix_flags["served_by"] = served
-    save_run(fix_run_record(inst, client.name, split=split, flags=fix_flags, phase=fix))
+    _save(fix_run_record(inst, client.name, split=split, flags=fix_flags, phase=fix))
 
     cost += fix.cost_usd or 0.0
     return DeployOutcome(inst.instance_id, brt.reproduces_on_buggy, True, fix.resolved, cost, brt_lvl,
