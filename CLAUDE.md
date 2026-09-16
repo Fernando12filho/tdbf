@@ -368,7 +368,13 @@ numbering and is history, not instruction.
   ablation material**, including the negatives. Prefer answering from stored runs.
   No more Breaker tuning.
 
-**Binding constraint is Docker image builds and wall clock, not budget or disk.**
+**No paid API budget remains (2026-09-16).** New runs use free OpenRouter models
+(`:free`, 1,000 requests/day once $10 of credit is on the account; 50/day without) or
+local Ollama. A paired instance costs ~30–40 model calls, so the daily request cap is
+now a binding constraint alongside image builds. Sonnet figures below are the stored
+frontier reference, not something to re-run.
+
+**Other binding constraints: Docker image builds and wall clock, not disk.**
 Measured 2026-09-10: a build (incl. gold validation) is ~3.4 min; a full pipeline run
 is ~2.5 min/instance/arm at ~$0.20 with caching on. Disk is *not* the ceiling it looks
 like — nominal image sizes sum to ~153 GB but the real store is ~29 GB because

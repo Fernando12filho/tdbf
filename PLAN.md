@@ -1,21 +1,42 @@
-# TDBF — plan to submission (2026-09-10 → 2026-09-27)
+# TDBF — plan to submission (revised 2026-09-16 → 2026-09-27)
 
 Working plan for finishing the thesis. Update the checkboxes as things land;
 if a decision changes, change it *here* first so the chapters follow one source.
 
 **Deadline: Sunday 27 September 2026.** Data freeze **Thursday 24 September**.
 
+> **Status 2026-09-16:** Phase 1 (originally due Sat 12) has not started in code —
+> about four days behind. `main` is pushed and in sync with GitHub. The plan below
+> is re-cut around the **no-budget pivot**; the freeze date holds.
+
 ---
 
-## Decisions taken 2026-09-10
+## The no-budget pivot (2026-09-16)
 
-| Decision | Choice |
-|---|---|
-| Deadline | Sat 26 – Sun 27 Sep; no new runs after Thu 24 |
-| RQ3 framing | **Open-weight models generally** — hosted (OpenRouter) for model variety, local Ollama as the on-device configuration. The "code never leaves the machine" wording must come out of the RQ3 paragraph. |
-| Thesis prose | Claude drafts ch3 (Methodology) and ch4 (Experimental Design); Fernando writes ch1, ch2, ch6, ch7 and owns the argument in ch5 |
-| BRT-properties analysis | Reinstated as analysis (not an RQ) — it is free, over stored artifacts, and gold is legal offline |
-| Sample | Stratified across repos, frozen to a committed file before the sweep |
+There is no more paid API budget. Every new run uses **free OpenRouter models** or
+**local Ollama**. What that changes:
+
+- **RQ1 now runs on a free model**, not Sonnet. Whether any free model is capable
+  enough is unknown, so a capability probe gates the sweep (task 2.1). If both arms
+  would score ~0, the comparison says nothing — rescope before sweeping.
+- **RQ1 and RQ3 share runs.** Every free model is also an open-weight data point.
+- **RQ2 is answered from stored data** (Critic, Breaker, best-of-N on Sonnet, plus the
+  gate A/B). No new paid calls.
+- **The Sonnet n=14 run is the frontier reference point**, not the headline:
+  gate 14/14, resolved 10/14, C2P 13/14 (non-random development set).
+
+## Decisions
+
+| Date | Decision | Choice |
+|---|---|---|
+| 09-10 | Deadline | Sat 26 – Sun 27 Sep; no new runs after Thu 24 |
+| 09-10 | RQ3 framing | **Open-weight models generally** — hosted (OpenRouter) for variety, local Ollama as the on-device configuration. "Code never leaves the machine" must come out of the RQ3 paragraph. |
+| 09-10 | Thesis prose | Claude drafts ch3 and ch4; Fernando writes ch1, ch2, ch6, ch7 and owns the argument in ch5 |
+| 09-10 | BRT-properties analysis | Reinstated as analysis (not an RQ) — free, over stored artifacts |
+| 09-10 | Sample | Stratified across repos, frozen to a committed file before the sweep |
+| 09-16 | Budget | **None.** Free OpenRouter models + local Ollama only |
+| 09-16 | OpenRouter limits | Fernando adds a one-time **$10** credit → free models go from 50 to 1,000 requests/day. Free models do not draw the credit down. |
+| 09-16 | Local host | The Ollama desktop (192.168.1.192) is available on request — it was simply switched off |
 
 ## Research questions (canonical — `thesis/chapters/1_introduction.tex` is the source)
 
@@ -34,103 +55,109 @@ if a decision changes, change it *here* first so the chapters follow one source.
 
 ## Measured constraints (do not re-derive; re-measure only if something changes)
 
-- **Image build ≈ 3.4 min** including gold validation (sympy-11400, first ever
-  build of that repo family: 203 s, `resolved=True`, F2P 2/0, P2P 0 fail).
-- **Disk is not the binding constraint.** Nominal image sizes sum to ~153 GB but
-  the real store is ~29 GB — SWE-bench images share base and per-repo env layers.
-  A whole new repo family costs ~1.8 GB actual. **63 GB free** on the Colima disk
-  (98 GB, `/dev/vdb1`) supports the full stratified sample.
-- **Pipeline run ≈ 2.5 min/instance** per arm (14 instances in ~35 min), **≈$0.20**
-  with prompt caching on (90% cache hit rate; $2.73 for 14 instances end-to-end).
-- **SWE-bench Lite composition:** django 114, sympy 77, matplotlib 23, sklearn 23,
-  pytest 17, sphinx 16, astropy 6, requests 6, pylint 6, xarray 5, seaborn 4,
-  flask 3. The 36 images built so far are **astropy + django only**.
-- **Baseline result to beat/reproduce:** Arm B, Sonnet, n=14 — gate 14/14,
-  resolved 10/14, C2P 13/14.
+**OpenRouter (checked 2026-09-16)**
+- Key is **free tier**. 444 models, 24 free, **20 free with tool calling**. Larger
+  candidates: `nvidia/nemotron-3-super-120b-a12b:free`,
+  `nvidia/nemotron-3-ultra-550b-a55b:free`, `google/gemma-4-31b-it:free`,
+  `cohere/north-mini-code:free`. Exclude `stealth/union-alpha` and the
+  `openrouter/free` auto-router — neither can be named or reproduced.
+- Free-model limits (OpenRouter docs): **20 requests/min**; **50/day** under $10 of
+  purchased credit, **1,000/day** at $10+ (granted from $9).
+- **Requests per instance** (Sonnet, gate-fix run): test phase median 9 turns (max 31),
+  fix phase median 11 (max 26) → ~20 for test-first, ~11 for reactive, **~30–40 per
+  paired instance**; weaker models run closer to the 30-turn cap.
+  At 1,000/day that is **~15–30 paired instances per day**.
+
+**Infrastructure**
+- **Image build ≈ 3.4 min** including gold validation (sympy-11400: 203 s, resolved).
+- **Disk is not the binding constraint.** Real image store ~29 GB despite ~153 GB of
+  nominal sizes (shared layers); a new repo family costs ~1.8 GB. 63 GB free.
+- **SWE-bench Lite:** django 114, sympy 77, matplotlib 23, sklearn 23, pytest 17,
+  sphinx 16, astropy 6, requests 6, pylint 6, xarray 5, seaborn 4, flask 3.
+  The 37 images built so far are astropy + django + one sympy.
 
 ---
 
-## Phase 1 — Infrastructure (Thu 10 – Sat 12 Sep)
+## Phase 1 — Infrastructure (Wed 16 Sep)
 
+- [ ] **1.0** Fernando: add the $10 OpenRouter credit; confirm `is_free_tier` flips
 - [ ] **1.1** Fix RQ numbering in `4_experiments.tex`, `5_results.tex`,
-      `6_discussion.tex`; rewrite the RQ3 paragraph in `1_introduction.tex` to drop
-      "local hardware / never leaves the machine"
-- [ ] **1.2** OpenRouter client (`openrouter:<model>` in `build_client`).
-      `_OpenAIToolMixin` already speaks the format, so this is a base_url + key +
-      pricing lookup. `OPENROUTER_API_KEY` is already set.
+      `6_discussion.tex`; rewrite the RQ3 paragraph in `1_introduction.tex`
+- [ ] **1.2** OpenRouter client (`openrouter:<model>` in `build_client`), with:
+      - retry with exponential back-off on 429 / 5xx (free endpoints throttle often)
+      - `:free` models priced at an **explicit $0.00**, never `None`
+      - the served model id and provider recorded on every run (free models change
+        or vanish; this is a reproducibility record)
+      - an offline smoke; one live call to confirm tool calling
 - [ ] **1.3** Arm A, the reactive baseline: drop `run_brt` from `_FIX_TOOL_NAMES`,
-      strip its mention from `submit_fix`'s description, no Phase A. Same model,
-      tools, budgets, container, harness. Add an offline smoke asserting the arms
-      differ *only* in that.
-- [ ] **1.4** Paired sweep driver (`11_paired_sweep.py`): per instance, build →
-      Arm A → Arm B → score → optionally reclaim the image. Resumable; tags every
-      record with `arm` and `run_group`.
-- [ ] **1.5** Start the background builder on the stratified list; let it run.
+      strip it from `submit_fix`'s description, no Phase A. Offline smoke asserting the
+      arms differ *only* in that.
+- [ ] **1.4** Paired sweep driver (`11_paired_sweep.py`): per instance, Arm A → Arm B →
+      score; resumable; tags `arm` and `run_group`; stops cleanly at the daily cap.
+- [ ] **1.5** Start the background builder on a stratified instance list
+- [ ] **1.6** Bring the Ollama desktop up
 
-## Phase 2 — Pilot and freeze (Sun 13 – Wed 16 Sep)
+## Phase 2 — Capability probe and freeze (Thu 17 Sep)
 
-- [ ] **2.1** Pilot: ~20 random Lite instances through both arms → Δ estimate,
-      per-instance cost, wall-clock per instance
-- [ ] **2.2** **Freeze the sample**: stratified random ~150 instances written to
-      `sample_lite_frozen.json` and committed *before* the sweep
-- [ ] **2.3** Claude drafts ch3 Methodology; Fernando reviews
-- [ ] **2.4** Fernando begins ch2 reading
+- [ ] **2.1** **Capability probe:** 3 free models × 5 known-good instances, Arm B only,
+      `--score-brt`. Record C2P, gate rate, resolved, turns per phase.
+- [ ] **2.2** **Pick the RQ1 model** (best resolved, then C2P). If no free model
+      resolves anything, stop and rescope RQ1 before sweeping.
+- [ ] **2.3** Verify each candidate is actually **open-weight** (licence + published
+      weights) before the thesis calls it that
+- [ ] **2.4** **Freeze the sample**: stratified random instances written to
+      `sample_lite_frozen.json`, committed *before* the sweep
+- [ ] **2.5** Claude drafts ch3 Methodology; Fernando reviews
 
-## Phase 3 — Main sweep (Thu 17 – Sun 20 Sep)
+## Phase 3 — Sweeps (Fri 18 – Wed 23 Sep)
 
-- [ ] **3.1** Paired sweep runs continuously over the frozen sample
-- [ ] **3.2** Claude drafts ch4 Experimental Design
-- [ ] **3.3** Fernando writes ch2 Related Work
-- [ ] **3.4** Bring Ollama up (192.168.1.192:11434) before Phase 4
+- [ ] **3.1** Paired RQ1 sweep on the chosen free model, running continuously
+- [ ] **3.2** RQ3: the other free models + local qwen, staged reporting
+      (terminal submit? reproduces on buggy? resolves?)
+- [ ] **3.3** RQ2 from stored data (Critic, Breaker, best-of-N, gate A/B)
+- [ ] **3.4** BRT-properties analysis over stored artifacts
+- [ ] **3.5** Figures: pipeline diagram, funnel, L0–L4 distribution, per-model breakdown
+- [ ] **3.6** Claude drafts ch4 Experimental Design
+- [ ] **3.7** Fernando writes ch2 Related Work, then ch5 Results as numbers land
 
-## Phase 4 — Ablations and analysis (Mon 21 – Wed 23 Sep)
+## Phase 4 — Freeze (Thu 24 Sep)
 
-- [ ] **4.1** RQ2 ablations — prefer *stored* data (breaker, critic, best-of-N all
-      already run); only add runs where the stored data cannot answer it
-- [ ] **4.2** RQ3 open-weight runs: OpenRouter model set + local qwen, staged
-      reporting (terminal submit? reproduces on buggy? resolves?)
-- [ ] **4.3** BRT-properties analysis over stored artifacts (AST assertion density,
-      exact-value vs raises-only, determinism 3×, gold-patch-line coverage)
-- [ ] **4.4** Figures: pipeline diagram, funnel, L0–L4 distribution, cost/resolve
-- [ ] **4.5** Fernando writes ch5 Results as numbers land
+- [ ] **4.1** **No new runs after tonight.** Snapshot `results.jsonl`; record the
+      commit hash, frozen sample file, and every model id + provider used.
+- [ ] **4.2** Final metrics, tables, figures regenerated from the frozen data
 
-## Phase 5 — Freeze (Thu 24 Sep)
+## Phase 5 — Finish (Fri 25 – Sun 27 Sep)
 
-- [ ] **5.1** **No new runs after tonight.** Snapshot `results.jsonl`, record the
-      commit hash and the frozen sample file in the thesis.
-- [ ] **5.2** Final metrics, tables, figures regenerated from the frozen data
-
-## Phase 6 — Finish (Fri 25 – Sun 27 Sep)
-
-- [ ] **6.1** ch6 Discussion, ch7 Conclusion, abstract
-- [ ] **6.2** ch1 Contributions + Thesis Organization (deleted in the trim, must
-      come back), uncomment/rewrite the Thesis Statement section
-- [ ] **6.3** Threats to validity — including the non-random 14-instance
-      development set, single primary model, two-repo history
-- [ ] **6.4** Bibliography, consistency pass, full read-through, compile
+- [ ] **5.1** ch6 Discussion, ch7 Conclusion, abstract
+- [ ] **5.2** ch1 Contributions + Thesis Organization (deleted in the trim — must come
+      back); rewrite the Thesis Statement section
+- [ ] **5.3** Threats to validity — non-random development set, model churn on free
+      endpoints, the text-recovery asymmetry below, two-repo history
+- [ ] **5.4** Bibliography, consistency pass, full read-through, compile
 
 ---
 
 ## Standing rules
 
-1. **Verify every citation against the PDF.** A WebFetch summary of Cheng FSE'26
-   was previously wrong on dataset, model and numbers. If a claim cannot be
-   confirmed from the source, flag it rather than smoothing it over.
-2. **The gold-free invariant is not negotiable.** No agent tool may observe the
-   gold patch, the gold-fixed tree, or the held-out tests. Gold is an offline
-   measurement instrument.
-3. **Freeze the sample before the sweep**, not after. Report n honestly.
-4. **Negatives are results.** The parked Breaker, the near-no-op Critic and any
-   null RQ1 effect are findings, not failures.
-5. **Validate on one instance before launching a batch.** This caught a parser
-   regression on 2026-09-09 that would have corrupted a 14-instance run.
+1. **Verify every citation against the PDF.** A WebFetch summary of Cheng FSE'26 was
+   previously wrong on dataset, model and numbers.
+2. **The gold-free invariant is not negotiable.** No agent tool may observe the gold
+   patch, the gold-fixed tree, or the held-out tests.
+3. **Freeze the sample before the sweep.** Report n honestly.
+4. **Negatives are results** — the parked Breaker, the near-no-op Critic, a null RQ1.
+5. **Validate on one instance before launching a batch.**
+6. **Never use a model you cannot name.** Pin exact model ids; no auto-routers.
 
 ## Open risks
 
 | Risk | Mitigation |
 |---|---|
-| **McNemar power depends on discordant pairs, not n.** Both arms share a model, so they will agree often; n=150 may still give few discordant pairs. | Pre-commit to reporting the paired difference with a bootstrap 95% CI. A null result is reportable. |
-| Repos never built (matplotlib, sklearn, pytest, sphinx…) may have environment problems | sympy already proven. Build one instance of each family early in Phase 1; if a family fails, disclose and stratify over what builds. |
-| Ollama host currently unreachable | Needed only by Phase 4.2; bring it up during Phase 3. |
-| Writing is the real critical path | Claude drafts ch3/ch4 in Phases 2–3 so Fernando's time goes to ch2/ch5/ch6. |
-| `ContainerSession.close()` leaks containers (confirmed) | Cosmetic during runs; reap before the freeze so disk figures are honest. |
+| **No free model is capable enough** — both arms score ~0 and RQ1 is uninformative | Capability probe (2.1) before the sweep; rescope RQ1 if it fails |
+| **McNemar power depends on discordant pairs, not n** | Report the paired difference with a bootstrap 95% CI; a null result is reportable |
+| **Free models change or disappear mid-sweep** | Pin model ids, record the served model + provider per run, run each model's instances in one contiguous block |
+| **429 throttling on free endpoints** | Back-off in the client; the driver resumes where it stopped |
+| **"Open-weight" claim unverified** for some free models | Task 2.3; exclude anything without published weights from RQ3 |
+| **Text-recovery asymmetry:** the OpenAI-format path turns a tool call written as prose into a real call; the Anthropic path does not | Conservative (it helps the weaker models); disclose in the methodology |
+| Repos never built (matplotlib, sklearn, pytest, sphinx…) | sympy proven; build one of each family early; disclose any that fail |
+| Writing is the real critical path | Claude drafts ch3/ch4 so Fernando's time goes to ch2/ch5/ch6 |
+| `ContainerSession.close()` leaks containers | Reap before the freeze |
