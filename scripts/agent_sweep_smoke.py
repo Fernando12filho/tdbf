@@ -233,6 +233,28 @@ def test_daily_budget_is_respected() -> None:
         assert SW.Usage(root / "usage.json", 1000).used_today() == 95 + s2.done[0]["calls"]
 
 
+class _UpstreamError(Exception):
+    status_code = 429
+    body = {"metadata": {"limit_source": "upstream_provider_shared_pool"}}
+
+
+class UpstreamClient(FakePipelineClient):
+    def run_tools(self, **kw):
+        raise _UpstreamError("google/gemma-4-31b-it:free is temporarily rate-limited upstream")
+
+
+def test_upstream_throttle_fails_the_unit_not_the_sweep() -> None:
+    """Live 2026-09-16: a shared-pool throttle stopped the whole sweep as if it
+    were our daily cap. It must fail only the unit (retried next run)."""
+    _stub_world(client_factory=UpstreamClient)
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td); store = _Store(root)
+        s = _sweep(root, store, _cfg(root), [_inst(1)])
+        assert s.status == SW.EXIT_OK, s
+        assert [iid for iid, _ in s.failed] == ["demo__pkg-1"], s.failed
+        assert store.records() == []
+
+
 def main() -> int:
     tests = [
         test_ab_unit_records_share_a_pair_id,
@@ -241,6 +263,7 @@ def main() -> int:
         test_failed_unit_leaves_no_records,
         test_repeated_failures_stop_the_sweep,
         test_quota_error_stops_immediately,
+        test_upstream_throttle_fails_the_unit_not_the_sweep,
         test_b_only_is_the_capability_probe,
         test_default_budgets,
         test_daily_budget_is_respected,

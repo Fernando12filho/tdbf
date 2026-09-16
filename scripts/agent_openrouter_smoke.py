@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from tdbf.agent.pipeline import take_served
 from tdbf.metrics import short_model
-from tdbf.models.llm import AnthropicClient, OpenRouterClient, build_client
+from tdbf.models.llm import AnthropicClient, OpenRouterClient, build_client, is_upstream_throttle
 from tdbf.models.messages import Message, ToolSchema
 from tdbf.pricing import cost_usd, rates_for
 
@@ -175,6 +175,69 @@ def test_provenance_counted_and_handed_off() -> None:
     assert take_served(AnthropicClient("claude-sonnet-4-6")) is None
 
 
+class _Http429(Exception):
+    status_code = 429
+
+    def __init__(self, message, body=None):
+        super().__init__(message)
+        self.body = body
+
+
+def _upstream_429():
+    # the shape OpenRouter returned live on 2026-09-16 (gemma-4-31b, Google AI Studio)
+    return _Http429(
+        "Error code: 429 - Provider returned error: google/gemma-4-31b-it:free is "
+        "temporarily rate-limited upstream. Please retry shortly",
+        body={"message": "Provider returned error", "code": 429,
+              "metadata": {"limit_source": "upstream_provider_shared_pool"}})
+
+
+class _FlakySDK(_FakeSDK):
+    """Raises the scripted exceptions first, then replays responses."""
+
+    def __init__(self, errors, responses):
+        super().__init__(responses)
+        self._errors = list(errors)
+
+    def _create(self, **kwargs):
+        self.calls.append(kwargs)
+        if self._errors:
+            raise self._errors.pop(0)
+        return self._responses.pop(0)
+
+
+def test_upstream_throttle_is_waited_out() -> None:
+    c = OpenRouterClient(MODEL, empty_backoff=0.0, upstream_waits=(0.0, 0.0, 0.0))
+    sdk = _FlakySDK([_upstream_429(), _upstream_429()], [_completion()])
+    c._client = sdk
+    resp = c.run_tools(system="s", messages=[Message(role="user", content="x")], tools=TOOLS)
+    assert resp.tool_calls and len(sdk.calls) == 3, len(sdk.calls)
+
+
+def test_upstream_throttle_gives_up_eventually() -> None:
+    c = OpenRouterClient(MODEL, empty_backoff=0.0, upstream_waits=(0.0, 0.0))
+    c._client = _FlakySDK([_upstream_429()] * 3, [])
+    try:
+        c.run_tools(system="s", messages=[Message(role="user", content="x")], tools=TOOLS)
+    except _Http429 as e:
+        assert is_upstream_throttle(e)
+    else:
+        raise AssertionError("expected the throttle to surface after the waits ran out")
+
+
+def test_own_quota_429_is_not_retried() -> None:
+    c = OpenRouterClient(MODEL, empty_backoff=0.0, upstream_waits=(0.0, 0.0, 0.0))
+    sdk = _FlakySDK([_Http429("Rate limit exceeded: free-models-per-day")], [_completion()])
+    c._client = sdk
+    try:
+        c.run_tools(system="s", messages=[Message(role="user", content="x")], tools=TOOLS)
+    except _Http429 as e:
+        assert not is_upstream_throttle(e)
+    else:
+        raise AssertionError("an account 429 must surface immediately")
+    assert len(sdk.calls) == 1, "and must not be retried (it would burn quota)"
+
+
 def main() -> int:
     tests = [
         test_spec_parsing,
@@ -185,6 +248,9 @@ def main() -> int:
         test_empty_choices_retried_then_succeeds,
         test_empty_choices_exhausted_fails_loudly,
         test_provenance_counted_and_handed_off,
+        test_upstream_throttle_is_waited_out,
+        test_upstream_throttle_gives_up_eventually,
+        test_own_quota_429_is_not_retried,
     ]
     for t in tests:
         t()

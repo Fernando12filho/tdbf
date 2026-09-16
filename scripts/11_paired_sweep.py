@@ -61,7 +61,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from tdbf.agent.pipeline import fix_run_record, fix_transcript_dict, run_fix_phase, take_served
 from tdbf.data.instances import InstanceStore
-from tdbf.models.llm import build_client
+from tdbf.models.llm import build_client, is_upstream_throttle
 from tdbf.results import RESULTS_FILE, save_run
 
 FREE_BUDGETS = (16_000, 1_000_000)      # (tokens per turn, total tokens) — decided 09-16
@@ -100,8 +100,13 @@ def arm_order(seed: int, instance_id: str) -> str:
 
 
 def is_quota_error(exc: BaseException) -> bool:
-    """A 429 that survived the client's own retries: the daily cap, or throttling
-    persistent enough that carrying on would only burn requests."""
+    """A 429 that survived the client's own retries and is OURS — the daily cap
+    or account throttling. An upstream shared-pool throttle is not: the client
+    already waited it out several times, and if it persists the unit fails and is
+    retried later rather than ending the sweep (first live run, 2026-09-16, was
+    stopped by exactly this on gemma-4-31b's Google AI Studio pool)."""
+    if is_upstream_throttle(exc):
+        return False
     if getattr(exc, "status_code", None) == 429:
         return True
     try:

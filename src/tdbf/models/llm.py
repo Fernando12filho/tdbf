@@ -620,6 +620,21 @@ class GeminiClient(_OpenAIToolMixin):
         )
 
 
+def is_upstream_throttle(exc: BaseException) -> bool:
+    """A 429 from an upstream provider's SHARED free pool, not from our account.
+
+    OpenRouter reports these with `limit_source: upstream_provider_shared_pool`
+    ("temporarily rate-limited upstream. Please retry shortly"). They clear on
+    their own within minutes and say nothing about our daily quota, so the right
+    response is to wait and retry — not to stop a sweep. Seen live 2026-09-16 on
+    google/gemma-4-31b-it:free (Google AI Studio pool).
+    """
+    if getattr(exc, "status_code", None) != 429:
+        return False
+    text = f"{exc} {getattr(exc, 'body', '')!r}"
+    return "upstream_provider" in text or "rate-limited upstream" in text
+
+
 class OpenRouterClient(_OpenAIToolMixin):
     """Hosted open-weight models through OpenRouter's OpenAI-compatible endpoint.
 
@@ -654,6 +669,7 @@ class OpenRouterClient(_OpenAIToolMixin):
         max_retries: int = 3,
         empty_retries: int = 3,
         empty_backoff: float = 5.0,
+        upstream_waits: tuple[float, ...] = (30.0, 60.0, 120.0, 240.0),
     ) -> None:
         # Worst case for a dead endpoint is (max_retries + 1) x timeout, because
         # the SDK retries timeouts as well as 429/5xx. It was 6 x 300 s = 30 min
@@ -673,6 +689,9 @@ class OpenRouterClient(_OpenAIToolMixin):
         self._max_retries = max_retries
         self._empty_retries = empty_retries
         self._empty_backoff = empty_backoff
+        # The SDK's own 429 back-off is seconds long; a throttled shared pool needs
+        # minutes. These longer waits apply only to upstream throttles.
+        self._upstream_waits = upstream_waits
         self._client = None
         self.served: Counter = Counter()
 
@@ -708,11 +727,24 @@ class OpenRouterClient(_OpenAIToolMixin):
         served_model = getattr(resp, "model", None) or self.model
         self.served[f"{served_model}|{provider}"] += 1
 
+    def _call(self, create):
+        """`create()`, waiting out an upstream shared-pool throttle a few times.
+        Any other error — including a 429 from our own quota — is raised at once."""
+        for wait in (*self._upstream_waits, None):
+            try:
+                return create()
+            except Exception as exc:  # noqa: BLE001 - classified below
+                if wait is None or not is_upstream_throttle(exc):
+                    raise
+                print(f"  [openrouter] {self.model} throttled upstream (shared free "
+                      f"pool); retrying in {wait:.0f}s", flush=True)
+                time.sleep(wait)
+
     def _checked(self, create):
         """Call `create()`, retrying a 200 response that carries no choices."""
         error = None
         for attempt in range(self._empty_retries + 1):
-            resp = create()
+            resp = self._call(create)
             if getattr(resp, "choices", None):
                 self._record_served(resp)
                 return resp
