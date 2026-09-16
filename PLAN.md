@@ -23,7 +23,12 @@ There is no more paid API budget. Every new run uses **free OpenRouter models** 
 - **RQ2 is answered from stored data** (Critic, Breaker, best-of-N on Sonnet, plus the
   gate A/B). No new paid calls.
 - **The Sonnet n=14 run is the frontier reference point**, not the headline:
-  gate 14/14, resolved 10/14, C2P 13/14 (non-random development set).
+  gate 14/14, resolved 10/14, C2P 13/14 (non-random development set). The July run of
+  the same instances resolved 9/14. *(Corrected 09-16: the earlier "identical per
+  instance" claim was a scoring artefact — see the 09-16 scoring fix.)*
+- **Fix outcomes are not fully deterministic**: 1 of 15 repeat (instance, model) pairs
+  disagrees. One run per arm per instance carries noise — another reason RQ1 is
+  reported with a bootstrap CI.
 
 ## Decisions
 
@@ -93,9 +98,14 @@ There is no more paid API budget. Every new run uses **free OpenRouter models** 
         gemma-4-31b-it ✅ 1.4 s, north-mini-code ✅ 1.2 s — all *structured* tool calls,
         none text-recovered. **nemotron-3-ultra-550b timed out** (60 s) → dropped from
         the probe for now.
-- [ ] **1.3** Arm A, the reactive baseline: drop `run_brt` from `_FIX_TOOL_NAMES`,
+- [x] **1.2b** Scoring fix (09-16): fresh verified run id per scoring + `report_dir`
+      for slashed model names. 20 stale stored verdicts re-scored; 1 changed.
+- [x] **1.2c** Free reasoning models: truncated turns named and counted; malformed
+      `read_file` line args rejected. Budgets: **16k tokens/turn, 1M total**, both arms.
+- [x] **1.3** Arm A, the reactive baseline: drop `run_brt` from `_FIX_TOOL_NAMES`,
       strip it from `submit_fix`'s description, no Phase A. Offline smoke asserting the
-      arms differ *only* in that.
+      arms differ *only* in that. Live check 09-16 on nemotron-3-super: plumbing works
+      (20 calls, $0, provenance recorded) — it exposed the budget issues fixed in 1.2c.
 - [ ] **1.4** Paired sweep driver (`11_paired_sweep.py`): per instance, Arm A → Arm B →
       score; resumable; tags `arm` and `run_group`; stops cleanly at the daily cap.
 - [ ] **1.5** Start the background builder on a stratified instance list

@@ -177,6 +177,16 @@ BRT level semantics:
 - **Never pass `gold_patch` or `test_patch` to the generation agent.** This is the fairness control the whole experiment depends on. `context_safe_dict()` is safe; direct field access is not.
 - The harness invocation uses `--namespace ''` (`build_locally=True`) to build Docker images locally rather than pulling prebuilt registry images.
 - Run outputs go to `runs/<run_id>/` and harness logs to `logs/run_evaluation/<run_id>/`.
+- **Every fix is scored under a fresh run id, and the verdict is verified** before it
+  is believed (`pipeline.score_fix_patch` / `_verify_scored`). The SWE-bench harness
+  skips any instance whose `report.json` already exists for the same run id + model;
+  with the old fixed id `agent_fix_<instance>`, every re-run silently inherited the
+  first run's verdict (20 of 64 stored verdicts, found and re-scored 2026-09-16 by
+  `scripts/rescore_stale.py`; 1 changed). A verdict counts only if its report was
+  written by this call and the patch the harness scored is the submitted one;
+  otherwise `resolved` is None with a `scoring_error` and metrics exclude it. Never
+  reintroduce a fixed scoring run id. The harness also names the model directory with
+  `/` → `__`; always locate reports through `runner.report_dir`.
 
 ## Agent system (`src/tdbf/agent/`)
 
@@ -294,10 +304,14 @@ repos (astropy, Django) with Claude Sonnet; the deployable `07` pipeline and the
 auxiliary roles are built and offline-green. **No official results yet** — nothing here
 comes from the frozen stratified sweep. Don't quote it as final.
 
-**Reference point (2026-09-09, n=14, Sonnet, Arm B):** gate 14/14, resolved 10/14,
-C2P 13/14, $2.73 total. Re-run under the corrected gate on the same 14 instances
-decided *identically per instance* to the earlier run, so 10/14 has reproduced
-independently. Still a non-random development set — pilot-quality evidence only.
+**Reference point (2026-09-09, n=14, Sonnet, Arm B, `run_group=gate-fix`):** gate
+14/14, resolved 10/14, C2P 13/14, $2.73 total. The July run of the same 14 resolved
+**9/14** — django-10914 went unresolved → resolved. (An earlier note claiming the
+re-run "decided identically and reproduced 10/14 independently" was wrong: see the
+scoring invariant below. Corrected 2026-09-16 after re-scoring.) Fix outcomes are not
+fully deterministic: of 15 (instance, model) pairs with repeat runs, 1 disagrees
+(django-10914: resolved, not, resolved). Still a non-random development set —
+pilot-quality evidence only.
 
 Qualitative findings that steer the work (the *why*, no numbers):
 - **Open-weight arm (now RQ3)** — local 7B models (qwen2.5-coder:7b, qwen3.5:9b) can call tools
@@ -312,9 +326,10 @@ Qualitative findings that steer the work (the *why*, no numbers):
 - **Breaker parked** — with only ad-hoc `run_python` it has no oracle, so a
   wrong-but-plausible value looks fine and it fails open to `robust`. Kept as an honest
   RQ2 negative; no more Breaker tuning.
-- **The gold-free gate is not merely a degraded L4 oracle** — L3-accepted instances
-  have resolved (django-10914 twice), so gating on L3∪L4 gained fixes that an L4 gate
-  would have dropped. This is the strongest RQ2 evidence for the design.
+- **The gold-free gate is not merely a degraded L4 oracle** — L3-accepted runs have
+  resolved (django-11001, July; django-10914, Sep 9 — both verified), so gating on
+  L3∪L4 gained fixes an L4 gate would have dropped. Evidence for the design, but thin:
+  django-10914 also failed once from an L3 test, so report it as a case, not a rate.
 
 **Non-agentic baseline (kept for comparison):** the `--attempts`/`--repair` workflow in
 `02_generate_brt.py` / `03_batch_brt.py`.
