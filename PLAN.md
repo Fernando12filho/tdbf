@@ -72,6 +72,10 @@ There is no more paid API budget. Every new run uses **free OpenRouter models** 
   fix phase median 11 (max 26) → ~20 for test-first, ~11 for reactive, **~30–40 per
   paired instance**; weaker models run closer to the 30-turn cap.
   At 1,000/day that is **~15–30 paired instances per day**.
+- **Measured 09-16 on a free model:** one pair = **62 calls, 29 min** (nemotron-3-super,
+  an easy instance; the test-first fix phase used all 30 turns). So **~16 pairs/day**,
+  quota-bound, ~8 h of running. Fri 18 – Wed 23 fits **~60–80 pairs** shared with RQ3 —
+  hence n = 60.
 
 **Infrastructure**
 - **Image build ≈ 3.4 min** including gold validation (sympy-11400: 203 s, resolved).
@@ -106,22 +110,32 @@ There is no more paid API budget. Every new run uses **free OpenRouter models** 
       strip it from `submit_fix`'s description, no Phase A. Offline smoke asserting the
       arms differ *only* in that. Live check 09-16 on nemotron-3-super: plumbing works
       (20 calls, $0, provenance recorded) — it exposed the budget issues fixed in 1.2c.
-- [ ] **1.4** Paired sweep driver (`11_paired_sweep.py`): per instance, Arm A → Arm B →
-      score; resumable; tags `arm` and `run_group`; stops cleanly at the daily cap.
-- [ ] **1.5** Start the background builder on a stratified instance list
+- [x] **1.4** Paired sweep driver (`11_paired_sweep.py`): per instance, both arms back to
+      back in a seeded random order; a unit is saved only when both arms finished;
+      resumable; stops cleanly at the daily cap; waits out upstream shared-pool throttles.
+      **Live check 09-16** (astropy-12907, nemotron-3-super free): both arms resolved,
+      test L4, verified scoring, 0 throttles, 0 truncated turns — **62 calls, 29 min**.
+      The first attempt on gemma-4-31b died on a Google AI Studio shared-pool 429.
+- [~] **1.5** Building + gold-checking the frozen sample (`13_build_sample.py`, started
+      09-16 evening): per instance, gold patch through the verified scorer + the gate's
+      BRT path with a trivial fail/pass test. pytest (a never-built repo) validated first.
 - [ ] **1.6** Bring the Ollama desktop up
 
 ## Phase 2 — Capability probe and freeze (Thu 17 Sep)
 
 - [ ] **2.1** **Capability probe:** 3 free models (nemotron-3-super-120b, gemma-4-31b-it,
-      north-mini-code) × 5 known-good instances, Arm B only,
-      `--score-brt`. Record C2P, gate rate, resolved, turns per phase.
+      north-mini-code) × 5 dev-set instances, `11_paired_sweep.py --arms B`. Record C2P,
+      gate rate, resolved, calls and turns per phase, **and throttle events** — a model
+      whose shared pool keeps throttling cannot carry a multi-day sweep.
 - [ ] **2.2** **Pick the RQ1 model** (best resolved, then C2P). If no free model
       resolves anything, stop and rescope RQ1 before sweeping.
 - [ ] **2.3** Verify each candidate is actually **open-weight** (licence + published
       weights) before the thesis calls it that
-- [ ] **2.4** **Freeze the sample**: stratified random instances written to
-      `sample_lite_frozen.json`, committed *before* the sweep
+- [x] **2.4** **Sample frozen 09-16** (`c86c899`, pushed): 60 instances, seed 20260916,
+      stratified by repo, dev set excluded — django 22, sympy 16, matplotlib 5, sklearn 5,
+      pytest 4, sphinx 3, one each of requests/pylint/xarray/seaborn/flask. **No astropy**
+      (all six Lite astropy instances are dev set) — disclose. Pre-registered rules are in
+      the file. Frozen early is fine: the probe uses the dev set only.
 - [ ] **2.5** Claude drafts ch3 Methodology; Fernando reviews
 
 ## Phase 3 — Sweeps (Fri 18 – Wed 23 Sep)
