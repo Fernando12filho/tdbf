@@ -79,8 +79,12 @@ There is no more paid API budget. Every new run uses **free OpenRouter models** 
 
 **Infrastructure**
 - **Image build ≈ 3.4 min** including gold validation (sympy-11400: 203 s, resolved).
-- **Disk is not the binding constraint.** Real image store ~29 GB despite ~153 GB of
-  nominal sizes (shared layers); a new repo family costs ~1.8 GB. 63 GB free.
+- **Disk IS a binding constraint** (corrected 09-17 — the 09-10 estimate was wrong). This
+  Docker uses containerd's image store, which keeps compressed layers *and* the unpacked
+  copy; new repo families cost 4–10 GB each and prebuilt matplotlib images ~7–8 GB each.
+  Colima disk 98 GB: 7.6 GB free after cleanup (09-17). Deleting images frees far less
+  than `docker system df -v` "unique size" suggests, because layers are shared. Growing the
+  Colima disk (Mac has ~73 GB free) is the way to add the 4 deferred instances.
 - **SWE-bench Lite:** django 114, sympy 77, matplotlib 23, sklearn 23, pytest 17,
   sphinx 16, astropy 6, requests 6, pylint 6, xarray 5, seaborn 4, flask 3.
   The 37 images built so far are astropy + django + one sympy.
@@ -116,9 +120,20 @@ There is no more paid API budget. Every new run uses **free OpenRouter models** 
       **Live check 09-16** (astropy-12907, nemotron-3-super free): both arms resolved,
       test L4, verified scoring, 0 throttles, 0 truncated turns — **62 calls, 29 min**.
       The first attempt on gemma-4-31b died on a Google AI Studio shared-pool 429.
-- [~] **1.5** Building + gold-checking the frozen sample (`13_build_sample.py`, started
-      09-16 evening): per instance, gold patch through the verified scorer + the gate's
-      BRT path with a trivial fail/pass test. pytest (a never-built repo) validated first.
+- [x] **1.5** Sample environments built and checked 09-17 (`13_build_sample.py`; record in
+      **`sample_lite_env.json`**, committed). **Limit for this run: 50 valid, 6 pending
+      re-check, 4 deferred to a later run** (decided 09-17).
+      - **Dependency drift** broke 7 local builds (newer pandas/setuptools_scm/pip, a removed
+        sympy `1.7` branch). Fix: SWE-bench's **prebuilt images** (`docker.io/swebench/…`,
+        amd64, digests recorded in the env record). pylint-7114 re-checked valid on it; the
+        other 6 (matplotlib 23913/24334/24970, sklearn 25500/25638, sympy 20590) have their
+        prebuilt image but are **not re-checked yet** — no disk needed to do so.
+      - **Deferred (4):** matplotlib 25332/25498 (Docker disk full, image not pulled);
+        sphinx 7686/8801 (my mid-build image deletion crashed their checks — operator error;
+        they need a local rebuild, which needs disk). This departs from the frozen rules
+        (they are not environment-invalid) and must be reported as such.
+      - Memory: conda environment solves (matplotlib) get Claude Code's background jobs
+        killed on this 16 GB Mac — run heavy builds from a separate terminal.
 - [ ] **1.6** Bring the Ollama desktop up
 
 ## Phase 2 — Capability probe and freeze (Thu 17 Sep)

@@ -1,0 +1,372 @@
+{
+  "sample": "tdbf-rq1-lite-n60",
+  "written_utc": "2026-09-17T15:17:56Z",
+  "counts": {
+    "valid": 50,
+    "pending_recheck": 6,
+    "deferred": 4
+  },
+  "instances": {
+    "django__django-11620": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-11964": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-12308": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-12470": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-12915": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-12983": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-13710": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-13757": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-14238": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-14730": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-14915": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-15061": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-15213": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-15320": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-15388": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-15400": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-15781": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-15790": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-15819": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-15851": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-16408": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "django__django-17087": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "matplotlib__matplotlib-23913": {
+      "state": "pending_recheck",
+      "reason": null,
+      "gold_resolved": false,
+      "image": "docker.io/swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-23913:latest @ sha256:120ede7d6c997ba6c5ed2f0dba1f2d541d429bf0c6541962b08da51d0d412665"
+    },
+    "matplotlib__matplotlib-24334": {
+      "state": "pending_recheck",
+      "reason": null,
+      "gold_resolved": false,
+      "image": "docker.io/swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-24334:latest @ sha256:d794a9d8b1b33630cb7828ec0ed585fe4ea7cf3bea294fe6668f9eb0b8f4a6b2"
+    },
+    "matplotlib__matplotlib-24970": {
+      "state": "pending_recheck",
+      "reason": null,
+      "gold_resolved": false,
+      "image": "docker.io/swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-24970:latest @ sha256:c5d99048ceeb6b0c3157dde39bb122174e494b557fb7dd3c6d4bd8dba70a1bfa"
+    },
+    "matplotlib__matplotlib-25332": {
+      "state": "deferred",
+      "reason": "deferred to a later run: Docker disk full (prebuilt image not pulled)",
+      "gold_resolved": null,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "matplotlib__matplotlib-25498": {
+      "state": "deferred",
+      "reason": "deferred to a later run: Docker disk full (prebuilt image not pulled)",
+      "gold_resolved": null,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "mwaskom__seaborn-3407": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "pallets__flask-5063": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "psf__requests-2674": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "pydata__xarray-5131": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "pylint-dev__pylint-7114": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "docker.io/swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-7114:latest @ sha256:6bf0ee60d9e1bb2772f3287f54df0875884ec8aa1e24e6fad14beec46aad70b0",
+      "checked_utc": "2026-09-17T15:17:55+00:00"
+    },
+    "pytest-dev__pytest-11143": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "pytest-dev__pytest-5227": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "pytest-dev__pytest-7432": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "pytest-dev__pytest-8906": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "scikit-learn__scikit-learn-12471": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "scikit-learn__scikit-learn-13496": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "scikit-learn__scikit-learn-14894": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "scikit-learn__scikit-learn-25500": {
+      "state": "pending_recheck",
+      "reason": "harness wrote no report at logs/run_evaluation/gold_scikit-learn__scikit-learn-25500_40defeae/gold/scikit-learn__scikit-learn-25500/report.json",
+      "gold_resolved": null,
+      "image": "docker.io/swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-25500:latest @ sha256:df7a2e1ab0044c940c73e9ceb13d28da43ed4a6f2c76135e10e66d1e670e8591"
+    },
+    "scikit-learn__scikit-learn-25638": {
+      "state": "pending_recheck",
+      "reason": "harness wrote no report at logs/run_evaluation/gold_scikit-learn__scikit-learn-25638_00c6ac3e/gold/scikit-learn__scikit-learn-25638/report.json",
+      "gold_resolved": null,
+      "image": "docker.io/swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-25638:latest @ sha256:c3ebacdb13d733bbe46f2f852fa60a17931910ae4338b461dd863e38293b82f0"
+    },
+    "sphinx-doc__sphinx-10325": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "sphinx-doc__sphinx-7686": {
+      "state": "deferred",
+      "reason": "deferred to a later run: environment check broken by a mid-run image deletion (operator error); needs a rebuild, no disk",
+      "gold_resolved": null,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "sphinx-doc__sphinx-8801": {
+      "state": "deferred",
+      "reason": "deferred to a later run: environment check broken by a mid-run image deletion (operator error); needs a rebuild, no disk",
+      "gold_resolved": null,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "sympy__sympy-12171": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "sympy__sympy-12454": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "sympy__sympy-13043": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "sympy__sympy-13480": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "sympy__sympy-13647": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "sympy__sympy-16281": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "sympy__sympy-16988": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "sympy__sympy-17139": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "sympy__sympy-18057": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "sympy__sympy-18621": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "sympy__sympy-18835": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "sympy__sympy-20049": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "sympy__sympy-20590": {
+      "state": "pending_recheck",
+      "reason": "harness wrote no report at logs/run_evaluation/gold_sympy__sympy-20590_33cbabed/gold/sympy__sympy-20590/report.json",
+      "gold_resolved": null,
+      "image": "docker.io/swebench/sweb.eval.x86_64.sympy_1776_sympy-20590:latest @ sha256:3a282752833ce34730ee0621e22033501c993f45742775ca57f04c9ff27178a0"
+    },
+    "sympy__sympy-21379": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "sympy__sympy-22840": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    },
+    "sympy__sympy-24213": {
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
+      "image": "built locally with the SWE-bench harness"
+    }
+  }
+}

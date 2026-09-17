@@ -389,13 +389,23 @@ local Ollama. A paired instance costs ~30–40 model calls, so the daily request
 now a binding constraint alongside image builds. Sonnet figures below are the stored
 frontier reference, not something to re-run.
 
-**Other binding constraints: Docker image builds and wall clock, not disk.**
-Measured 2026-09-10: a build (incl. gold validation) is ~3.4 min; a full pipeline run
-is ~2.5 min/instance/arm at ~$0.20 with caching on. Disk is *not* the ceiling it looks
-like — nominal image sizes sum to ~153 GB but the real store is ~29 GB because
-SWE-bench images share base and per-repo env layers, so a whole new repo family costs
-~1.8 GB actual (63 GB free). All 36 images built so far are astropy + django; Lite is
-django 114 / sympy 77 / matplotlib 23 / sklearn 23 / ... — sympy is proven to build.
+**Other binding constraints: Docker disk, image builds, and host memory.**
+- **Disk binds** (corrected 2026-09-17; an earlier note here said it did not). Docker
+  uses containerd's image store — compressed layers *and* unpacked snapshots — so repo
+  families cost 4–10 GB and a prebuilt matplotlib image ~7–8 GB. Image deletions free
+  much less than per-image "unique size" suggests. Check free space before every pull
+  and allow for the largest single image, not the average.
+- **Dependency drift**: locally built SWE-bench environments pull today's versions of
+  unpinned packages, which broke 7 of 60 sample builds (pandas vs numpy, setuptools_scm
+  warnings-as-errors, pip dropping `--no-use-pep517`, a removed sympy branch). Use the
+  **prebuilt images** from `docker.io/swebench/sweb.eval.x86_64.<id with __ → _1776_>`
+  (`--platform linux/amd64`), re-tagged to `sweb.eval.x86_64.<id>:latest`, and record
+  the digest. A gold check decides validity; `sample_lite_env.json` is the record.
+- **Host memory**: conda env solves can get Claude Code's background jobs killed on the
+  16 GB Mac — run heavy builds from a separate terminal (`13_build_sample.py` is locked
+  against concurrent runs).
+- Never delete Docker images while a harness run is starting: it lists all images at
+  startup and crashes if one vanishes (this broke two sample checks on 2026-09-17).
 
 **Hold the gold-free invariant in all new tools** — see "Key invariants" below;
 `assert_gold_free` / `assert_fix_gold_free` / `assert_role_gold_free` /

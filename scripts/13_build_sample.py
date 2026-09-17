@@ -73,7 +73,54 @@ def check_instance(inst, split: str, run_dir: Path) -> dict:
     status["valid"] = bool(status["gold_resolved"] and status["brt_fail_ok"]
                            and status["brt_pass_ok"])
     status["seconds"] = round(time.time() - t0, 1)
+    status["checked_utc"] = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime())
     return status
+
+
+def write_record(sample, status, out: Path, deferred: dict, prov_path: Path) -> int:
+    """The environment record committed beside the frozen sample.
+
+    The frozen sample file is never edited: it is the advance commitment. This
+    record says, per instance, what actually happened to its environment —
+    valid, environment-invalid (and why), pending a re-check, or deferred — and
+    which image it runs on, so the thesis can report every departure.
+    """
+    prov = json.loads(prov_path.read_text()) if prov_path.exists() else {}
+    rows = {}
+    for iid in sample["instances"]:
+        st = status.get(iid)
+        src = prov.get(iid)
+        if iid in deferred:
+            state = "deferred"
+        elif st is None:
+            state = "unchecked"
+        elif st["valid"]:
+            # a valid verdict counts only if it was made on the image in use now
+            state = ("valid" if not src or st.get("checked_utc", "") >= src["pulled_utc"]
+                     else "pending_recheck")
+        else:
+            state = "pending_recheck" if src else "environment_invalid"
+        rows[iid] = {
+            "state": state,
+            "reason": deferred.get(iid) or (None if state == "valid" else
+                                            (st or {}).get("gold_error") or (st or {}).get("brt_error")),
+            "gold_resolved": (st or {}).get("gold_resolved"),
+            "image": (f"{src['source']} @ {src['registry_digest']}" if src
+                      else "built locally with the SWE-bench harness"),
+        }
+        if st and st.get("checked_utc"):
+            rows[iid]["checked_utc"] = st["checked_utc"]
+    counts = {}
+    for r in rows.values():
+        counts[r["state"]] = counts.get(r["state"], 0) + 1
+    out.write_text(json.dumps({
+        "sample": sample["name"],
+        "written_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "counts": counts,
+        "instances": rows,
+    }, indent=2) + "\n")
+    print(f"wrote {out}: {counts}")
+    return 0
 
 
 def main() -> int:
@@ -86,12 +133,21 @@ def main() -> int:
     ap.add_argument("--skip", nargs="+", default=[],
                     help="leave these for later (e.g. one whose build exhausts host memory)")
     ap.add_argument("--retry-invalid", action="store_true")
+    ap.add_argument("--record", metavar="FILE",
+                    help="write the per-instance environment record (status + image source) and exit")
+    ap.add_argument("--deferred", nargs="*", default=[], metavar="ID=REASON",
+                    help="with --record: instances deferred to a later run, and why")
     args = ap.parse_args()
 
     sample = json.loads((ROOT / args.sample).read_text())
     split = "lite" if "Lite" in sample["dataset"] else "verified"
     status_path = Path(args.status)
     status = json.loads(status_path.read_text()) if status_path.exists() else {}
+
+    if args.record:
+        return write_record(sample, status, Path(args.record),
+                            dict(d.split("=", 1) for d in args.deferred),
+                            status_path.parent / "prebuilt_images.json")
 
     todo = [i for i in sample["instances"]
             if i not in status or (args.retry_invalid and not status[i]["valid"])]
