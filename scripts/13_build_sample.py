@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -105,6 +106,23 @@ def main() -> int:
     print(f"{len(sample['instances'])} in sample, {len(status)} already checked, "
           f"{len(todo)} to check now")
 
+    # One builder at a time: each rewrites the whole status file after every
+    # instance, so two concurrent builders would silently erase each other's work.
+    status_path.parent.mkdir(parents=True, exist_ok=True)
+    lock = status_path.with_suffix(".lock")
+    try:
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        raise SystemExit(f"another builder holds {lock} (pid {lock.read_text().strip()}); "
+                         "if it is not running, delete the lock file and retry")
+    os.write(fd, str(os.getpid()).encode()); os.close(fd)
+    try:
+        return _build(todo, sample, split, status, status_path)
+    finally:
+        lock.unlink(missing_ok=True)
+
+
+def _build(todo, sample, split, status, status_path) -> int:
     store = InstanceStore(split)
     for n, iid in enumerate(todo, 1):
         inst = store.get(iid)
