@@ -82,6 +82,8 @@ def main() -> int:
     ap.add_argument("--status", default="runs/build_sample/status.json")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--ids", nargs="+", help="check only these sample instances")
+    ap.add_argument("--skip", nargs="+", default=[],
+                    help="leave these for later (e.g. one whose build exhausts host memory)")
     ap.add_argument("--retry-invalid", action="store_true")
     args = ap.parse_args()
 
@@ -97,6 +99,7 @@ def main() -> int:
         if unknown:
             raise SystemExit(f"not in the frozen sample: {sorted(unknown)}")
         todo = [i for i in todo if i in args.ids]
+    todo = [i for i in todo if i not in args.skip]
     if args.limit is not None:
         todo = todo[: args.limit]
     print(f"{len(sample['instances'])} in sample, {len(status)} already checked, "
