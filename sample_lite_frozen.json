@@ -1,0 +1,159 @@
+{
+  "name": "tdbf-rq1-lite-n60",
+  "created_utc": "2026-09-17T01:31:51+00:00",
+  "dataset": "princeton-nlp/SWE-bench_Lite",
+  "dataset_instances": 300,
+  "dataset_sha256": "b4200a5b8fb441f25b5539ff84952fbd9d123f6c418935f3f3ef7cd26d4e015a",
+  "seed": 20260916,
+  "size": 60,
+  "method": "stratified random by repository; proportional allocation over the eligible pool, largest remainder, ties by repo name; per repo random.Random(seed).sample over sorted ids, repos in sorted order",
+  "excluded_development_set": [
+    "astropy__astropy-12907",
+    "astropy__astropy-14182",
+    "astropy__astropy-14365",
+    "astropy__astropy-14995",
+    "astropy__astropy-6938",
+    "astropy__astropy-7746",
+    "django__django-10914",
+    "django__django-10924",
+    "django__django-11001",
+    "django__django-11019",
+    "django__django-11039",
+    "django__django-11049",
+    "django__django-11099",
+    "django__django-11133"
+  ],
+  "allocation": {
+    "astropy/astropy": {
+      "in_lite": 6,
+      "eligible": 0,
+      "drawn": 0
+    },
+    "django/django": {
+      "in_lite": 114,
+      "eligible": 106,
+      "drawn": 22
+    },
+    "matplotlib/matplotlib": {
+      "in_lite": 23,
+      "eligible": 23,
+      "drawn": 5
+    },
+    "mwaskom/seaborn": {
+      "in_lite": 4,
+      "eligible": 4,
+      "drawn": 1
+    },
+    "pallets/flask": {
+      "in_lite": 3,
+      "eligible": 3,
+      "drawn": 1
+    },
+    "psf/requests": {
+      "in_lite": 6,
+      "eligible": 6,
+      "drawn": 1
+    },
+    "pydata/xarray": {
+      "in_lite": 5,
+      "eligible": 5,
+      "drawn": 1
+    },
+    "pylint-dev/pylint": {
+      "in_lite": 6,
+      "eligible": 6,
+      "drawn": 1
+    },
+    "pytest-dev/pytest": {
+      "in_lite": 17,
+      "eligible": 17,
+      "drawn": 4
+    },
+    "scikit-learn/scikit-learn": {
+      "in_lite": 23,
+      "eligible": 23,
+      "drawn": 5
+    },
+    "sphinx-doc/sphinx": {
+      "in_lite": 16,
+      "eligible": 16,
+      "drawn": 3
+    },
+    "sympy/sympy": {
+      "in_lite": 77,
+      "eligible": 77,
+      "drawn": 16
+    }
+  },
+  "rules": [
+    "Both arms run on every instance, back to back; the order per instance is 11_paired_sweep.arm_order(seed=0, instance_id).",
+    "The unit of analysis is a sweep_unit with arms == 'AB'. Arm B counts as not resolved when its gold-free gate rejects.",
+    "Environment-invalid instances are excluded BEFORE any arm runs: an instance whose Docker image cannot be built, or whose GOLD patch does not resolve in our harness. This is decided from the gold check alone, never from agent results, and the excluded instances and their count are reported.",
+    "An instance with no completed unit at the data freeze is reported as incomplete, not silently dropped. Units that fail for infrastructure reasons are retried.",
+    "Primary analysis: McNemar's test on discordant pairs, and a paired bootstrap 95% CI (10,000 resamples) of the difference in resolved rate (test-first minus reactive).",
+    "The model is chosen by the capability probe, which runs on the development set only and never touches this sample.",
+    "Budgets are identical across arms and recorded per record: for free OpenRouter models 16,000 tokens per turn, 1,000,000 total, 30 iterations per phase."
+  ],
+  "instances": [
+    "django__django-11620",
+    "django__django-11964",
+    "django__django-12308",
+    "django__django-12470",
+    "django__django-12915",
+    "django__django-12983",
+    "django__django-13710",
+    "django__django-13757",
+    "django__django-14238",
+    "django__django-14730",
+    "django__django-14915",
+    "django__django-15061",
+    "django__django-15213",
+    "django__django-15320",
+    "django__django-15388",
+    "django__django-15400",
+    "django__django-15781",
+    "django__django-15790",
+    "django__django-15819",
+    "django__django-15851",
+    "django__django-16408",
+    "django__django-17087",
+    "matplotlib__matplotlib-23913",
+    "matplotlib__matplotlib-24334",
+    "matplotlib__matplotlib-24970",
+    "matplotlib__matplotlib-25332",
+    "matplotlib__matplotlib-25498",
+    "mwaskom__seaborn-3407",
+    "pallets__flask-5063",
+    "psf__requests-2674",
+    "pydata__xarray-5131",
+    "pylint-dev__pylint-7114",
+    "pytest-dev__pytest-11143",
+    "pytest-dev__pytest-5227",
+    "pytest-dev__pytest-7432",
+    "pytest-dev__pytest-8906",
+    "scikit-learn__scikit-learn-12471",
+    "scikit-learn__scikit-learn-13496",
+    "scikit-learn__scikit-learn-14894",
+    "scikit-learn__scikit-learn-25500",
+    "scikit-learn__scikit-learn-25638",
+    "sphinx-doc__sphinx-10325",
+    "sphinx-doc__sphinx-7686",
+    "sphinx-doc__sphinx-8801",
+    "sympy__sympy-12171",
+    "sympy__sympy-12454",
+    "sympy__sympy-13043",
+    "sympy__sympy-13480",
+    "sympy__sympy-13647",
+    "sympy__sympy-16281",
+    "sympy__sympy-16988",
+    "sympy__sympy-17139",
+    "sympy__sympy-18057",
+    "sympy__sympy-18621",
+    "sympy__sympy-18835",
+    "sympy__sympy-20049",
+    "sympy__sympy-20590",
+    "sympy__sympy-21379",
+    "sympy__sympy-22840",
+    "sympy__sympy-24213"
+  ]
+}
