@@ -6,28 +6,38 @@
 % Build:  pdflatex main && bibtex main && pdflatex main && pdflatex main
 %   (or:  latexmk -pdf main)
 %
-% FORMAT: ACM `acmart`, single-column manuscript style — the layout used by
-% ReProAgent (arXiv:2607.09123) and by ACM software-engineering venues
-% (TOSEM / PACMSE / ICSE submissions). Converted from a report-class thesis
+% FORMAT: ACM `acmart`, single-column `acmsmall` journal style — the exact
+% layout of ReProAgent (arXiv:2607.09123): 6.75in x 10in trim, the same
+% margins on every page, Libertine type. Converted from a report-class thesis
 % on 2026-09-21. See WRITING_GUIDE.md §0 for register and section budgets.
 %
 % Class options:
-%   manuscript — single column, the submission/preprint layout (what we want)
+%   acmsmall   — single column, ACM journal trim; identical margins on every
+%                page (what we want)
 %   screen     — coloured hyperlinks
 %   review     — adds line numbers; turn it on when sending to the advisor
-%                for comments:  \documentclass[manuscript,screen,review]{acmart}
+%                for comments:  \documentclass[acmsmall,screen,review]{acmart}
 %   sigconf    — the two-column ACM proceedings layout, if a venue asks for it
+%
+% Do NOT use `manuscript` here. That format is two-sided, so it mirrors the
+% margins: every even page sits ~37pt further right than every odd page,
+% which reads as a broken alignment in a PDF nobody is going to print duplex.
 % ============================================================================
-\documentclass[manuscript,screen]{acmart}
+\documentclass[acmsmall,screen]{acmart}
 
-% This is not an ACM submission (yet) — drop the conference/journal branding,
-% the copyright block, and the ACM reference-format header. Remove these five
-% lines if the paper is actually submitted to an ACM venue.
+% This is not an ACM submission (yet) — drop the copyright block and the ACM
+% reference-format header. Remove these four lines for a real ACM submission.
 \settopmatter{printacmref=false}
 \renewcommand\footnotetextcopyrightpermission[1]{}
-\pagestyle{plain}
 \setcopyright{none}
-\acmConference{}{}{}
+\acmArticle{1}   % without it the page footer reads "Article ." with a gap
+
+% TEMPORARY, while sections 2--7 are still briefs with no prose. acmsmall sets
+% \flushbottom, which stretches the glue around headings and lists to fill a
+% mostly empty page — that is where the large vertical gaps come from. DELETE
+% this line once the sections carry real text, so the paper gets ACM's proper
+% justified page bottoms.
+\raggedbottom
 
 \usepackage{booktabs}
 \usepackage{tabularx}

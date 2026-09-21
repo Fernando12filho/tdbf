@@ -34,10 +34,17 @@ budgets, and they sum to about 12.5 pages.
 arabic (1, 2.1, 2.1.1); refer to them with `\ref`, never a hard-coded number.
 Citations are numeric ACM Reference Format: `\cite{key}` renders as `[7]`.
 
-**Class options** (`main.tex`, first line). `manuscript,screen` is what we
-build. Add `review` to get line numbers when sending the PDF to your advisor
-for comments; swap `manuscript` for `sigconf` if a venue wants the two-column
-ACM proceedings layout. Nothing else in the document depends on the choice.
+**Class options** (`main.tex`, first line). `acmsmall,screen` is what we build
+— ACM's journal trim, 6.75in × 10in, with the same margins on every page. Add
+`review` to get line numbers when sending the PDF to your advisor for
+comments; swap `acmsmall` for `sigconf` if a venue wants the two-column ACM
+proceedings layout. Do **not** use `manuscript`: it is a two-sided format, so
+it mirrors the margins and every even page sits ~37pt right of every odd one.
+
+**One temporary line.** `\raggedbottom` sits in the preamble because acmsmall
+normally stretches a page's vertical glue to justify the bottom edge, which
+looks like random gaps while sections 2–7 are still empty. Delete it once the
+sections carry prose.
 
 **Placeholders.** `\ph{...}` renders in red brackets and marks a number the
 sweep has not produced yet. Grep for `\ph{` before any submission; the paper is
