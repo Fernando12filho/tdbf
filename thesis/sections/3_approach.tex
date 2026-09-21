@@ -1,0 +1,82 @@
+% ============================================================================
+% SECTION III — APPROACH: THE TDBF PIPELINE
+% Paper budget: ~1.75 columns + one figure + one tool table. This is the
+% contribution section, so it documents the system AS BUILT
+% (src/tdbf/agent/*, scripts/07_deployable_pipeline.py) — not a design
+% proposal. A paper describes mechanism, then says why the mechanism matters;
+% implementation detail that does not change a result goes to the artifact.
+% Source to adapt: thesisproposal/main.tex §4.
+% ============================================================================
+\section{Approach}
+\label{sec:approach}
+
+\subsection{Pipeline Overview}
+\label{sec:method-overview}
+% TODO (~2 paragraphs + Fig. 1). The strict order as implemented:
+% BRT agent → verify the test FAILS on the buggy revision (gold-free gate) →
+% fix agent → offline scoring. State the invariant the architecture buys:
+% the repair stage is unreachable until a failure has been executed and seen.
+% Figure: \includegraphics[width=\columnwidth]{tdbf_pipeline.pdf}
+% (two-column format — size figures to \columnwidth, or use figure* for a
+% full-width diagram at the top of a page).
+
+\subsection{The Gold-Free Invariant}
+\label{sec:method-goldfree}
+% TODO (~2 paragraphs). The design contribution that emerged during the work.
+% No agent ever holds a tool that observes the gold patch, the gold-fixed tree,
+% or the held-out FAIL_TO_PASS tests; reference data is an offline measurement
+% instrument only. Enforced programmatically: allowlisted tool registries plus
+% assert_gold_free / assert_fix_gold_free guards, and context_safe_dict() as
+% the only instance view an agent receives. Why it matters, in one sentence a
+% reviewer can quote: a pipeline whose accept decision depends on the reference
+% patch cannot be deployed — this is the difference between an oracle study and
+% a system.
+
+\subsection{Agent Runtime and Tools}
+\label{sec:method-runtime}
+% TODO (~1 paragraph + Table I). Vendor-agnostic tool-use loop (runtime.py):
+% terminal submit_* tools, iteration and token caps, persistent per-instance
+% container (session.py) so many tool calls pay startup once.
+% Table I — tools per agent (this table also defines Arm A by subtraction):
+%   BRT agent:  read_file, grep, glob, run_python, run_test (buggy only),
+%               submit_test
+%   Fix agent:  read_file, grep, glob, edit_file, run_brt, run_tests, revert,
+%               submit_fix
+% One sentence on the load-bearing detail: run_brt has the validated BRT baked
+% in, so the fix agent cannot alter its own success criterion.
+
+\subsection{Phase 1: Test Generation and the Acceptance Gate}
+\label{sec:method-phase1}
+% TODO (~2 paragraphs). As built: the agent probes the buggy tree, writes the
+% test, runs it. The gate accepts iff the test reproduces a CLEAN failure on the
+% buggy revision — it reached its assertion and failed there, rather than
+% crashing before asserting. Say why the distinction is load-bearing: a crash
+% fails identically on fixed code, so it can never be a valid BRT.
+% Candidate set = L3 ∪ L4 (Section~\ref{sec:method-levels}); the L3/L4 split is
+% precisely what cannot be told without the reference patch, which is why a
+% deployable pipeline must attempt to fix L3s too. Mention the bounded
+% gate-retry (fresh conversation, gold-free feedback) in one sentence.
+
+\subsection{Phase 2: Fix Generation}
+\label{sec:method-phase2}
+% TODO (~1–2 paragraphs). As built: the BRT is given to the fix agent as a
+% GUIDE, not as the oracle (prompt design); bail-out rule; targeted regression
+% testing; revert discipline; the submitted patch is the git diff of the tracked
+% tree with the BRT file excluded automatically.
+
+\subsection{The Reactive Baseline}
+\label{sec:method-baseline}
+% TODO (~1 paragraph). Arm A: same model, tools, budgets, container, and
+% scoring; run_brt removed and run_tests kept; no Phase 1; the submit_fix
+% description carries no reference to a reproduction test. State the fairness
+% rule explicitly — the baseline receives issue text, repository context, and
+% the repository's own tests, exactly as the test-first arm does.
+
+\subsection{Outcome Taxonomy and Metrics}
+\label{sec:method-levels}
+% TODO (~1 paragraph + Table II). The L0–L4 taxonomy of a generated test by its
+% buggy-vs-fixed behaviour, mapped to SWE-bench vocabulary (L4 = Fail→Pass =
+% plausible BRT; L3 = Fail→Fail = candidate-not-plausible). Define, as display
+% math or inline: C2P = L4/(L3+L4); Valid-BRT = L4/N; resolved = all held-out
+% FAIL_TO_PASS pass AND PASS_TO_PASS preserved. Say once, here, that L0–L4
+% labels are computed offline and never gate anything at run time.

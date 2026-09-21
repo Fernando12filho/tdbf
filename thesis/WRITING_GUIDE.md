@@ -1,13 +1,46 @@
-# Writing guide — TDBF thesis
+# Writing guide — TDBF research paper
 
 A reference for *how* to write the prose, so the per-section briefs can stay
 short. Consult this whenever a paragraph won't come out.
 
 ---
 
+## 0. This is a paper, not a thesis
+
+The document was converted from a report-class thesis to an IEEE conference
+paper on 2026-09-21. The structure is `thesis/main.tex` + `thesis/sections/`,
+and the differences are not only formatting — they change what each paragraph
+is allowed to do.
+
+| Thesis habit | Paper equivalent |
+|---|---|
+| "This thesis presents…" | "This paper presents…" / "We present…" |
+| "Chapter 3 documents…" | "Section~\ref{sec:approach} documents…" — always `\ref`, never a hard-coded number |
+| `\chapter` + 5 `\section`s | `\section` + at most 4 `\subsection`s |
+| Survey everything relevant | Cite only what shapes the design or the claim |
+| Defend a decision over a page | State the decision, then the reason, in one sentence |
+| Results and discussion far apart | Section V reports, Section VI interprets — never both in one place |
+| Contributions implied | Contributions listed explicitly in the introduction |
+
+**Space is the real constraint.** A conference paper is 8–10 two-column pages.
+Every section file opens with its budget in column-inches; when a section runs
+over, cut a paragraph rather than shrinking the font or the margins. The
+per-section briefs in `sections/*.tex` are written to those budgets.
+
+**Two-column mechanics.** Size figures to `\columnwidth`, or use `figure*` for a
+full-width diagram (it floats to the top of a page — expect it to move). Wide
+tables use `table*` the same way. Run `\balance` before the bibliography, which
+`main.tex` already does.
+
+**Placeholders.** `\ph{...}` renders in red brackets and marks a number the
+sweep has not produced yet. Grep for `\ph{` before any submission; the paper is
+not finished while one remains.
+
+---
+
 ## 1. The only paragraph shape you need
 
-Almost every paragraph in a thesis is the same four moves. If a paragraph feels
+Almost every paragraph in a paper is the same four moves. If a paragraph feels
 stuck, it is usually missing one of them.
 
 | Move | Job | Length |
@@ -66,12 +99,12 @@ Match the verb to the evidence you actually have. Committees read for this.
 |---|---|---|
 | Published result | *shows, demonstrates, reports* | Cheng et al. **show** that… |
 | Your own measured result | *we find, we observe, our results indicate* | We **find** that… |
-| A result you have not yet run | *this thesis tests whether, we hypothesise* | This thesis **tests whether**… |
+| A result you have not yet run | *this paper tests whether, we hypothesise* | This paper **tests whether**… |
 | A mechanism you reason about | *should, is expected to, plausibly* | Earlier feedback **should** reduce unfocused edits. |
 
-**Right now you have run no sweep.** Until Chapter 5 exists, every claim about
-the effect of test-first ordering is in row 3. Write "this thesis tests whether",
-never "this thesis shows that". Reviewers punish overclaiming far harder than
+**Right now you have run no sweep.** Until Section V carries real numbers, every claim about
+the effect of test-first ordering is in row 3. Write "this paper tests whether",
+never "this paper shows that". Reviewers punish overclaiming far harder than
 they punish modesty.
 
 ---
@@ -133,7 +166,7 @@ strength: it shows you know the difference. Hiding it is what gets questioned.
 | Established facts | present: *SWE-bench contains 2,294 issues.* |
 | Your system's design | present: *The fix agent receives the validated test.* |
 | What you did | past: *We ran both arms on the same sample.* |
-| Thesis navigation | present: *Chapter 3 documents the system.* |
+| Paper navigation | present: *Section III documents the system.* |
 
 The proposal is written in future tense (*we will evaluate*). Every sentence you
 port from it needs its tense changed.

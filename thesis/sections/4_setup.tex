@@ -1,0 +1,56 @@
+% ============================================================================
+% SECTION IV — EXPERIMENTAL SETUP
+% Paper budget: ~0.75 column. Everything here answers one question: could a
+% reader rerun this? Design decisions that are defended at length in a thesis
+% get one sentence and a reason here.
+% Source: thesisproposal/main.tex §5, with the design decided 2026-07-21
+% (SWE-bench Lite as the scoring dataset — NOT Verified).
+% ============================================================================
+\section{Experimental Setup}
+\label{sec:setup}
+
+\subsection{Dataset and Sample}
+\label{sec:exp-dataset}
+% TODO (~1 paragraph). SWE-bench Lite: 300 instances over 12 Python
+% repositories (django 114, sympy 77, matplotlib 23, sklearn 23, ...).
+% Lite over Verified in one sentence: same harness and scoring, lower cost per
+% point under a fixed compute budget. Sampling: a pilot of ~20 random instances
+% to fix the Δ-estimate and per-instance cost, then a frozen, stratified-by-repo
+% random sample of ~150 instances committed to the repository BEFORE the sweep
+% (sample_lite_frozen.json). BugsInPy/GitBugs are out of scope
+% (Section~\ref{sec:conc-future}).
+% CAVEAT to state in this paragraph, not buried in threats: the 13-instance
+% development set (all astropy Lite + 7 early django) was NON-random and is
+% reported as pilot-quality evidence only.
+
+\subsection{Arms and Matching}
+\label{sec:exp-arms}
+% TODO (~1 paragraph). Arm A (reactive) vs Arm B (test-first). Matched on:
+% model, max_iterations, max_total_tokens, container image, harness, and
+% per-instance attempt budget. They differ ONLY in the presence of Phase 1 and
+% of the run_brt tool. Paired design: every sampled instance goes through both
+% arms. Name the model and version once, here.
+
+\subsection{Measures and Analysis}
+\label{sec:exp-metrics}
+% TODO (~1 paragraph). Primary: resolved-rate per arm, Δ with a bootstrap 95%
+% CI (10k resamples), and McNemar's test on discordant pairs — the paired test
+% is the right one and saying so costs one clause. Secondary: C2P, gate-accept
+% rate, cost per instance, iterations, tokens.
+% RQ2 ablations (Section~\ref{sec:results-rq2}): acceptance criterion, attempt
+% budget, self-review, post-fix verification, best-of-N.
+% RQ3 (Section~\ref{sec:results-rq3}): terminal-submission rate, reproduction
+% rate, resolved-rate per open-weight model.
+% Offline artifact analysis (no longer a research question, kept as analysis):
+% assertion density / LOC / exact-value vs raises-only via AST, determinism over
+% 3 re-runs, reference-patch line coverage — all computed offline, where
+% reference data is legal.
+
+\subsection{Infrastructure and Reproducibility}
+\label{sec:exp-budget}
+% TODO (~1 short paragraph). Docker images per instance (prebuilt SWE-bench
+% images, re-tagged, digests recorded in sample_lite_env.json); local image
+% builds, not API cost, are the wall-clock bottleneck. Measured cost per
+% instance (~$0.25 Phase A + gate, ~$0.50 both phases) and the sweep estimate.
+% Reproducibility: append-only results.jsonl run store, per-run artifacts under
+% runs/ and logs/, and the frozen sample file committed before the sweep.

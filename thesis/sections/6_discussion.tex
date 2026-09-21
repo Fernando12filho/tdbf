@@ -1,0 +1,44 @@
+% ============================================================================
+% SECTION VI — DISCUSSION
+% Paper budget: ~1 column, threats included. Write after Section V. A paper's
+% discussion earns its space by saying what the numbers mean for someone
+% building the next agent; it does not restate them.
+% ============================================================================
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Interpreting the Ordering Effect}
+\label{sec:disc-ordering}
+% TODO. What the RQ1 Δ means, in mechanism terms rather than restated numbers.
+% Reconcile with Cheng'26~\cite{Cheng2025Cogeneration}: their prompt-level TDD
+% lost to Freeform. Our gate-level result may agree or disagree — either way the
+% distinction that carries the argument is enforcement mechanism (executed gate
+% vs. prompt instruction), so state that distinction before the comparison.
+
+\subsection{The Verification Gap}
+\label{sec:disc-verification}
+% TODO. The dominant residual failure: the fix passes the generated test and
+% still does not resolve the issue. Passing your own reproduction test is
+% necessary, not sufficient. Why a gold-free pipeline cannot fully close it (it
+% has no oracle), what partially helps (adversarial probing as measurement,
+% cross-validation of N fixes against M tests as future work), and the
+% connection to Cheng'26's third failure mode.
+
+\subsection{Implications for Agent Design}
+\label{sec:disc-design}
+% TODO. Three claims, one paragraph each at most: architectural constraints
+% behave differently from prompt instructions; gate placement determines what
+% the repair stage can rely on; self-review without an oracle fails open, which
+% is what our negative results measure rather than merely assert.
+
+\subsection{Threats to Validity}
+\label{sec:disc-threats}
+% TODO (~1 paragraph, the standard four kinds in order; in a paper this is a
+% compact paragraph, not four subsections).
+% Internal: the non-random development set (disclosed in
+% Section~\ref{sec:exp-dataset}), a single frontier model, prompt sensitivity,
+% and non-determinism across repeated runs.
+% External: Python only, Lite's repository skew (django-heavy), and possible
+% benchmark contamination of pretraining data.
+% Construct: resolved-rate as ground truth, and plausible-vs-correct patches.
+% Conclusion: sample size and the paired test's assumptions.

@@ -173,7 +173,7 @@ RESEARCH_PLAN: list[dict] = [
             {"text": "RQ1: Δ resolved-rate + bootstrap CI + McNemar", "status": "pending"},
             {"text": "RQ3: assemble ablations (attempt budget, reviewer, breaker, best-of-N)",
              "status": "pending"},
-            {"text": "Thesis chapters from skeleton (thesis/)", "status": "pending"},
+            {"text": "Paper sections from skeleton (thesis/, IEEE format)", "status": "pending"},
         ],
     },
 ]
@@ -209,7 +209,7 @@ DECISIONS: list[dict] = [
 
 # ── Related work — the comparison table ──────────────────────────────────────
 # vs_tdbf = how our work differs / what we take from it. Keep each entry short
-# enough to scan; the thesis Related Work chapter is the long form.
+# enough to scan; the paper Related Work section is the long form.
 
 RELATED_WORK: list[dict] = [
     {

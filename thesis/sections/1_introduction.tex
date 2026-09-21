@@ -1,0 +1,161 @@
+% ============================================================================
+% SECTION I — INTRODUCTION
+% Paper budget: ~1.25 columns. The order is fixed: context → gap → what we
+% do → research questions → contributions → roadmap. Do not add subsections
+% beyond the ones here; an IEEE intro that runs to four subsections reads
+% like a thesis chapter, which is exactly the note this document is fixing.
+% ============================================================================
+\section{Introduction}
+\label{sec:introduction}
+
+Agentic systems built on large language models (LLMs) are now used daily to
+write and maintain production software, and practitioners are still learning
+where they can be trusted. Software construction is not a single activity but
+a sequence of distinct phases --- planning, implementation, debugging, review,
+and maintenance --- each with its own goals, its own measure of correctness,
+and its own failure modes. A general-purpose language model that performs well
+in one phase offers no guarantee of performing well in another, which makes
+phase-specific study of agent behaviour necessary rather than optional.
+
+This paper concerns the debugging phase. Debugging is expensive. Before a
+single line of a fix is written, a developer reads or writes a bug report,
+gathers diagnostic information, often constructs a test case that exposes the
+failure, and investigates the root cause. That workflow is repetitive and
+consumes a large share of the development cycle, which makes it an attractive
+target for automation and a demanding one.
+
+Recent work on LLMs and agent-based software engineering has shown promise on
+code generation, test generation, and program repair, yet real-world bug fixing
+remains difficult. On SWE-bench, a benchmark of 2,294 genuine GitHub issues
+introduced by Jimenez et al.~\cite{Jimenez2023SWEbench}, the SWE-agent system
+of Yang et al.~\cite{Yang2024SWEagent} resolves approximately 12.5\% of issues.
+That was a state-of-the-art result at publication, and it remains a reminder of
+how far automated repair is from reliability on real code.
+
+One recent finding speaks directly to that gap. A \emph{bug reproduction test}
+(BRT) --- a test that fails on the buggy revision and passes once the bug is
+fixed --- materially improves repair outcomes. In a study on Google's internal
+codebase, Cheng et al.~\cite{Cheng2025Agentic} show that supplying an automated
+program repair system with high-quality BRTs increases the proportion of bugs
+reaching a plausible fix.
+
+That finding has not been carried into agent \emph{architecture}. Contemporary
+repair agents remain reactive: they attempt a patch first and validate
+afterwards, so the test, when it appears at all, arrives as after-the-fact
+confirmation rather than as a constraint on the search. The evidence for BRTs
+also comes from internal, proprietary issues rather than from the public
+benchmarks on which repair agents are compared. This paper changes the order.
+We require an agent to produce a reproduction test from the bug report and
+repository context, and to \emph{observe} that test fail on the buggy revision,
+before any fix is attempted --- mirroring test-driven practice in human
+development, and using the agent's own code comprehension to sharpen the
+objective it is then asked to satisfy.
+
+The mechanism we test is that a reproduction test acts as an executable
+specification of the failure and so constrains the space of acceptable patches.
+Requiring reproduction first should give the repair stage an earlier and
+sharper feedback signal than post-hoc validation can provide, which should in
+turn reduce unfocused edits and improve repair precision.
+
+\subsection{Problem Statement}
+\label{sec:intro-problem}
+
+Repair agents have no standard structure for approaching a defect. What the
+agent does next depends on the user's prompt, and few constraints are imposed
+on the failure it is supposed to reproduce. A reactive agent holds no
+executable specification of the bug: it relies on its own reading of the issue
+text, which admits misinterpretation, unfocused edits, regressions in unrelated
+code, and a self-declared stopping criterion. Test-driven development addresses
+exactly these failure modes for human developers, because every change is
+checked against a test that states what "fixed" means. Test generation with
+LLMs is well studied, but it has been studied as a separate system rather than
+as a stage inside the repair agent itself. The open question is therefore
+architectural: \emph{does making reproduction mandatory and prior, inside a
+single agentic pipeline, resolve more real-world issues than validating
+reactively?}
+
+\subsection{Research Questions}
+\label{sec:intro-rqs}
+
+Test-generation quality, repair capability, and orchestration each affect how
+many real-world issues an agentic system resolves~\cite{Meng2024Empirical}. The
+literature does not establish how those components should be composed, nor in
+which order a practitioner should run them. Our three questions move from the
+overall effect of ordering, to the pipeline characteristics that sustain it
+under a fixed budget, to the models that can execute it at all.
+
+\textbf{RQ1 (Ordering).} Does a test-first agentic pipeline, in which repair is
+withheld until a generated test has been observed to fail on the buggy
+revision, resolve more real-world issues than a matched reactive pipeline? We
+answer this with a paired comparison on SWE-bench Lite in which every sampled
+instance is processed by both arms under the same model, tool set, iteration
+and token budgets, container, and scoring harness; the arms differ only in the
+presence of the reproduction phase and of the tool that executes its output.
+\emph{Reactive} denotes the prevailing design, exemplified by
+SWE-agent~\cite{Yang2024SWEagent}, in which an agent may run tests but is under
+no obligation to establish a failing one before editing begins. The primary
+outcome is resolved-rate: the benchmark's held-out failing tests pass and its
+previously passing tests are preserved.
+
+\textbf{RQ2 (Orchestration).} Which pipeline and orchestration characteristics
+improve fix quality and reliability under a fixed budget? An agentic pipeline
+admits many designs: how many agents participate, which tools each may call,
+how they hand work to one another, and what evidence is required before a test
+or a fix is accepted. We ablate the test-first pipeline one component at a time
+--- the criterion by which a generated test is accepted without access to the
+reference patch, the per-instance attempt budget, agent self-review of the test
+and of the fix, post-fix adversarial verification, and best-of-$N$ test
+selection --- holding model, sample, container, and harness fixed, and report
+each variant as its change in resolved-rate against its measured cost per
+instance. Two ablations produced negative results; we report them as findings.
+
+\textbf{RQ3 (Open-weight models).} Can open-weight models sustain the
+test-first pipeline, and at which stage does the trajectory break down?
+Open-weight models are attractive for repair work: they are cheap to run, and
+the code never leaves the machine. Whether they can act as agents is a separate
+question from whether they can write code. We run the same pipeline, prompts,
+tools, and instances as the frontier arm, and record where each trajectory
+ends: whether the agent reaches a terminal submission within budget, whether
+the test it submits reproduces the failure on the buggy revision, and whether
+the fix it then produces resolves the issue. Reporting the stage at which the
+pipeline stops, rather than resolved-rate alone, separates a scaffolding limit
+from a capability limit --- the distinction that determines whether the gap is
+closable by prompt design.
+
+\subsection{Contributions}
+\label{sec:intro-contributions}
+
+% A paper states its contributions explicitly; a thesis usually does not, so
+% this list is new. It is drafted from material already in PLAN.md and is
+% yours to rewrite — keep it to four items, and make each one a thing we BUILT
+% or MEASURED, never a thing we "discuss". Reviewers read this list as the
+% paper's claim.
+This paper makes the following contributions.
+
+\begin{itemize}
+  \item \textbf{Test-first ordering as an architectural constraint.} We present
+  TDBF, a two-agent pipeline in which the repair agent is not reachable until a
+  generated test has been observed to fail on the buggy revision, and we
+  contrast it with prompt-level test-first instructions inside a single agent.
+  \item \textbf{A gold-free acceptance gate.} We define and implement a test
+  acceptance criterion that never consults the reference patch, the fixed tree,
+  or the held-out tests, so the decision is one a deployed system could make;
+  reference data is used only offline, as a measurement instrument.
+  \item \textbf{A paired evaluation on public data.} We compare test-first
+  against a matched reactive baseline on SWE-bench Lite under identical model,
+  tools, budgets, and scoring, reporting resolved-rate with paired significance
+  testing and per-instance cost.
+  \item \textbf{An orchestration ablation, including negatives.} We measure the
+  acceptance criterion, attempt budget, self-review, post-fix adversarial
+  verification, and best-of-$N$ selection, and report the configurations that
+  did not help as findings rather than omitting them.
+\end{itemize}
+
+% Roadmap: one sentence, present tense, no "we will". Update if sections move.
+Section~\ref{sec:related} positions the work against test generation, agentic
+repair, and the one prior study of test ordering.
+Section~\ref{sec:approach} documents the pipeline as built.
+Section~\ref{sec:setup} gives the experimental design,
+Section~\ref{sec:results} the results, and
+Section~\ref{sec:discussion} their interpretation and the threats to validity.
+Section~\ref{sec:conclusion} concludes.

@@ -1,7 +1,7 @@
 # TDBF — plan to submission (revised 2026-09-16 → 2026-09-27)
 
 Working plan for finishing the thesis. Update the checkboxes as things land;
-if a decision changes, change it *here* first so the chapters follow one source.
+if a decision changes, change it *here* first so the paper sections follow one source.
 
 **Deadline: Sunday 27 September 2026.** Data freeze **Thursday 24 September**.
 
@@ -36,14 +36,15 @@ There is no more paid API budget. Every new run uses **free OpenRouter models** 
 |---|---|---|
 | 09-10 | Deadline | Sat 26 – Sun 27 Sep; no new runs after Thu 24 |
 | 09-10 | RQ3 framing | **Open-weight models generally** — hosted (OpenRouter) for variety, local Ollama as the on-device configuration. "Code never leaves the machine" must come out of the RQ3 paragraph. |
-| 09-10 | Thesis prose | Claude drafts ch3 and ch4; Fernando writes ch1, ch2, ch6, ch7 and owns the argument in ch5 |
+| 09-10 | Paper prose | Claude drafts Sec. III (Approach) and Sec. IV (Setup); Fernando writes Sec. I, II, VI, VII and owns the argument in Sec. V |
 | 09-10 | BRT-properties analysis | Reinstated as analysis (not an RQ) — free, over stored artifacts |
 | 09-10 | Sample | Stratified across repos, frozen to a committed file before the sweep |
 | 09-16 | Budget | **None.** Free OpenRouter models + local Ollama only |
 | 09-16 | OpenRouter limits | Fernando adds a one-time **$10** credit → free models go from 50 to 1,000 requests/day. Free models do not draw the credit down. |
 | 09-16 | Local host | The Ollama desktop (192.168.1.192) is available on request — it was simply switched off |
+| 09-21 | **Document format** | Advisor read: the write-up must be a **research paper**, not a thesis. `thesis/` is now an IEEE conference paper (`IEEEtran`, two-column, `main.tex` + `sections/`). Register, section budgets and two-column mechanics: `thesis/WRITING_GUIDE.md` §0 |
 
-## Research questions (canonical — `thesis/chapters/1_introduction.tex` is the source)
+## Research questions (canonical — `thesis/sections/1_introduction.tex` is the source)
 
 - **RQ1 — ordering.** Does test-first (repair withheld until a test is *observed*
   to fail on the buggy revision) resolve more than a matched reactive arm?
@@ -53,7 +54,7 @@ There is no more paid API budget. Every new run uses **free OpenRouter models** 
   does the trajectory break down (submits? reproduces? resolves?)
 
 > The older numbering (RQ1 = weak arm as a scope condition, RQ2 = BRT properties,
-> RQ3 = orchestration) is **superseded**. `docs/agent_plan.md` and chapters 4–6
+> RQ3 = orchestration) is **superseded**. `docs/agent_plan.md` and paper Sections IV–VI
 > still carry it in places — fixing that is task 1.1.
 
 ---
@@ -172,12 +173,17 @@ There is no more paid API budget. Every new run uses **free OpenRouter models** 
 
 ## Phase 5 — Finish (Fri 25 – Sun 27 Sep)
 
-- [ ] **5.1** ch6 Discussion, ch7 Conclusion, abstract
-- [ ] **5.2** ch1 Contributions + Thesis Organization (deleted in the trim — must come
-      back); rewrite the Thesis Statement section
-- [ ] **5.3** Threats to validity — non-random development set, model churn on free
-      endpoints, the text-recovery asymmetry below, two-repo history
+- [ ] **5.1** Sec. VI Discussion, Sec. VII Conclusion, abstract (the abstract in
+      `main.tex` is scaffolding with `\ph{}` placeholders — rewrite it last)
+- [x] **5.2** Sec. I Contributions + roadmap, and the problem statement rewritten as
+      an architectural question (done 09-21 in the paper conversion)
+- [ ] **5.3** Threats to validity (Sec. VI-D, one paragraph) — non-random development
+      set, model churn on free endpoints, the text-recovery asymmetry below,
+      two-repo history
 - [ ] **5.4** Bibliography, consistency pass, full read-through, compile
+- [ ] **5.5** Page-budget pass: the target is 8–10 two-column pages. Grep for `\ph{`
+      — none may remain. Drop `\nocite{*}` from `main.tex` so the reference list
+      holds only what the paper cites.
 
 ---
 

@@ -1,0 +1,55 @@
+% ============================================================================
+% SECTION V — RESULTS
+% Paper budget: ~1.5 columns + 2 tables + 1 figure. Awaits the pilot and the
+% sweep; the structure is fixed now so tables land in place.
+% NOTE: subsections follow the CANONICAL RQ numbering from
+% Section~\ref{sec:intro-rqs} (RQ1 ordering, RQ2 orchestration, RQ3
+% open-weight). The old thesis skeleton used a superseded numbering.
+% Data source when writing: results.jsonl via src/tdbf/metrics.py
+% (build_report — the same numbers as script 08 and the webapp /metrics page).
+% Discipline for this section: report, do not interpret. Every "because" and
+% every "this suggests" belongs in Section~\ref{sec:discussion}.
+% ============================================================================
+\section{Results}
+\label{sec:results}
+
+\subsection{RQ1: Test-First versus Reactive}
+\label{sec:results-rq1}
+% TODO after the sweep. Lead with the headline number in the first sentence.
+% Table I: resolved-rate per arm (n, resolved, rate, Δ, 95% bootstrap CI,
+%          McNemar p) — overall, with a per-repository breakdown underneath.
+% Figure:  per-instance paired outcome grid (A✓B✓ / A✓B✗ / A✗B✓ / A✗B✗) —
+%          this figure is what makes the design visibly paired.
+% Table II: cost and efficiency per arm (tokens, iterations, $/instance,
+%          $/resolved).
+
+\subsection{Test Generation Quality}
+\label{sec:results-brt}
+% TODO. L0–L4 distribution, C2P, and gate-accept rate over the sweep sample.
+% Development-set numbers (C2P 5/6 = 0.83 on astropy) are labelled pilot and
+% are not pooled with the sweep.
+
+\subsection{RQ2: Orchestration Ablations}
+\label{sec:results-rq2}
+% TODO. One table, one row per variant, columns = resolved-rate, Δ vs. the
+% default pipeline, and $/instance. Include the NEGATIVE results as rows, not
+% as prose apologies:
+%   - self-review (critic/reviewer) on a strong model: revise-rate 1/14, a
+%     near no-op;
+%   - post-fix adversarial verification: n=2, both false-negative "robust" —
+%     depth-1 self-review without an oracle fails open;
+%   - best-of-N test selection; attempt budgets.
+% Also report here: the gold-free (L3∪L4) acceptance criterion vs. an
+% oracle L4 gate — the ablation that justifies the design in
+% Section~\ref{sec:method-phase1}.
+% Offline artifact analysis (test properties vs. resolved) goes at the end of
+% this subsection, explicitly labelled exploratory.
+
+\subsection{RQ3: Open-Weight Models}
+\label{sec:results-rq3}
+% TODO. One table: per model — terminal-submission rate, reproduction rate,
+% resolved-rate — so the breakdown stage is readable directly from the row.
+% Known finding to report plainly: local 7–14B models call tools correctly but
+% do not sustain the autonomous loop to a terminal submit; at 14B and a larger
+% iteration budget they submit but fabricate expected values. Prompt-hardening
+% and a larger local model did not close the gap.
