@@ -1,6 +1,6 @@
 % ============================================================================
-% SECTION III — APPROACH: THE TDBF PIPELINE
-% Paper budget: ~1.75 columns + one figure + one tool table. This is the
+% SECTION 3 — APPROACH: THE TDBF PIPELINE
+% Paper budget: ~3 pages + one figure + one tool table. This is the
 % contribution section, so it documents the system AS BUILT
 % (src/tdbf/agent/*, scripts/07_deployable_pipeline.py) — not a design
 % proposal. A paper describes mechanism, then says why the mechanism matters;
@@ -16,9 +16,9 @@
 % BRT agent → verify the test FAILS on the buggy revision (gold-free gate) →
 % fix agent → offline scoring. State the invariant the architecture buys:
 % the repair stage is unreachable until a failure has been executed and seen.
-% Figure: \includegraphics[width=\columnwidth]{tdbf_pipeline.pdf}
-% (two-column format — size figures to \columnwidth, or use figure* for a
-% full-width diagram at the top of a page).
+% Figure: \includegraphics[width=\linewidth]{tdbf_pipeline.pdf}
+% (single-column acmart — \linewidth is the full text width; there is no
+% figure*/table* distinction to worry about in this layout).
 
 \subsection{The Gold-Free Invariant}
 \label{sec:method-goldfree}

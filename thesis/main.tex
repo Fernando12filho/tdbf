@@ -6,43 +6,41 @@
 % Build:  pdflatex main && bibtex main && pdflatex main && pdflatex main
 %   (or:  latexmk -pdf main)
 %
-% FORMAT: IEEE conference paper (two-column). Converted from a report-class
-% thesis on 2026-09-21: chapters/ became sections/, and the register is paper
-% voice ("this paper", "we") rather than thesis voice. See WRITING_GUIDE.md §0.
+% FORMAT: ACM `acmart`, single-column manuscript style — the layout used by
+% ReProAgent (arXiv:2607.09123) and by ACM software-engineering venues
+% (TOSEM / PACMSE / ICSE submissions). Converted from a report-class thesis
+% on 2026-09-21. See WRITING_GUIDE.md §0 for register and section budgets.
 %
-% To switch to a single-column journal layout (e.g. for an advisor
-% read-through), replace the class line with:
-%   \documentclass[journal,onecolumn,12pt]{IEEEtran}
-% Nothing else in the document depends on the column count.
+% Class options:
+%   manuscript — single column, the submission/preprint layout (what we want)
+%   screen     — coloured hyperlinks
+%   review     — adds line numbers; turn it on when sending to the advisor
+%                for comments:  \documentclass[manuscript,screen,review]{acmart}
+%   sigconf    — the two-column ACM proceedings layout, if a venue asks for it
 % ============================================================================
-\documentclass[conference]{IEEEtran}
-\IEEEoverridecommandlockouts
+\documentclass[manuscript,screen]{acmart}
 
-\usepackage{cite}
-\usepackage{graphicx}
-\usepackage{amsmath}
-\usepackage{amssymb}
+% This is not an ACM submission (yet) — drop the conference/journal branding,
+% the copyright block, and the ACM reference-format header. Remove these five
+% lines if the paper is actually submitted to an ACM venue.
+\settopmatter{printacmref=false}
+\renewcommand\footnotetextcopyrightpermission[1]{}
+\pagestyle{plain}
+\setcopyright{none}
+\acmConference{}{}{}
+
 \usepackage{booktabs}
-\usepackage{array}
 \usepackage{tabularx}
 \usepackage{multirow}
 \usepackage{makecell}
-\usepackage{xcolor}
-\usepackage{float}
-\usepackage{caption}
 \usepackage{subcaption}
-\usepackage{url}
-\usepackage[hidelinks,breaklinks]{hyperref}
-\usepackage{balance}   % \balance before \bibliography evens the last page
 
 % Figures live outside this folder: repo-level figures/ (pipeline + agent
 % diagrams) and the proposal's figures/.
 \graphicspath{{../figures/}{../thesisproposal/figures/}}
 
-\setlength{\emergencystretch}{3em}
-
 % Visible marker for a number or claim the sweep has not produced yet.
-% Grep for \ph{ before submitting — the paper is not done while any remain.
+% Grep for \ph{ before any submission — the paper is not done while one remains.
 \newcommand{\ph}[1]{\textcolor{red}{[#1]}}
 
 \begin{document}
@@ -50,30 +48,28 @@
 % ============================================================================
 % TITLE AND AUTHORS
 % ============================================================================
-\title{Test-Driven Bug Fixing: Enforcing Pre-Fix Test\\Generation in Agentic
+\title{Test-Driven Bug Fixing: Enforcing Pre-Fix Test Generation in Agentic
 Program Repair}
 
-% Single author as written. If the advisor joins as co-author, swap in the
-% two-author block kept in the comment underneath.
-\author{\IEEEauthorblockN{Fernando Guimaraes}
-\IEEEauthorblockA{\textit{Department of Computer Science} \\
-\textit{Florida Polytechnic University}\\
-Lakeland, FL 33805, USA \\
-fguimaraes@floridapoly.edu}
-\thanks{This work was carried out under the supervision of Dr.\ Ayesha Dina,
-Department of Computer Science, Florida Polytechnic University.}
+\author{Fernando Guimaraes}
+\email{fguimaraes@floridapoly.edu}
+\affiliation{%
+  \institution{Florida Polytechnic University}
+  \department{Department of Computer Science}
+  \city{Lakeland}
+  \state{FL}
+  \country{USA}
 }
 
-% Two-author alternative:
-% \author{\IEEEauthorblockN{1\textsuperscript{st} Fernando Guimaraes}
-% \IEEEauthorblockA{\textit{Department of Computer Science} \\
-% \textit{Florida Polytechnic University}\\ Lakeland, FL, USA \\ email}
-% \and
-% \IEEEauthorblockN{2\textsuperscript{nd} Ayesha Dina}
-% \IEEEauthorblockA{\textit{Department of Computer Science} \\
-% \textit{Florida Polytechnic University}\\ Lakeland, FL, USA \\ email}}
+% If the advisor joins as a co-author, add a second block here:
+% \author{Ayesha Dina}
+% \email{...}
+% \affiliation{%
+%   \institution{Florida Polytechnic University}
+%   \department{Department of Computer Science}
+%   \city{Lakeland} \state{FL} \country{USA}}
 
-\maketitle
+\renewcommand{\shortauthors}{Guimaraes}
 
 % ============================================================================
 % ABSTRACT
@@ -94,10 +90,38 @@ Department of Computer Science, Florida Polytechnic University.}
 \ph{Abstract — write last.}
 \end{abstract}
 
-\begin{IEEEkeywords}
-automated program repair, LLM agents, bug reproduction tests, test-driven
-development, SWE-bench, agent orchestration
-\end{IEEEkeywords}
+% ============================================================================
+% CCS CONCEPTS AND KEYWORDS  (the ACM equivalent of IEEE index terms)
+% Regenerate the XML block at https://dl.acm.org/ccs if the topics change.
+% ============================================================================
+\begin{CCSXML}
+<ccs2012>
+   <concept>
+       <concept_id>10011007.10011074.10011099.10011102.10011103</concept_id>
+       <concept_desc>Software and its engineering~Software testing and debugging</concept_desc>
+       <concept_significance>500</concept_significance>
+       </concept>
+   <concept>
+       <concept_id>10011007.10011074.10011099.10011102.10011103.10011104</concept_id>
+       <concept_desc>Software and its engineering~Software defect analysis</concept_desc>
+       <concept_significance>300</concept_significance>
+       </concept>
+   <concept>
+       <concept_id>10010147.10010178</concept_id>
+       <concept_desc>Computing methodologies~Artificial intelligence</concept_desc>
+       <concept_significance>300</concept_significance>
+       </concept>
+ </ccs2012>
+\end{CCSXML}
+
+\ccsdesc[500]{Software and its engineering~Software testing and debugging}
+\ccsdesc[300]{Software and its engineering~Software defect analysis}
+\ccsdesc[300]{Computing methodologies~Artificial intelligence}
+
+\keywords{Automated Program Repair, LLM Agents, Bug Reproduction Tests,
+Test-Driven Development, SWE-bench, Agent Orchestration}
+
+\maketitle
 
 % ============================================================================
 % SECTIONS
@@ -117,8 +141,7 @@ development, SWE-bench, agent orchestration
 % briefs — REMOVE before submission so the reference list reflects only what
 % the paper actually cites.
 \nocite{*}
-\balance
-\bibliographystyle{IEEEtran}
+\bibliographystyle{ACM-Reference-Format}
 \bibliography{references}
 
 \end{document}

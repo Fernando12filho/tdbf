@@ -36,13 +36,13 @@ There is no more paid API budget. Every new run uses **free OpenRouter models** 
 |---|---|---|
 | 09-10 | Deadline | Sat 26 – Sun 27 Sep; no new runs after Thu 24 |
 | 09-10 | RQ3 framing | **Open-weight models generally** — hosted (OpenRouter) for variety, local Ollama as the on-device configuration. "Code never leaves the machine" must come out of the RQ3 paragraph. |
-| 09-10 | Paper prose | Claude drafts Sec. III (Approach) and Sec. IV (Setup); Fernando writes Sec. I, II, VI, VII and owns the argument in Sec. V |
+| 09-10 | Paper prose | Claude drafts Sec. 3 (Approach) and Sec. 4 (Setup); Fernando writes Sec. 1, 2, 6, 7 and owns the argument in Sec. 5 |
 | 09-10 | BRT-properties analysis | Reinstated as analysis (not an RQ) — free, over stored artifacts |
 | 09-10 | Sample | Stratified across repos, frozen to a committed file before the sweep |
 | 09-16 | Budget | **None.** Free OpenRouter models + local Ollama only |
 | 09-16 | OpenRouter limits | Fernando adds a one-time **$10** credit → free models go from 50 to 1,000 requests/day. Free models do not draw the credit down. |
 | 09-16 | Local host | The Ollama desktop (192.168.1.192) is available on request — it was simply switched off |
-| 09-21 | **Document format** | Advisor read: the write-up must be a **research paper**, not a thesis. `thesis/` is now an IEEE conference paper (`IEEEtran`, two-column, `main.tex` + `sections/`). Register, section budgets and two-column mechanics: `thesis/WRITING_GUIDE.md` §0 |
+| 09-21 | **Document format** | Advisor read: the write-up must be a **research paper**, not a thesis. `thesis/` is now an **ACM `acmart` paper**, single-column manuscript style — the layout of ReProAgent (arXiv:2607.09123), which Fernando picked as the format model. `main.tex` + `sections/`. Register, page budgets and layout mechanics: `thesis/WRITING_GUIDE.md` §0 |
 
 ## Research questions (canonical — `thesis/sections/1_introduction.tex` is the source)
 
@@ -95,7 +95,7 @@ There is no more paid API budget. Every new run uses **free OpenRouter models** 
 ## Phase 1 — Infrastructure (Wed 16 Sep)
 
 - [x] **1.0** $10 OpenRouter credit added — `is_free_tier: False`, `total_credits: 10`, usage 0 (checked 09-16)
-- [ ] **1.1** Fix RQ numbering in `4_experiments.tex`, `5_results.tex`,
+- [ ] **1.1** Fix RQ numbering in `4_setup.tex`, `5_results.tex`,
       `6_discussion.tex`; rewrite the RQ3 paragraph in `1_introduction.tex`
 - [x] **1.2** OpenRouter client (`openrouter:<model>` in `build_client`), with:
       - retry with exponential back-off on 429 / 5xx (free endpoints throttle often)
@@ -173,11 +173,11 @@ There is no more paid API budget. Every new run uses **free OpenRouter models** 
 
 ## Phase 5 — Finish (Fri 25 – Sun 27 Sep)
 
-- [ ] **5.1** Sec. VI Discussion, Sec. VII Conclusion, abstract (the abstract in
+- [ ] **5.1** Sec. 6 Discussion, Sec. 7 Conclusion, abstract (the abstract in
       `main.tex` is scaffolding with `\ph{}` placeholders — rewrite it last)
-- [x] **5.2** Sec. I Contributions + roadmap, and the problem statement rewritten as
+- [x] **5.2** Sec. 1 Contributions + roadmap, and the problem statement rewritten as
       an architectural question (done 09-21 in the paper conversion)
-- [ ] **5.3** Threats to validity (Sec. VI-D, one paragraph) — non-random development
+- [ ] **5.3** Threats to validity (Sec. 6.4, one paragraph) — non-random development
       set, model churn on free endpoints, the text-recovery asymmetry below,
       two-repo history
 - [ ] **5.4** Bibliography, consistency pass, full read-through, compile

@@ -7,10 +7,11 @@ short. Consult this whenever a paragraph won't come out.
 
 ## 0. This is a paper, not a thesis
 
-The document was converted from a report-class thesis to an IEEE conference
-paper on 2026-09-21. The structure is `thesis/main.tex` + `thesis/sections/`,
-and the differences are not only formatting — they change what each paragraph
-is allowed to do.
+The document was converted from a report-class thesis to an ACM `acmart`
+research paper on 2026-09-21 — single-column manuscript style, the layout of
+ReProAgent (arXiv:2607.09123) and of ACM software-engineering venues. The
+structure is `thesis/main.tex` + `thesis/sections/`, and the differences are
+not only formatting: they change what each paragraph is allowed to do.
 
 | Thesis habit | Paper equivalent |
 |---|---|
@@ -19,18 +20,24 @@ is allowed to do.
 | `\chapter` + 5 `\section`s | `\section` + at most 4 `\subsection`s |
 | Survey everything relevant | Cite only what shapes the design or the claim |
 | Defend a decision over a page | State the decision, then the reason, in one sentence |
-| Results and discussion far apart | Section V reports, Section VI interprets — never both in one place |
+| Results and discussion far apart | Section 5 reports, Section 6 interprets — never both in one place |
 | Contributions implied | Contributions listed explicitly in the introduction |
 
-**Space is the real constraint.** A conference paper is 8–10 two-column pages.
-Every section file opens with its budget in column-inches; when a section runs
-over, cut a paragraph rather than shrinking the font or the margins. The
-per-section briefs in `sections/*.tex` are written to those budgets.
+**Space is the real constraint.** The target is 12–15 pages in this layout,
+excluding references. Every section file opens with its page budget; when a
+section runs over, cut a paragraph rather than shrinking the font or the
+margins. The per-section briefs in `sections/*.tex` are written to those
+budgets, and they sum to about 12.5 pages.
 
-**Two-column mechanics.** Size figures to `\columnwidth`, or use `figure*` for a
-full-width diagram (it floats to the top of a page — expect it to move). Wide
-tables use `table*` the same way. Run `\balance` before the bibliography, which
-`main.tex` already does.
+**Layout mechanics.** Single column, so size figures and tables to `\linewidth`
+— there is no `figure*`/`table*` distinction here. Sections are numbered in
+arabic (1, 2.1, 2.1.1); refer to them with `\ref`, never a hard-coded number.
+Citations are numeric ACM Reference Format: `\cite{key}` renders as `[7]`.
+
+**Class options** (`main.tex`, first line). `manuscript,screen` is what we
+build. Add `review` to get line numbers when sending the PDF to your advisor
+for comments; swap `manuscript` for `sigconf` if a venue wants the two-column
+ACM proceedings layout. Nothing else in the document depends on the choice.
 
 **Placeholders.** `\ph{...}` renders in red brackets and marks a number the
 sweep has not produced yet. Grep for `\ph{` before any submission; the paper is
@@ -102,7 +109,7 @@ Match the verb to the evidence you actually have. Committees read for this.
 | A result you have not yet run | *this paper tests whether, we hypothesise* | This paper **tests whether**… |
 | A mechanism you reason about | *should, is expected to, plausibly* | Earlier feedback **should** reduce unfocused edits. |
 
-**Right now you have run no sweep.** Until Section V carries real numbers, every claim about
+**Right now you have run no sweep.** Until Section 5 carries real numbers, every claim about
 the effect of test-first ordering is in row 3. Write "this paper tests whether",
 never "this paper shows that". Reviewers punish overclaiming far harder than
 they punish modesty.
@@ -123,7 +130,7 @@ Recurring in the §1.1 draft and in the proposal — worth a targeted pass:
 | `wildly / garanteed / debbuging / planing / maintainance` | widely / guaranteed / debugging / planning / maintenance |
 | Comma-chained clauses running 60+ words | Split into 2–3 sentences |
 
-Run a spellcheck pass over every chapter before showing it to your advisor.
+Run a spellcheck pass over every section before showing it to your advisor.
 LaTeX hides typos well; readers do not.
 
 ---
@@ -166,7 +173,7 @@ strength: it shows you know the difference. Hiding it is what gets questioned.
 | Established facts | present: *SWE-bench contains 2,294 issues.* |
 | Your system's design | present: *The fix agent receives the validated test.* |
 | What you did | past: *We ran both arms on the same sample.* |
-| Paper navigation | present: *Section III documents the system.* |
+| Paper navigation | present: *Section 3 documents the system.* |
 
 The proposal is written in future tense (*we will evaluate*). Every sentence you
 port from it needs its tense changed.

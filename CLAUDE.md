@@ -366,7 +366,7 @@ numbering and is history, not instruction.
   - **Superseded numbering:** the weak arm was once a scope condition and
     orchestration was RQ3; "which BRT properties predict resolved" was RQ2 and is
     **no longer an RQ** (kept as offline analysis). Older text in `docs/` and in
-    paper Sections IV–VI may still use the old sense — trust the introduction.
+    paper Sections 4–6 may still use the old sense — trust the introduction.
 - **Dataset: SWE-bench Lite** (the scoring dataset — *not* Verified). BugsInPy/GitBugs
   descoped unless time allows.
 - **Two arms (the main comparison):**
@@ -415,10 +415,11 @@ frontier reference, not something to re-run.
 
 - `docs/` — `agent_plan.md` (authoritative checklists), `project_summary.md`,
   `cost_estimate.md`. **Gitignored** (not version-controlled) — heads-up.
-- `thesis/` — the written deliverable, an **IEEE conference paper** (`IEEEtran`, two
-  columns, `main.tex` + `sections/`, `references.bib`, `WRITING_GUIDE.md`). Converted
-  from a report-class thesis on 2026-09-21 — use paper register and `\ref`, never
-  `\chapter` (see WRITING_GUIDE.md §0); `thesisproposal/` holds the original proposal.
+- `thesis/` — the written deliverable, an **ACM `acmart` research paper** (single-column
+  manuscript style, `main.tex` + `sections/`, `references.bib`, `WRITING_GUIDE.md`).
+  Converted from a report-class thesis on 2026-09-21; format model is ReProAgent
+  (arXiv:2607.09123). Use paper register and `\ref`, never `\chapter` (WRITING_GUIDE §0);
+  `thesisproposal/` holds the original proposal source.
 - `figures/` — LaTeX/TikZ diagrams (`tdbf_*.tex` → PNG/PDF). **Gitignored.**
 - `results.jsonl` (repo root) — the append-only run store; webapp `tdbf.db` and all
   metrics derive from it.
