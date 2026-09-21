@@ -151,7 +151,9 @@
     <table class="table table-sm mb-0 align-middle">
       <thead><tr>
         <th>Model</th><th class="text-end">Inst</th>
-        <th class="text-end">Gate accept</th><th class="text-end">Resolved (of gated)</th>
+        <th class="text-end">Gate accept</th>
+        <th class="text-end">C2P</th><th class="text-end">Valid-BRT</th>
+        <th class="text-end">Resolved (of gated)</th>
       </tr></thead>
       <tbody>
         {% for d in rep.deployable %}
@@ -159,6 +161,10 @@
           <td>{{ d.model }}{% if d.local %} <span class="badge bg-secondary">local</span>{% endif %}</td>
           <td class="text-end">{{ d.instances }}</td>
           <td class="text-end">{{ d.gate_accept }}</td>
+          {# BRT quality needs the offline L0-L4 label (--score-brt); an
+             unlabelled run shows a dash rather than a misleading 0. #}
+          <td class="text-end">{% if d.labelled %}{{ pill(d.c2p) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end">{% if d.labelled %}{{ pill(d.valid) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
           <td class="text-end">{{ pill(d.resolved) }}</td>
         </tr>
         {% endfor %}

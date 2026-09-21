@@ -277,6 +277,19 @@ def build_report(records: list[dict]) -> dict:
                                 and arm_of(r) == arm])
         resolved = sum(1 for r in f_by.values() if r.get("resolved"))
         gated = sum(1 for v in gate_by_inst.values() if v)
+        # BRT quality for this arm. The deployable records carry the offline
+        # L0-L4 label whenever the run used --score-brt, but block [1] only sees
+        # mode=="agent", so a 07-only model (every sweep model) reported no C2P
+        # at all. The label is ours to read here; the GATE still never sees it.
+        # `--score-brt` is optional, so denominators count LABELLED instances
+        # and the unlabelled remainder is reported rather than folded in.
+        lab = brt_by_instance(d)
+        hist = collections.Counter(
+            (r.get("best_level") if r.get("best_level") is not None else -1)
+            for r in lab.values()
+        )
+        L = {k: hist.get(k, 0) for k in range(5)}
+        labelled = sum(L.values())
         deployable.append({
             "model": f"{model}  [{arm}]",
             "local": is_local(d[0]["model"]),
@@ -287,6 +300,11 @@ def build_report(records: list[dict]) -> dict:
             "scored": len(f_by),
             "resolved": rate(resolved, len(f_by)),
             "pipeline_resolve": rate(resolved, len(d_by)),
+            "levels": [L[0], L[1], L[2], L[3], L[4]],
+            "labelled": labelled,
+            "unlabelled": hist.get(-1, 0),
+            "c2p": rate(L[4], L[3] + L[4]),
+            "valid": rate(L[4], labelled),
         })
 
     # [5] Repo breakdown (Claude Sonnet)
@@ -375,6 +393,17 @@ def format_text(rep: dict) -> str:
         for d in rep["deployable"]:
             out.append(f"  {d['model']}: runs={d['runs']}  instances={d['instances']}")
             out.append(f"    GateRate (gold-free)      = {d['gate_rate']['label']}")
+            if d["labelled"]:
+                L = d["levels"]
+                out.append(f"    levels L0..L4             = "
+                           f"{L[0]},{L[1]},{L[2]},{L[3]},{L[4]}"
+                           + (f"   (+{d['unlabelled']} unlabelled)"
+                              if d["unlabelled"] else ""))
+                out.append(f"    C2P (L4/(L3+L4))          = {d['c2p']['label']}")
+                out.append(f"    Valid-BRT (L4/labelled)   = {d['valid']['label']}")
+            elif d["unlabelled"]:
+                out.append(f"    BRT levels                = "
+                           f"unlabelled ({d['unlabelled']}) — run with --score-brt")
             out.append(f"    Resolve@Gated             = {d['resolved']['label']}"
                        f"   (scored fixes: {d['scored']})")
             out.append(f"    Pipeline resolve (res/N)  = {d['pipeline_resolve']['label']}")
