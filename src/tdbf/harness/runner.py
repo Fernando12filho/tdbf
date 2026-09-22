@@ -105,10 +105,61 @@ _REPO_PREAMBLES: dict[str, str] = {
 }
 
 
+# Repos whose OWN test suite cannot be driven by a bare `python -m pytest <file>`.
+# Django's tests need its runner plus a settings module, and they are addressed by
+# dotted LABEL, not by path. This is the same invocation the SWE-bench grader uses
+# (from a generated eval.sh):
+#   ./tests/runtests.py --verbosity 2 --settings=test_sqlite --parallel 1 <label>
+# Under plain pytest every Django test instead errors in setUpClass with
+# "ImproperlyConfigured: Requested setting DATABASES", which is what the fix agent
+# saw on every Django instance -- its regression check returned nothing usable.
+# The generated BRT is unaffected: it carries _REPO_PREAMBLES and runs under pytest.
+_REPO_TEST_RUNNERS: dict[str, str] = {
+    "django/django": (
+        './tests/runtests.py --verbosity 1 --settings=test_sqlite --parallel 1 "$TLABEL"'
+    ),
+}
+
+
 def brt_test_path(repo: str) -> str:
     """Return the repo-relative path where the BRT file should be placed."""
     subdir = _REPO_TEST_SUBDIRS.get(repo, "")
     return f"{subdir}/{BRT_TEST_FILENAME}" if subdir else BRT_TEST_FILENAME
+
+
+def repo_test_label(repo: str, path: str) -> str | None:
+    """Translate a repo-relative test FILE path into the label that repo's own
+    runner expects. None when the repo has no custom runner (pytest takes the
+    path as-is).
+
+        django/django, "tests/check_framework/test_templates.py"
+            -> "check_framework.test_templates"
+
+    The agent keeps giving us a path (one interface for every repo); the
+    translation happens here.
+    """
+    if repo not in _REPO_TEST_RUNNERS:
+        return None
+    p = path.strip().strip("/")
+    subdir = _REPO_TEST_SUBDIRS.get(repo, "")
+    if subdir and p.startswith(f"{subdir}/"):
+        p = p[len(subdir) + 1:]
+    if p.endswith(".py"):
+        p = p[:-3]
+    return p.replace("/", ".") or None
+
+
+def repo_test_command(repo: str) -> tuple[str, bool]:
+    """Shell command for running an EXISTING test file from the repo, and whether
+    it expects a label ("$TLABEL") rather than a path ("$TPATH").
+
+    Both forms read the untrusted, model-supplied argument from the environment,
+    never from interpolated command text (see ContainerSession.exec).
+    """
+    custom = _REPO_TEST_RUNNERS.get(repo)
+    if custom is not None:
+        return custom, True
+    return 'python -m pytest "$TPATH" --tb=short -q', False
 
 
 def inject_setup_preamble(repo: str, test_code: str) -> str:

@@ -35,7 +35,7 @@ from tdbf.agent.tools import (
 )
 from tdbf.agent.types import FunctionTool
 from tdbf.data.instances import SWEBenchInstance
-from tdbf.harness.runner import HarnessResult
+from tdbf.harness.runner import HarnessResult, repo_test_label
 from tdbf.models.messages import ToolCall, ToolUseResponse
 
 _SRC = "def compute():\n    return 4\n"
@@ -236,9 +236,44 @@ def test_orchestration_glue() -> None:
         assert transcript["resolved"] is True and "return 5" in transcript["fix_patch"]
 
 
+def test_run_tests_uses_pytest_for_an_ordinary_repo() -> None:
+    session = FixFakeSession("demo/pkg")
+    res = _tool(fix_agent_tools(session, brt_code="def test_brt():\n    pass\n"),
+                "run_tests").execute({"path": "demo/pkg/tests/test_core.py"})
+    assert not res.is_error, res.content
+    cmd = session.execs[-1]
+    assert "python -m pytest" in cmd and '"$TPATH"' in cmd, cmd
+
+
+def test_run_tests_uses_djangos_own_runner_and_a_dotted_label() -> None:
+    """A Django test file cannot be run by bare pytest: every test errors in
+    setUpClass with 'ImproperlyConfigured: Requested setting DATABASES'. The fix
+    agent's regression check returned that on every Django instance. Use the same
+    command the SWE-bench grader does, addressed by dotted label."""
+    session = FixFakeSession("django/django")
+    res = _tool(fix_agent_tools(session, brt_code="def test_brt():\n    pass\n"),
+                "run_tests").execute({"path": "tests/check_framework/test_templates.py"})
+    assert not res.is_error, res.content
+    cmd = session.execs[-1]
+    assert "runtests.py" in cmd and "--settings=test_sqlite" in cmd, cmd
+    assert "pytest" not in cmd, cmd
+    # the untrusted, model-supplied argument travels in the environment, never
+    # interpolated into the command text
+    assert '"$TLABEL"' in cmd, cmd
+    assert repo_test_label("django/django", "tests/check_framework/test_templates.py") == \
+        "check_framework.test_templates"
+    # path forms the model may produce, all resolving to the same label
+    for p in ("check_framework/test_templates.py", "/tests/check_framework/test_templates.py"):
+        assert repo_test_label("django/django", p) == "check_framework.test_templates", p
+    # a repo with no custom runner keeps taking the path as-is
+    assert repo_test_label("demo/pkg", "tests/test_core.py") is None
+
+
 def main() -> int:
     tests = [
         test_fix_registry_is_gold_free_and_terminal,
+        test_run_tests_uses_pytest_for_an_ordinary_repo,
+        test_run_tests_uses_djangos_own_runner_and_a_dotted_label,
         test_fix_guard_rejects_off_allowlist_tool,
         test_edit_file_replaces_and_reports,
         test_edit_file_missing_old_str_is_recoverable_error,
