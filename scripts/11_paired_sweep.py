@@ -61,7 +61,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from tdbf.agent.pipeline import fix_run_record, fix_transcript_dict, run_fix_phase, take_served
 from tdbf.data.instances import InstanceStore
-from tdbf.models.llm import build_client, is_upstream_throttle
+from tdbf.models.llm import build_client, calls_served_total, is_upstream_throttle
 from tdbf.results import RESULTS_FILE, save_run
 
 FREE_BUDGETS = (16_000, 1_000_000)      # (tokens per turn, total tokens) — decided 09-16
@@ -156,6 +156,72 @@ class Usage:
         self.data[self._today()] = self.used_today() + n
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(self.data, indent=2))
+
+
+def env_states(env_path: Path) -> dict[str, str]:
+    """{instance_id: state} from the environment record written by 13_build_sample.
+
+    States are 'valid' / 'pending_recheck' / 'deferred'. Missing file -> {}.
+    """
+    if not env_path.exists():
+        return {}
+    data = json.loads(env_path.read_text())
+    ins = data.get("instances", data) if isinstance(data, dict) else data
+    if isinstance(ins, dict):
+        return {k: (v or {}).get("state", "?") for k, v in ins.items()}
+    out = {}
+    for x in ins:
+        if isinstance(x, dict) and x.get("instance_id"):
+            out[x["instance_id"]] = x.get("state", "?")
+    return out
+
+
+def drop_invalid_envs(ids: list[str], env_path: Path) -> tuple[list[str], list[tuple[str, str]]]:
+    """Split ids into (runnable, [(excluded id, state), ...]).
+
+    The frozen sample's pre-registered rule: an instance whose image cannot be
+    built, or whose GOLD patch does not resolve in our harness, is excluded
+    BEFORE any arm runs -- deciding that from the gold check alone, never from
+    agent results. Nothing enforced it: the sweep read the id list and ran
+    whatever was in it, so matplotlib-23913 (gold_resolved: false) was scored as
+    an ordinary unresolved result. An instance we cannot score correctly must be
+    reported as excluded, not counted as a failure the agent caused.
+    """
+    states = env_states(env_path)
+    if not states:
+        return ids, []
+    keep, dropped = [], []
+    for i in ids:
+        state = states.get(i)
+        if state is None or state == "valid":
+            keep.append(i)          # unknown to the record -> caller's problem, not ours
+        else:
+            dropped.append((i, state))
+    return keep, dropped
+
+
+class Tee:
+    """Mirror stdout/stderr into a log file.
+
+    The 2026-09-21/22 sweep printed its 503s to the terminal and nothing else, so
+    when three instances failed there was no way afterwards to see why. Anything
+    the sweep says about a failure has to survive the session.
+    """
+
+    def __init__(self, stream, handle) -> None:
+        self._stream, self._handle = stream, handle
+
+    def write(self, text: str) -> int:
+        self._handle.write(text)
+        self._handle.flush()
+        return self._stream.write(text)
+
+    def flush(self) -> None:
+        self._handle.flush()
+        self._stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
 
 
 def completed_units(results_path: Path, model_name: str, run_group: str, arms: str) -> set[str]:
@@ -292,6 +358,8 @@ class Summary:
     done: list[dict] = field(default_factory=list)
     skipped: int = 0
     failed: list[tuple[str, str]] = field(default_factory=list)
+    failed_calls: int = 0          # calls spent by units that produced no record
+    excluded: list[tuple[str, str]] = field(default_factory=list)  # (id, env state)
     stop_reason: str | None = None
 
 
@@ -310,18 +378,28 @@ def run_sweep(cfg: Config, instances, *, save=save_run, results_path: Path = RES
             s.status, s.stop_reason = EXIT_QUOTA, (
                 f"daily budget: {usage.used_today()}/{cfg.daily_budget} calls used today")
             break
+        before = calls_served_total()
         try:
             unit, records = run_unit(inst, cfg)
         except Exception as exc:  # noqa: BLE001 - one unit must not end the sweep
+            # A failed unit still SPENT its calls. Count them before deciding
+            # anything: the provider's daily quota does not refund a unit that
+            # died, and usage.json used to miss this entirely because it was only
+            # written on the success path.
+            spent = calls_served_total() - before
+            if spent:
+                usage.add(spent)
             if is_quota_error(exc):
                 s.status, s.stop_reason = EXIT_QUOTA, f"quota error from the provider: {exc}"
                 break
             reason = f"{type(exc).__name__}: {exc}"
             print(f"\n[unit failed] {inst.instance_id}: {reason} — nothing recorded; "
+                  f"spent {spent} call(s), today={usage.used_today()}/{cfg.daily_budget}; "
                   "it will be retried on the next run")
             if not isinstance(exc, UnitFailed):
                 traceback.print_exc()
             s.failed.append((inst.instance_id, reason))
+            s.failed_calls += spent
             consecutive += 1
             if consecutive >= cfg.max_consecutive_failures:
                 s.status, s.stop_reason = EXIT_FAILURES, (
@@ -348,6 +426,10 @@ def print_summary(cfg: Config, s: Summary) -> None:
           f"failed: {len(s.failed)}")
     for iid, why in s.failed:
         print(f"    failed {iid}: {why}")
+    if s.excluded:
+        print(f"  excluded (environment not valid): {len(s.excluded)}")
+        for iid, state in s.excluded:
+            print(f"    excluded {iid}: {state}")
     if s.done:
         if cfg.arms == "AB":
             a_only = sum(1 for u in s.done if u["arm_a"]["resolved"] and not u["arm_b"]["resolved"])
@@ -359,7 +441,10 @@ def print_summary(cfg: Config, s: Summary) -> None:
             got = [u[key] for u in s.done if u[key] is not None]
             if got:
                 print(f"  {label:10s} resolved {sum(g['resolved'] for g in got)}/{len(got)}")
-        print(f"  model calls this run: {sum(u['calls'] for u in s.done)}")
+        print(f"  model calls this run: {sum(u['calls'] for u in s.done)}"
+              + (f" (+{s.failed_calls} on failed units)" if s.failed_calls else ""))
+    elif s.failed_calls:
+        print(f"  model calls this run: 0 ({s.failed_calls} spent on failed units)")
     if s.stop_reason:
         print(f"  STOPPED: {s.stop_reason}")
     print("  Re-run the same command to resume.")
@@ -399,6 +484,14 @@ def main() -> int:
                     help="soft cap on model calls per UTC day (free tier: 1,000)")
     ap.add_argument("--min-remaining", type=int, default=60,
                     help="do not start a unit with fewer calls than this left today")
+    ap.add_argument("--env-record", default="sample_lite_env.json",
+                    help="environment record; instances not marked 'valid' are excluded "
+                         "before any arm runs (frozen-sample rule)")
+    ap.add_argument("--no-env-gate", action="store_true",
+                    help="run instances even if the environment record does not mark them "
+                         "valid — their verdicts are NOT trustworthy; say so if you report them")
+    ap.add_argument("--log", default=None,
+                    help="tee all output here (default: runs/sweep/<run-group>/sweep.log)")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
@@ -411,14 +504,32 @@ def main() -> int:
         score_brt=not args.no_score_brt, verbose=args.verbose,
         daily_budget=args.daily_budget, min_remaining=args.min_remaining,
     )
-    store = InstanceStore(cfg.split)
-    instances = [store.get(i) for i in _load_ids(args)]
-    print(f"Sweep {cfg.run_group!r}: {len(instances)} instance(s), model {cfg.model}, "
-          f"arms {cfg.arms}, budgets {cfg.max_tokens_per_turn}/turn "
-          f"{cfg.max_total_tokens} total, {cfg.max_iterations} iterations")
-    summary = run_sweep(cfg, instances)
-    print_summary(cfg, summary)
-    return summary.status
+    log_path = Path(args.log) if args.log else cfg.out_dir / cfg.run_group / "sweep.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = log_path.open("a", encoding="utf-8")
+    sys.stdout, sys.stderr = Tee(sys.stdout, handle), Tee(sys.stderr, handle)
+    print(f"\n{'=' * 64}\n# sweep start {datetime.now(timezone.utc).isoformat()}  "
+          f"log -> {log_path}")
+    try:
+        ids = _load_ids(args)
+        excluded: list[tuple[str, str]] = []
+        if not args.no_env_gate:
+            ids, excluded = drop_invalid_envs(ids, ROOT / args.env_record)
+            for iid, state in excluded:
+                print(f"  [excluded] {iid}: environment state {state!r} — not scored")
+        store = InstanceStore(cfg.split)
+        instances = [store.get(i) for i in ids]
+        print(f"Sweep {cfg.run_group!r}: {len(instances)} instance(s), model {cfg.model}, "
+              f"arms {cfg.arms}, budgets {cfg.max_tokens_per_turn}/turn "
+              f"{cfg.max_total_tokens} total, {cfg.max_iterations} iterations"
+              + (f", {len(excluded)} excluded" if excluded else ""))
+        summary = run_sweep(cfg, instances)
+        summary.excluded = excluded
+        print_summary(cfg, summary)
+        return summary.status
+    finally:
+        sys.stdout.flush()
+        handle.close()
 
 
 if __name__ == "__main__":

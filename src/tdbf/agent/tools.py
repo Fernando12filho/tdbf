@@ -22,6 +22,8 @@ from ..harness.runner import (
     _parse_pytest_outcome,
     brt_test_path,
     inject_setup_preamble,
+    repo_test_command,
+    repo_test_label,
 )
 from .session import ContainerSession
 from .types import Tool, ToolResult
@@ -353,12 +355,27 @@ class RunTestsTool(_SessionTool):
         path = str(arguments.get("path", "")).strip()
         if not path:
             return ToolResult("run_tests requires a non-empty 'path'.", is_error=True)
-        self.session.ensure_pytest()
+        # Some repos cannot run their own suite under bare pytest (Django needs its
+        # runner + a settings module, addressed by dotted label). repo_test_command
+        # picks the invocation the SWE-bench grader itself uses for this repo, so a
+        # regression the grader would catch is one the agent can see too.
+        command, uses_label = repo_test_command(self.session.repo)
+        if uses_label:
+            label = repo_test_label(self.session.repo, path)
+            if not label:
+                return ToolResult(
+                    f"Could not resolve {path!r} to a test module for "
+                    f"{self.session.repo}. Pass a path to a single existing test "
+                    "file, e.g. 'tests/check_framework/test_templates.py'.",
+                    is_error=True,
+                )
+            env = {"TLABEL": label}
+        else:
+            self.session.ensure_pytest()
+            env = {"TPATH": path}
         # 180s cap (matches run_brt): bounds wall-clock if the model still points
         # at a broad/slow path despite the guidance to use a single test file.
-        res = self.session.exec(
-            "python -m pytest \"$TPATH\" --tb=short -q", timeout=180, env={"TPATH": path}
-        )
+        res = self.session.exec(command, timeout=180, env=env)
         outcome = _parse_pytest_outcome(res.returncode, res.output)
         note = ""
         if res.returncode == 124:  # ExecResult timeout sentinel

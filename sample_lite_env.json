@@ -1,9 +1,8 @@
 {
   "sample": "tdbf-rq1-lite-n60",
-  "written_utc": "2026-09-17T15:17:56Z",
+  "written_utc": "2026-09-22T16:47:29Z",
   "counts": {
-    "valid": 50,
-    "pending_recheck": 6,
+    "valid": 56,
     "deferred": 4
   },
   "instances": {
@@ -140,21 +139,21 @@
       "image": "built locally with the SWE-bench harness"
     },
     "matplotlib__matplotlib-23913": {
-      "state": "pending_recheck",
+      "state": "valid",
       "reason": null,
-      "gold_resolved": false,
+      "gold_resolved": true,
       "image": "docker.io/swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-23913:latest @ sha256:120ede7d6c997ba6c5ed2f0dba1f2d541d429bf0c6541962b08da51d0d412665"
     },
     "matplotlib__matplotlib-24334": {
-      "state": "pending_recheck",
+      "state": "valid",
       "reason": null,
-      "gold_resolved": false,
+      "gold_resolved": true,
       "image": "docker.io/swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-24334:latest @ sha256:d794a9d8b1b33630cb7828ec0ed585fe4ea7cf3bea294fe6668f9eb0b8f4a6b2"
     },
     "matplotlib__matplotlib-24970": {
-      "state": "pending_recheck",
+      "state": "valid",
       "reason": null,
-      "gold_resolved": false,
+      "gold_resolved": true,
       "image": "docker.io/swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-24970:latest @ sha256:c5d99048ceeb6b0c3157dde39bb122174e494b557fb7dd3c6d4bd8dba70a1bfa"
     },
     "matplotlib__matplotlib-25332": {
@@ -243,15 +242,15 @@
       "image": "built locally with the SWE-bench harness"
     },
     "scikit-learn__scikit-learn-25500": {
-      "state": "pending_recheck",
-      "reason": "harness wrote no report at logs/run_evaluation/gold_scikit-learn__scikit-learn-25500_40defeae/gold/scikit-learn__scikit-learn-25500/report.json",
-      "gold_resolved": null,
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
       "image": "docker.io/swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-25500:latest @ sha256:df7a2e1ab0044c940c73e9ceb13d28da43ed4a6f2c76135e10e66d1e670e8591"
     },
     "scikit-learn__scikit-learn-25638": {
-      "state": "pending_recheck",
-      "reason": "harness wrote no report at logs/run_evaluation/gold_scikit-learn__scikit-learn-25638_00c6ac3e/gold/scikit-learn__scikit-learn-25638/report.json",
-      "gold_resolved": null,
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
       "image": "docker.io/swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-25638:latest @ sha256:c3ebacdb13d733bbe46f2f852fa60a17931910ae4338b461dd863e38293b82f0"
     },
     "sphinx-doc__sphinx-10325": {
@@ -345,9 +344,9 @@
       "image": "built locally with the SWE-bench harness"
     },
     "sympy__sympy-20590": {
-      "state": "pending_recheck",
-      "reason": "harness wrote no report at logs/run_evaluation/gold_sympy__sympy-20590_33cbabed/gold/sympy__sympy-20590/report.json",
-      "gold_resolved": null,
+      "state": "valid",
+      "reason": null,
+      "gold_resolved": true,
       "image": "docker.io/swebench/sweb.eval.x86_64.sympy_1776_sympy-20590:latest @ sha256:3a282752833ce34730ee0621e22033501c993f45742775ca57f04c9ff27178a0"
     },
     "sympy__sympy-21379": {

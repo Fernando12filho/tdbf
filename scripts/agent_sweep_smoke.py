@@ -255,9 +255,56 @@ def test_upstream_throttle_fails_the_unit_not_the_sweep() -> None:
         assert store.records() == []
 
 
+def test_env_gate_drops_instances_not_marked_valid() -> None:
+    """Frozen-sample rule: an instance whose environment is not confirmed valid is
+    excluded BEFORE any arm runs. Nothing enforced this, so matplotlib-23913
+    (gold_resolved: false) was run and scored as an ordinary unresolved result."""
+    with tempfile.TemporaryDirectory() as td:
+        rec = Path(td) / "env.json"
+        rec.write_text(json.dumps({"instances": {
+            "demo__pkg-1": {"state": "valid"},
+            "demo__pkg-2": {"state": "pending_recheck"},
+            "demo__pkg-3": {"state": "deferred"},
+        }}))
+        ids = ["demo__pkg-1", "demo__pkg-2", "demo__pkg-3", "demo__pkg-4"]
+        keep, dropped = SW.drop_invalid_envs(ids, rec)
+        # unknown to the record (pkg-4) is left alone; only explicit non-valid drops
+        assert keep == ["demo__pkg-1", "demo__pkg-4"], keep
+        assert dropped == [("demo__pkg-2", "pending_recheck"),
+                           ("demo__pkg-3", "deferred")], dropped
+        # a missing record must not silently drop the whole sample
+        assert SW.drop_invalid_envs(ids, Path(td) / "nope.json") == (ids, [])
+
+
+def test_failed_unit_still_counts_its_calls_against_the_quota() -> None:
+    """A unit that dies mid-phase spent real calls; the provider does not refund
+    them. usage.json used to be written only on the success path, so the three
+    503-killed instances of 2026-09-22 left no trace in the day's tally."""
+    _stub_world(broken={"demo__pkg-2"})
+    from tdbf.models import llm
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td); store = _Store(root)
+        usage_path = root / "usage.json"
+        # the sweep reads the process-wide counter; simulate the broken unit
+        # burning 7 calls before it raised
+        real = llm.calls_served_total
+        ticks = iter([0, 7, 7, 7, 7, 7, 7, 7, 7])
+        SW.calls_served_total = lambda: next(ticks, 7)
+        try:
+            s = _sweep(root, store, _cfg(root), [_inst(2)])
+        finally:
+            SW.calls_served_total = real
+        assert [iid for iid, _ in s.failed] == ["demo__pkg-2"], s.failed
+        assert s.failed_calls == 7, s.failed_calls
+        assert json.loads(usage_path.read_text()) != {}, "failed unit was not billed"
+
+
 def main() -> int:
     tests = [
         test_ab_unit_records_share_a_pair_id,
+        test_env_gate_drops_instances_not_marked_valid,
+        test_failed_unit_still_counts_its_calls_against_the_quota,
         test_order_is_a_seeded_coin_flip,
         test_resume_skips_completed_units,
         test_failed_unit_leaves_no_records,
