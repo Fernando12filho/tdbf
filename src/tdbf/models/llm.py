@@ -635,6 +635,21 @@ def is_upstream_throttle(exc: BaseException) -> bool:
     return "upstream_provider" in text or "rate-limited upstream" in text
 
 
+# Process-wide count of OpenRouter calls actually served, across every client
+# instance. A client's own `served` counter is cleared each time a record is
+# written (take_served), so it cannot answer "what did this unit spend?" when the
+# unit died mid-phase and never produced a record. This one is never reset: the
+# sweep reads it before and after each unit so a FAILED unit's calls still count
+# against the daily quota. Before this, only successful units were counted and
+# usage.json under-reported real spend.
+_CALLS_SERVED = 0
+
+
+def calls_served_total() -> int:
+    """OpenRouter calls served in this process so far. Monotonic, never reset."""
+    return _CALLS_SERVED
+
+
 class OpenRouterClient(_OpenAIToolMixin):
     """Hosted open-weight models through OpenRouter's OpenAI-compatible endpoint.
 
@@ -722,10 +737,12 @@ class OpenRouterClient(_OpenAIToolMixin):
         self.served.clear()
 
     def _record_served(self, resp) -> None:
+        global _CALLS_SERVED
         extra = getattr(resp, "model_extra", None) or {}
         provider = getattr(resp, "provider", None) or extra.get("provider") or "?"
         served_model = getattr(resp, "model", None) or self.model
         self.served[f"{served_model}|{provider}"] += 1
+        _CALLS_SERVED += 1
 
     def _call(self, create):
         """`create()`, waiting out an upstream shared-pool throttle a few times.
