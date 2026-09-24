@@ -507,7 +507,8 @@ def main() -> int:
     log_path = Path(args.log) if args.log else cfg.out_dir / cfg.run_group / "sweep.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     handle = log_path.open("a", encoding="utf-8")
-    sys.stdout, sys.stderr = Tee(sys.stdout, handle), Tee(sys.stderr, handle)
+    real_out, real_err = sys.stdout, sys.stderr
+    sys.stdout, sys.stderr = Tee(real_out, handle), Tee(real_err, handle)
     print(f"\n{'=' * 64}\n# sweep start {datetime.now(timezone.utc).isoformat()}  "
           f"log -> {log_path}")
     try:
@@ -528,7 +529,12 @@ def main() -> int:
         print_summary(cfg, summary)
         return summary.status
     finally:
+        # Put the real streams back BEFORE closing the log. Leaving sys.stdout as
+        # a Tee over a closed handle makes CPython's shutdown flush raise, and the
+        # interpreter then exits 120 — masking the real status (0 done / 3 quota /
+        # 4 repeated failures) that a supervisor needs to tell those apart.
         sys.stdout.flush()
+        sys.stdout, sys.stderr = real_out, real_err
         handle.close()
 
 
