@@ -151,16 +151,17 @@ how each phase ended (voluntary submission or a forced one at the iteration
 cap). The model is free, so dollar cost is zero; model calls were the scarce
 resource and stand in for cost.
 
-RQ2 is answered from runs already stored, with no new model calls. Most were
-made with Claude Sonnet 4.6 on the development set using the same pipeline
-code, and cover the gold-free acceptance criterion against an L4 oracle gate,
-self-review of the test and of the fix, adversarial verification after the fix,
-and best-of-$N$ test selection. The gate-retry budget is examined on the RQ1
-sweep itself. Every accepted test carries an offline L0--L4 label, so we can
-count how many resolved instances an L4-only gate would have thrown away
-without re-running anything. The development set is small and non-random, so
-we report these comparisons with their $n$ \ph{per variant} and treat them as
-case-level evidence.
+RQ2 is answered from runs already stored, with no new model calls. The two
+questions about the gate use the nemotron-3-super sweep itself. Every test the
+sweep produced carries an offline L0--L4 label, so we can count how many
+resolved instances an L4-only oracle gate would have discarded, without
+re-running anything, and the retry records show which instances the gate's two
+retries recovered. The remaining variants (self-review of the test and of the
+fix, adversarial verification after the fix, and best-of-$N$ test selection)
+were only run earlier, with Claude Sonnet 4.6 on the development set and the
+same pipeline code. That set is small and non-random, so we report those
+comparisons with their $n$ \ph{per variant} as case-level evidence from a
+different model.
 
 RQ3 records the stage at which each trajectory ends: no terminal submission
 within budget, a submitted test that does not fail on the buggy revision, a
