@@ -1,0 +1,28 @@
+{#- Shared glossary helpers for the Results and Development pages.
+    Definitions live in webapp/glossary.py (GLOSSARY global). -#}
+
+{% macro term(key, label=None) -%}
+  {%- set t = GLOSSARY[key] -%}
+  <a href="#g-{{ key }}" class="term" title="{{ t.definition }}">{{ label or t.term }}</a>
+{%- endmacro %}
+
+{% macro formula(key) -%}
+  <code class="formula">{{ GLOSSARY[key].formula }}</code>
+{%- endmacro %}
+
+{% macro glossary(sections) %}
+<h2 class="h5 mt-5 mb-3" id="glossary">Glossary</h2>
+<p class="text-muted small">Every term used on this page. Hover a linked word for its short definition, or click it to jump here.</p>
+{% for title, entries in sections %}
+<h3 class="h6 mt-4">{{ title }}</h3>
+<dl class="glossary">
+  {% for key, name, definition, formula in entries %}
+  <dt id="g-{{ key }}">{{ name }}</dt>
+  <dd>
+    {{ definition }}
+    {% if formula %}<div><code class="formula">{{ formula }}</code></div>{% endif %}
+  </dd>
+  {% endfor %}
+</dl>
+{% endfor %}
+{% endmacro %}

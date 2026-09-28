@@ -16,11 +16,13 @@ from flask import (
 )
 
 import db
+import glossary
 import research_data
 
 from tdbf import metrics as tdbf_metrics
 
 app = Flask(__name__)
+app.jinja_env.globals["GLOSSARY"] = glossary.TERMS
 db.init_db()
 
 RESULTS_FILE = Path(__file__).parent.parent / "results.jsonl"
@@ -112,12 +114,48 @@ def commands():
     return render_template("commands.html")
 
 
+def _frozen_sample() -> tuple[list[str] | None, dict[str, str]]:
+    """The frozen sample's instance ids and each one's environment state, so the
+    Results page can say which instances were left out and why."""
+    root = RESULTS_FILE.parent
+    try:
+        ids = json.loads((root / "sample_lite_frozen.json").read_text())["instances"]
+    except (OSError, ValueError, KeyError):
+        return None, {}
+    try:
+        env = json.loads((root / "sample_lite_env.json").read_text())["instances"]
+        states = {k: (v or {}).get("state", "?") for k, v in env.items()}
+    except (OSError, ValueError, KeyError, AttributeError):
+        states = {}
+    return ids, states
+
+
+@app.route("/results")
+def results():
+    """The main experiment only: one model, the frozen sample, both arms.
+    Numbers come from tdbf.metrics.build_results (also behind script 14)."""
+    recs = tdbf_metrics.load_records(RESULTS_FILE)
+    ids, states = _frozen_sample()
+    res = tdbf_metrics.build_results(recs, sample_ids=ids, env_states=states)
+    return render_template("results.html", res=res,
+                           glossary_sections=glossary.RESULTS_SECTIONS)
+
+
+@app.route("/development")
+def development():
+    """Everything run while building the agents. The experiment's own run groups
+    are left out, so no number here repeats one from the Results page."""
+    recs = [r for r in tdbf_metrics.load_records(RESULTS_FILE)
+            if (r.get("flags") or {}).get("run_group")
+            not in tdbf_metrics.EXPERIMENT_RUN_GROUPS]
+    return render_template("development.html", rep=tdbf_metrics.build_report(recs),
+                           glossary_sections=glossary.DEVELOPMENT_SECTIONS)
+
+
 @app.route("/metrics")
 def metrics():
-    """Paper/advisor metric suite, computed from results.jsonl via tdbf.metrics
-    (the same single source of truth the CLI report 08_metrics_report.py uses)."""
-    recs = tdbf_metrics.load_records(RESULTS_FILE)
-    return render_template("metrics.html", rep=tdbf_metrics.build_report(recs))
+    """Old address of the metrics page; the experiment now lives on /results."""
+    return redirect(url_for("results"))
 
 
 @app.route("/research")

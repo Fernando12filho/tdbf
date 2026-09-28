@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+{% import "_glossary.html" as g with context %}
+{% block title %}Results — TDBF{% endblock %}
+{% block content %}
+
+{% macro pct(r) -%}
+  {%- if r and r.den -%}
+    <span class="fw-semibold">{{ r.pct }}</span> <span class="text-muted small">({{ r.num }}/{{ r.den }})</span>
+  {%- else -%}<span class="text-muted">—</span>{%- endif -%}
+{%- endmacro %}
+
+<h1 class="h3 mb-1">Results</h1>
+<p class="text-muted mb-4">
+  The main experiment: one {{ g.term('llm', 'model') }}, the {{ g.term('frozen_sample', 'frozen sample') }},
+  two {{ g.term('arm', 'arms') }}, and every {{ g.term('instance', 'instance') }} run by both
+  ({{ g.term('paired', 'paired') }}). Runs made while building the agents are on the
+  <a href="{{ url_for('development') }}">Development</a> page.
+</p>
+
+{% if not res.n %}
+<div class="alert alert-secondary">No instance has results from both arms yet.</div>
+{% else %}
+{% set tf = res.arms[0] %}{% set rx = res.arms[1] %}
+
+<!-- ── Setup ─────────────────────────────────────────────────────── -->
+<div class="card mb-4">
+  <div class="card-body small">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div><span class="text-muted">{{ g.term('llm', 'Model') }}:</span>
+          <code>{{ res.model }}</code>, through {{ g.term('openrouter') }}</div>
+        <div><span class="text-muted">{{ g.term('n', 'N') }}:</span>
+          <strong>{{ res.n }}</strong> instances
+          {% if res.sample_size %}of the {{ res.sample_size }} in the {{ g.term('frozen_sample', 'frozen sample') }}{% endif %}</div>
+        <div><span class="text-muted">Limits per phase:</span>
+          {{ res.budget.max_iterations }} {{ g.term('iteration', 'iterations') }},
+          {{ "{:,}".format(res.budget.max_tokens_per_turn) }} tokens per turn,
+          {{ "{:,}".format(res.budget.max_total_tokens) }} tokens in total</div>
+      </div>
+      <div class="col-md-6">
+        <div><span class="text-muted">{{ g.term('test_first', 'Test-first') }} {{ g.term('sweep', 'sweep') }}:</span>
+          {{ tf.first_day }} to {{ tf.last_day }}</div>
+        <div><span class="text-muted">{{ g.term('reactive', 'Reactive') }} {{ g.term('sweep', 'sweep') }}:</span>
+          {{ rx.first_day }} to {{ rx.last_day }}</div>
+        {% if res.left_out %}
+        <div><span class="text-muted">Left out ({{ g.term('left_out', 'why') }}):</span>
+          {% for x in res.left_out %}<code>{{ x.instance_id }}</code>
+            <span class="text-muted">({% if x.state == 'incomplete_upstream' %}incomplete{% elif x.state == 'deferred' %}no image{% else %}{{ x.state }}{% endif %})</span>{% if not loop.last %}, {% endif %}{% endfor %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── 1 · Test-first vs reactive ───────────────────────────────── -->
+<h2 class="h5 mb-1">1 · Test-first vs reactive</h2>
+<p class="text-muted small mb-3">{{ g.term('rq', 'RQ1') }}: does writing the test first resolve more bugs?</p>
+
+<table class="table table-sm align-middle mb-2">
+  <thead><tr>
+    <th>{{ g.term('arm', 'Arm') }}</th>
+    <th class="text-end">{{ g.term('resolve_rate', 'Resolved rate') }}</th>
+    <th class="text-end">{{ g.term('calls_per_instance', 'Calls per instance') }}</th>
+    <th class="text-end">Fixing agent {{ g.term('stopping', 'stopped itself') }}</th>
+    <th class="text-end">{{ g.term('stopping', 'Ran out of turns') }}</th>
+  </tr></thead>
+  <tbody>
+  {% for a in res.arms %}
+    <tr>
+      <td>{{ g.term('test_first' if a.label == 'test-first' else 'reactive', a.label|capitalize) }}</td>
+      <td class="text-end">{{ pct(a.resolved) }}</td>
+      <td class="text-end">{{ "%.0f"|format(a.calls_mean) }}
+        <span class="text-muted small">(median {{ "%.0f"|format(a.calls_median) }}, total {{ "{:,}".format(a.calls_total) }})</span></td>
+      <td class="text-end">{{ pct(a.stopped_itself) }}</td>
+      <td class="text-end">{{ pct(a.ran_out_of_turns) }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="small text-muted mb-3">
+  {{ g.formula('resolve_rate') }} · {{ g.formula('calls_per_instance') }}.
+  The stopping columns count fixing runs only: test-first had {{ tf.fix_runs }}, because
+  instances rejected by the {{ g.term('gate', 'gate') }} never reached fixing.
+</p>
+
+<div class="row g-3 mb-2">
+  <div class="col-md-5">
+    <table class="table table-sm table-bordered text-center small mb-0">
+      <thead><tr><th></th><th>Test-first resolved</th><th>Test-first not</th></tr></thead>
+      <tbody>
+        <tr><th>Reactive resolved</th><td>{{ res.paired.both|length }}</td><td>{{ res.paired.rx_only|length }}</td></tr>
+        <tr><th>Reactive not</th><td>{{ res.paired.tf_only|length }}</td><td>{{ res.paired.neither|length }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="col-md-7 small">
+    <div class="mb-1"><strong>Only test-first resolved ({{ res.paired.tf_only|length }}):</strong>
+      {% for i in res.paired.tf_only %}<code>{{ i }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</div>
+    <div><strong>Only reactive resolved ({{ res.paired.rx_only|length }}):</strong>
+      {% for i in res.paired.rx_only %}<code>{{ i }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</div>
+  </div>
+</div>
+<p class="small text-muted mb-4">
+  Each instance was run by both arms, so the table counts instances by what happened in each.
+  Only the instances where the arms disagree say anything about which arm is better.
+  Whether the difference is bigger than chance is not shown here yet.
+</p>
+
+<!-- ── 2 · Test-first, step by step ─────────────────────────────── -->
+<h2 class="h5 mb-3">2 · Test-first, step by step</h2>
+<table class="table table-sm align-middle mb-4">
+  <thead><tr><th>Step</th><th class="text-end">Instances</th><th>Metric</th><th>Formula</th></tr></thead>
+  <tbody>
+    <tr><td>Attempted</td><td class="text-end">{{ res.n }}</td><td></td><td></td></tr>
+    <tr><td>{{ g.term('brt', 'Test') }} passed the {{ g.term('gate', 'gate') }}, so a fix was attempted</td>
+      <td class="text-end">{{ res.funnel.gate_rate.num }}</td>
+      <td>{{ g.term('gate_rate') }} {{ pct(res.funnel.gate_rate) }}</td>
+      <td>{{ g.formula('gate_rate') }}</td></tr>
+    <tr><td>{{ g.term('resolved', 'Resolved') }}</td>
+      <td class="text-end">{{ res.funnel.pipeline_resolve.num }}</td>
+      <td>{{ g.term('resolve_at_gated') }} {{ pct(res.funnel.resolve_at_gated) }}</td>
+      <td>{{ g.formula('resolve_at_gated') }}</td></tr>
+    <tr><td></td><td></td>
+      <td>{{ g.term('resolve_rate', 'Resolved rate') }} {{ pct(res.funnel.pipeline_resolve) }}</td>
+      <td>{{ g.formula('resolve_rate') }}</td></tr>
+  </tbody>
+</table>
+
+<!-- ── 3 · Test quality ─────────────────────────────────────────── -->
+<h2 class="h5 mb-3">3 · Quality of the test-first tests</h2>
+<div class="row g-3 mb-4">
+  <div class="col-md-7">
+    <table class="table table-sm align-middle mb-0">
+      <thead><tr><th>{{ g.term('levels', 'Level') }}</th><th>What the test did</th><th class="text-end">Instances</th></tr></thead>
+      <tbody>
+        <tr><td>L0</td><td>No usable test was produced</td><td class="text-end">{{ res.levels[0] }}</td></tr>
+        <tr><td>L1</td><td>Passes on the {{ g.term('buggy_code', 'buggy code') }}: does not reproduce the bug</td><td class="text-end">{{ res.levels[1] }}</td></tr>
+        <tr><td>L2</td><td>Errors on the buggy code before checking anything</td><td class="text-end">{{ res.levels[2] }}</td></tr>
+        <tr><td>L3</td><td>Fails on buggy code, also fails on the {{ g.term('fixed_code', 'fixed code') }}: checks the wrong thing</td><td class="text-end">{{ res.levels[3] }}</td></tr>
+        <tr><td>L4</td><td>Fails on buggy code, passes on fixed code: valid</td><td class="text-end">{{ res.levels[4] }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="col-md-5">
+    <table class="table table-sm align-middle mb-0">
+      <tbody>
+        <tr><td>{{ g.term('c2p') }}</td><td class="text-end">{{ pct(res.c2p) }}</td></tr>
+        <tr><td colspan="2" class="small text-muted border-0 pt-0">{{ g.formula('c2p') }}</td></tr>
+        <tr><td>{{ g.term('valid_brt') }}</td><td class="text-end">{{ pct(res.valid_brt) }}</td></tr>
+        <tr><td colspan="2" class="small text-muted border-0 pt-0">{{ g.formula('valid_brt') }}</td></tr>
+      </tbody>
+    </table>
+    <p class="small text-muted mt-2 mb-0">Levels are measured afterwards with the
+      {{ g.term('gold_patch', 'gold patch') }}; the agents and the gate never see it.</p>
+  </div>
+</div>
+
+<!-- ── 4 · Why attempts did not resolve ─────────────────────────── -->
+<h2 class="h5 mb-3">4 · How each attempt ended</h2>
+<table class="table table-sm align-middle mb-2">
+  <thead><tr><th>Outcome</th><th class="text-end">Test-first</th><th class="text-end">Reactive</th></tr></thead>
+  <tbody>
+  {% set rxf = {} %}{% for x in res.failure['reactive'] %}{% set _ = rxf.update({x.key: x.count}) %}{% endfor %}
+  {% for x in res.failure['test-first'] %}
+    <tr>
+      <td>{% if x.key == 'f2p_fail' %}The bug's {{ g.term('hidden_tests', 'hidden tests') }} ({{ g.term('f2p', 'F2P') }}) still fail
+          {% elif x.key == 'p2p_fail' %}Bug's tests pass, but an existing test ({{ g.term('p2p', 'P2P') }}) broke: a {{ g.term('regression', 'regression') }}
+          {% elif x.key == 'not_applied' %}{{ g.term('patch', 'Patch') }} did not apply
+          {% elif x.key == 'gate_rejected' %}{{ g.term('gate', 'Gate') }} rejected the test, so no fix was attempted
+          {% elif x.key == 'resolved' %}{{ g.term('resolved', 'Resolved') }}
+          {% else %}{{ x.label }}{% endif %}</td>
+      <td class="text-end">{{ x.count }}</td>
+      <td class="text-end">{% if x.key == 'gate_rejected' %}<span class="text-muted">no gate</span>{% else %}{{ rxf.get(x.key, 0) }}{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="small text-muted mb-4">
+  SWE-bench records which hidden tests failed, but not how many there were, so a fix that
+  gets 9 of 10 target tests right counts here the same as one that gets none.
+</p>
+
+<!-- ── 5 · By repository ────────────────────────────────────────── -->
+<h2 class="h5 mb-3">5 · By {{ g.term('repo', 'repository') }}</h2>
+<table class="table table-sm align-middle mb-4">
+  <thead><tr>
+    <th>Repository</th><th class="text-end">{{ g.term('n', 'N') }}</th>
+    <th class="text-end">Test-first: passed the {{ g.term('gate', 'gate') }}</th>
+    <th class="text-end">Test-first: {{ g.term('resolved', 'resolved') }}</th>
+    <th class="text-end">Reactive: {{ g.term('resolved', 'resolved') }}</th>
+  </tr></thead>
+  <tbody>
+  {% for r in res.repos %}
+    <tr><td>{{ r.repo }}</td><td class="text-end">{{ r.n }}</td>
+      <td class="text-end">{{ r.gated }}</td>
+      <td class="text-end">{{ r.tf_resolved }}</td>
+      <td class="text-end">{{ r.rx_resolved }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<!-- ── 6 · Where the free model's run stops ─────────────────────── -->
+<h2 class="h5 mb-1">6 · Where the test-first run stops</h2>
+<p class="text-muted small mb-3">{{ g.term('rq', 'RQ3') }}: at which step does a free,
+  {{ g.term('open_weight', 'open-weight') }} model fall short?</p>
+<table class="table table-sm align-middle mb-4">
+  <thead><tr><th>Step reached</th><th class="text-end">Instances</th><th class="text-end">Share of N</th><th class="text-end">Lost at this step</th></tr></thead>
+  <tbody>
+  {% for s in res.stages %}
+    <tr><td>{{ s.label }}</td>
+      <td class="text-end">{{ s.count }}</td>
+      <td class="text-end">{{ "%.0f"|format(100 * s.count / res.n) }}%</td>
+      <td class="text-end text-muted">{% if not loop.first %}{{ res.stages[loop.index0 - 1].count - s.count }}{% endif %}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{{ g.glossary(glossary_sections) }}
+
+{% endblock %}

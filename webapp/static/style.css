@@ -70,3 +70,11 @@
   padding-left: 1rem;
   color: #6c757d;
 }
+
+/* Results / Development pages: glossary links and definitions */
+.term { color: inherit; text-decoration: underline dotted; text-underline-offset: 2px; }
+.term:hover { color: #0d6efd; }
+.formula { font-size: 0.8rem; color: #495057; }
+dl.glossary dt { font-weight: 600; margin-top: 0.6rem; scroll-margin-top: 1rem; }
+dl.glossary dd { margin-left: 0; font-size: 0.9rem; color: #343a40; }
+dl.glossary dt:target { background: #fff3cd; }
