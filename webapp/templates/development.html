@@ -1,20 +1,21 @@
 {% extends "base.html" %}
-{% block title %}Metrics — TDBF{% endblock %}
+{% import "_glossary.html" as g with context %}
+{% block title %}Development — TDBF{% endblock %}
 {% block content %}
 
 <div class="d-flex justify-content-between align-items-center mb-2">
-  <h1 class="h3 mb-0">Metrics</h1>
-  <span class="text-muted small">
-    {{ rep.counts.records }} records ·
-    {{ rep.counts.brt_agent }} BRT · {{ rep.counts.fix_agent }} fix ·
-    {{ rep.counts.deployable }} deployable · {{ rep.counts.baseline }} baseline
-  </span>
+  <h1 class="h3 mb-0">Development</h1>
+  <span class="text-muted small">{{ rep.counts.records }} records</span>
 </div>
-<p class="text-muted small mb-4">
-  Paper metric suite over <code>results.jsonl</code>. Per-instance dedup:
-  best-of level (BRT) / resolved-first (fix). Local <code>ollama:*</code> runs are
-  free — cost figures are Claude only.
-</p>
+<div class="alert alert-secondary small mb-4">
+  Runs made while building and testing the agents: several models, the
+  {{ g.term('dev_set') }}, {{ g.term('probe', 'probes') }} and
+  {{ g.term('ablation', 'ablations') }}. <strong>This is not the evaluation.</strong>
+  The main experiment is on the <a href="{{ url_for('results') }}">Results</a> page, and its
+  runs are left out of every number here. Each instance is counted once per setup: its
+  best test level, and a resolved fix if any run resolved it.
+  {{ g.term('local', 'Local') }} models cost nothing, so {{ g.term('cost_usd', 'costs') }} are for Claude only.
+</div>
 
 {% macro pill(r) -%}
   {%- if r and r.den -%}
@@ -24,30 +25,15 @@
 {%- endmacro %}
 
 <!-- ── [1] BRT quality ─────────────────────────────────────────────── -->
-<h2 class="h5 mb-3">1 · BRT quality <span class="text-muted fw-normal small">Phase A · C2P = F2P / (F2P + F2F)</span></h2>
+<h2 class="h5 mb-3">1 · {{ g.term('brt', 'Test') }} quality <span class="text-muted fw-normal small">test-writing phase · {{ g.formula('c2p') }}</span></h2>
 
-<!-- SWE-bench transition legend: a BRT's level IS its (buggy → gold-fixed) outcome. -->
 <div class="card mb-3 border-0 bg-light">
-  <div class="card-body py-3">
-    <div class="small text-muted mb-2 fw-semibold">How a generated test behaves on buggy code → gold-fixed code:</div>
-    <div class="row g-2 small">
-      <div class="col-md-6">
-        <span class="badge bg-success">F2P</span>
-        <span class="fw-semibold">Fail → Pass</span> <span class="text-muted">(= L4)</span> —
-        reproduces the bug and the gold fix clears it. <span class="text-success fw-semibold">The only valid BRT.</span>
-      </div>
-      <div class="col-md-6">
-        <span class="badge bg-info text-dark">F2F</span>
-        <span class="fw-semibold">Fail → Fail</span> <span class="text-muted">(= L3)</span> —
-        catches <em>a</em> failure, but the gold fix doesn't clear it (wrong assertion).
-      </div>
-    </div>
-    <div class="small text-muted mt-2">
-      <strong>C2P</strong> (candidate→plausible) <code>= F2P / (F2P + F2F)</code> = L4/(L3+L4).
-      L0–L2 = the test never ran cleanly on buggy code (malformed / crashed), so it forms no
-      transition. (SWE-bench <em>Pass→Pass</em> is the held-out regression suite, not a
-      generated BRT — not shown here.)
-    </div>
+  <div class="card-body py-3 small">
+    <div class="text-muted mb-1 fw-semibold">How a written test behaves on {{ g.term('buggy_code') }} → {{ g.term('fixed_code') }} ({{ g.term('levels') }}):</div>
+    <div><span class="badge bg-success">L4</span> fails → passes: reproduces the bug, and the real fix clears it. The only valid test.</div>
+    <div><span class="badge bg-info text-dark">L3</span> fails → fails: catches a failure, but checks the wrong thing.</div>
+    <div class="text-muted mt-1">L0–L2: the test never ran cleanly on the buggy code (none produced, passes, or crashes).
+      Older versions of this page called L4 "F2P" and L3 "F2F"; here {{ g.term('f2p', 'F2P') }} only means SWE-bench's hidden tests.</div>
   </div>
 </div>
 
@@ -57,11 +43,11 @@
       <thead><tr>
         <th>Arm</th>
         <th class="text-end">Inst</th>
-        <th class="text-center">L0 · L1 · L2 · <span class="text-info">F2F</span> · <span class="text-success">F2P</span></th>
-        <th class="text-end"><span class="text-success">F2P</span></th>
-        <th class="text-end"><span class="text-info">F2F</span></th>
-        <th class="text-end">C2P</th>
-        <th class="text-end">Valid-BRT</th>
+        <th class="text-center">L0 · L1 · L2 · <span class="text-info">L3</span> · <span class="text-success">L4</span></th>
+        <th class="text-end"><span class="text-success">L4</span></th>
+        <th class="text-end"><span class="text-info">L3</span></th>
+        <th class="text-end">{{ g.term('c2p') }}</th>
+        <th class="text-end">{{ g.term('valid_brt') }}</th>
       </tr></thead>
       <tbody>
         {% for a in rep.brt_arms %}
@@ -89,14 +75,14 @@
 </div>
 
 <!-- ── [2] Fix quality ─────────────────────────────────────────────── -->
-<h2 class="h5 mb-3">2 · Fix quality <span class="text-muted fw-normal small">Phase B · Resolve@BRT = resolved/N</span></h2>
+<h2 class="h5 mb-3">2 · Fixing <span class="text-muted fw-normal small">fixing phase · {{ g.formula('resolve_at_brt') }}</span></h2>
 <div class="card mb-4">
   <div class="card-body p-0">
     <table class="table table-sm mb-0 align-middle">
       <thead><tr>
         <th>Model</th>
         <th class="text-end">Inst</th>
-        <th class="text-end">Resolve@BRT</th>
+        <th class="text-end">{{ g.term('resolve_at_brt') }}</th>
         <th class="text-end">$/inst</th>
         <th class="text-end">$/resolved</th>
       </tr></thead>
@@ -120,7 +106,7 @@
 </div>
 
 <!-- ── [3] Whole pipeline funnel ───────────────────────────────────── -->
-<h2 class="h5 mb-3">3 · Whole pipeline <span class="text-muted fw-normal small">assembled ceiling · Pipeline = GateRate × Resolve@Gated</span></h2>
+<h2 class="h5 mb-3">3 · {{ g.term('ceiling') }} <span class="text-muted fw-normal small">{{ g.formula('resolve_rate') }}</span></h2>
 <div class="row g-3 mb-4">
   {% for p in rep.pipeline %}
   <div class="col-md-6">
@@ -145,14 +131,14 @@
 
 <!-- ── [4] Deployable pipeline ─────────────────────────────────────── -->
 {% if rep.deployable %}
-<h2 class="h5 mb-3">4 · Deployable pipeline <span class="text-muted fw-normal small">07 · gold-free gate · pilot</span></h2>
+<h2 class="h5 mb-3">4 · Test-first with the {{ g.term('gold_free', 'gold-free') }} {{ g.term('gate', 'gate') }} <span class="text-muted fw-normal small">development runs and probes (script 07)</span></h2>
 <div class="card mb-4">
   <div class="card-body p-0">
     <table class="table table-sm mb-0 align-middle">
       <thead><tr>
         <th>Model</th><th class="text-end">Inst</th>
-        <th class="text-end">Gate accept</th>
-        <th class="text-end">C2P</th><th class="text-end">Valid-BRT</th>
+        <th class="text-end">{{ g.term('gate_rate', 'Gate accept') }}</th>
+        <th class="text-end">{{ g.term('c2p') }}</th><th class="text-end">{{ g.term('valid_brt') }}</th>
         <th class="text-end">Resolved (of gated)</th>
       </tr></thead>
       <tbody>
@@ -176,13 +162,13 @@
 
 <!-- ── [5] Repo breakdown ──────────────────────────────────────────── -->
 {% if rep.repo_breakdown %}
-<h2 class="h5 mb-3">5 · Repo breakdown <span class="text-muted fw-normal small">Claude Sonnet</span></h2>
+<h2 class="h5 mb-3">5 · By {{ g.term('repo', 'repository') }} <span class="text-muted fw-normal small">Claude Sonnet on the development set</span></h2>
 <div class="card mb-4">
   <div class="card-body p-0">
     <table class="table table-sm mb-0 align-middle">
       <thead><tr>
-        <th>Repo</th><th class="text-end">C2P</th>
-        <th class="text-end">Valid-BRT</th><th class="text-end">Resolve@BRT</th>
+        <th>Repo</th><th class="text-end">{{ g.term('c2p') }}</th>
+        <th class="text-end">{{ g.term('valid_brt') }}</th><th class="text-end">{{ g.term('resolve_at_brt') }}</th>
       </tr></thead>
       <tbody>
         {% for r in rep.repo_breakdown %}
@@ -201,13 +187,13 @@
 
 <!-- ── [6] Non-agentic baseline ────────────────────────────────────── -->
 {% if rep.baseline_arms %}
-<h2 class="h5 mb-3">6 · Non-agentic baseline <span class="text-muted fw-normal small">02/03 --attempts workflow · for contrast</span></h2>
+<h2 class="h5 mb-3">6 · {{ g.term('non_agentic') }} <span class="text-muted fw-normal small">scripts 02/03 · not comparable: its retry uses the gold patch</span></h2>
 <div class="card mb-4">
   <div class="card-body p-0">
     <table class="table table-sm mb-0 align-middle">
       <thead><tr>
         <th>Model</th><th class="text-end">Inst</th>
-        <th class="text-center">L0 · L1 · L2 · <span class="text-info">F2F</span> · <span class="text-success">F2P</span></th><th class="text-end">C2P</th>
+        <th class="text-center">L0 · L1 · L2 · <span class="text-info">L3</span> · <span class="text-success">L4</span></th><th class="text-end">{{ g.term('c2p') }}</th>
       </tr></thead>
       <tbody>
         {% for a in rep.baseline_arms %}
@@ -227,5 +213,7 @@
   </div>
 </div>
 {% endif %}
+
+{{ g.glossary(glossary_sections) }}
 
 {% endblock %}

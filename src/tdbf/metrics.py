@@ -348,6 +348,209 @@ def build_report(records: list[dict]) -> dict:
     }
 
 
+# ── the main experiment (webapp Results page) ───────────────────────────────
+# One model, one frozen sample, two arms run over the same instances. Every
+# number below is over those instances only; development runs never mix in.
+
+# (label, run_group, flags.arm of the fix-phase record)
+EXPERIMENT_ARMS = (
+    ("test-first", "rq1-sweep", "deployable"),
+    ("reactive", "rq1-armA", "reactive"),
+)
+EXPERIMENT_RUN_GROUPS = frozenset(g for _, g, _ in EXPERIMENT_ARMS)
+
+# Why an attempt did not resolve, decided from the scorer's own lists of
+# hidden tests that failed. SWE-bench records WHICH tests failed, not how many
+# there were, so a partial fix (9 of 10) and a total miss look the same here.
+FAILURE_KINDS = (
+    ("resolved", "Resolved"),
+    ("f2p_fail", "The bug's hidden tests (F2P) still fail"),
+    ("p2p_fail", "Bug's tests pass, but an existing test (P2P) broke"),
+    ("not_applied", "Patch did not apply"),
+    ("gate_rejected", "Gate rejected the test, so no fix was attempted"),
+    ("other", "Not resolved, no detail recorded"),
+)
+
+
+def _latest(recs: list[dict]) -> dict[str, dict]:
+    """instance_id -> the most recent record (results.jsonl is append-only)."""
+    out: dict[str, dict] = {}
+    for r in sorted(recs, key=lambda x: x.get("timestamp", "")):
+        out[r["instance_id"]] = r
+    return out
+
+
+def _failure_kind(fix_rec: dict | None, *, gated: bool = True) -> str:
+    if not gated:
+        return "gate_rejected"
+    if fix_rec is None:
+        return "other"
+    a = _best_attempt(fix_rec)
+    if fix_rec.get("resolved") or a.get("resolved"):
+        return "resolved"
+    if a.get("applied") is False:
+        return "not_applied"
+    if a.get("fail_to_pass_failed"):
+        return "f2p_fail"
+    if a.get("pass_to_pass_failed"):
+        return "p2p_fail"
+    return "other"
+
+
+def _stop_kind(stop_cause: str | None) -> str:
+    """How an agent ended: it called its submit tool itself, or it hit the
+    iteration limit and was made to hand in what it had."""
+    if stop_cause == "submit":
+        return "stopped_itself"
+    if stop_cause in ("submit_forced", "max_iterations"):
+        return "ran_out_of_turns"
+    return "other"
+
+
+def _median(xs: list[float]) -> float | None:
+    s = sorted(xs)
+    if not s:
+        return None
+    m = len(s) // 2
+    return s[m] if len(s) % 2 else (s[m - 1] + s[m]) / 2
+
+
+def build_results(records: list[dict], *, sample_ids: list[str] | None = None,
+                  env_states: dict[str, str] | None = None) -> dict:
+    """Numbers for the Results page: the frozen-sample experiment only.
+
+    Instances are those with a completed unit in BOTH arms (paired), so every
+    rate shares one denominator N. `sample_ids` / `env_states` (the frozen
+    sample file and the environment record) are optional and only used to
+    report what was left out and why.
+    """
+    units = {
+        label: _latest([r for r in records if r.get("mode") == "sweep_unit"
+                        and _flag(r, "run_group") == group])
+        for label, group, _ in EXPERIMENT_ARMS
+    }
+    fixes = {
+        label: _latest([r for r in records if r.get("mode") == "fix_agent"
+                        and _flag(r, "run_group") == group
+                        and _flag(r, "arm") == arm])
+        for label, group, arm in EXPERIMENT_ARMS
+    }
+    tests = _latest([r for r in records if r.get("mode") == "agent_deployable"
+                     and _flag(r, "run_group") == "rq1-sweep"])
+
+    tf, rx = units["test-first"], units["reactive"]
+    paired = sorted(set(tf) & set(rx))
+    n = len(paired)
+    if not n:
+        return {"n": 0}
+
+    def resolved(label: str, iid: str) -> bool:
+        u = units[label][iid]
+        side = u.get("arm_b") if label == "test-first" else u.get("arm_a")
+        return bool((side or {}).get("resolved"))
+
+    # ── per arm: fixed, calls, dates, how the fix agent stopped ─────────────
+    arms = []
+    for label, group, _ in EXPERIMENT_ARMS:
+        calls = [units[label][i].get("calls") or 0 for i in paired]
+        stamps = sorted(units[label][i].get("timestamp", "") for i in paired)
+        stops = collections.Counter(
+            _stop_kind(_best_attempt(fixes[label][i]).get("stop_cause"))
+            for i in paired if i in fixes[label])
+        n_fix = sum(stops.values())
+        arms.append({
+            "label": label,
+            "run_group": group,
+            "resolved": rate(sum(resolved(label, i) for i in paired), n),
+            "calls_total": sum(calls),
+            "calls_mean": sum(calls) / n,
+            "calls_median": _median(calls),
+            "first_day": stamps[0][:10] if stamps else None,
+            "last_day": stamps[-1][:10] if stamps else None,
+            "fix_runs": n_fix,
+            "stopped_itself": rate(stops["stopped_itself"], n_fix),
+            "ran_out_of_turns": rate(stops["ran_out_of_turns"], n_fix),
+        })
+
+    # ── paired outcomes: who fixed what ──────────────────────────────────────
+    both, tf_only, rx_only, neither = [], [], [], []
+    for i in paired:
+        t, r = resolved("test-first", i), resolved("reactive", i)
+        (both if t and r else tf_only if t else rx_only if r else neither).append(i)
+
+    # ── test-first pipeline: gate and BRT levels ─────────────────────────────
+    gated = [i for i in paired if tests.get(i, {}).get("gate_accepted")]
+    levels = collections.Counter(int(tests[i].get("best_level") or 0)
+                                 for i in paired if i in tests)
+    L = [levels.get(k, 0) for k in range(5)]
+    tf_resolved = sum(resolved("test-first", i) for i in paired)
+
+    # ── why attempts did not resolve ─────────────────────────────────────────
+    failure = {}
+    for label, _, _ in EXPERIMENT_ARMS:
+        c = collections.Counter(
+            _failure_kind(fixes[label].get(i),
+                          gated=(label != "test-first" or i in gated))
+            for i in paired)
+        failure[label] = [{"key": k, "label": text, "count": c.get(k, 0)}
+                          for k, text in FAILURE_KINDS
+                          if not (k == "gate_rejected" and label != "test-first")]
+
+    # ── per repository ───────────────────────────────────────────────────────
+    by_repo: dict[str, list[str]] = collections.defaultdict(list)
+    for i in paired:
+        by_repo[repo_of(units["test-first"][i])].append(i)
+    repos = [{
+        "repo": repo,
+        "n": len(ids),
+        "gated": sum(i in gated for i in ids),
+        "tf_resolved": sum(resolved("test-first", i) for i in ids),
+        "rx_resolved": sum(resolved("reactive", i) for i in ids),
+    } for repo, ids in sorted(by_repo.items(), key=lambda kv: (-len(kv[1]), kv[0]))]
+
+    # ── where the test-first run stops (RQ3 stages) ─────────────────────────
+    usable = [i for i in paired if tests.get(i, {}).get("best_level", 0) >= 1]
+    stages = [
+        {"label": "Attempted", "count": n},
+        {"label": "Wrote a usable test (level L1 or higher)", "count": len(usable)},
+        {"label": "Test reproduces the bug (passed the gate)", "count": len(gated)},
+        {"label": "Bug resolved", "count": tf_resolved},
+    ]
+
+    # ── what the frozen sample left out ─────────────────────────────────────
+    left_out = []
+    if sample_ids is not None:
+        for iid in sample_ids:
+            if iid in tf and iid in rx:
+                continue
+            state = (env_states or {}).get(iid, "not run")
+            left_out.append({"instance_id": iid, "state": state})
+
+    first = units["test-first"][paired[0]]
+    return {
+        "n": n,
+        "model": first.get("model"),
+        "budget": {k: _flag(first, k) for k in
+                   ("max_iterations", "max_tokens_per_turn", "max_total_tokens")},
+        "sample_size": len(sample_ids) if sample_ids is not None else None,
+        "left_out": left_out,
+        "arms": arms,
+        "paired": {"both": both, "tf_only": tf_only, "rx_only": rx_only,
+                   "neither": neither},
+        "funnel": {
+            "gate_rate": rate(len(gated), n),
+            "resolve_at_gated": rate(tf_resolved, len(gated)),
+            "pipeline_resolve": rate(tf_resolved, n),
+        },
+        "levels": L,
+        "c2p": rate(L[4], L[3] + L[4]),
+        "valid_brt": rate(L[4], n),
+        "failure": failure,
+        "repos": repos,
+        "stages": stages,
+    }
+
+
 # ── text formatter (for the CLI) ─────────────────────────────────────────────
 
 def format_text(rep: dict) -> str:
