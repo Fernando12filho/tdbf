@@ -12,7 +12,7 @@ venv/
 runs/
 logs/
 
-# Harness summary JSONs written to repo root
+# Harness summary JSONs (run_harness moves them to logs/harness_reports/; this is a safety net)
 *.json
 
 # Secrets
