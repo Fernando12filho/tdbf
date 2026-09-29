@@ -78,6 +78,11 @@
 <p class="small text-muted mb-2">The fixed-loop <code>--attempts</code>/<code>--repair</code> pipeline that predates the agents.</p>
 {{ cmd("# Two-phase generation (observe buggy output, then write the test)\npython3 scripts/02_generate_brt.py --id astropy__astropy-12907 \\\n  --model anthropic:claude-sonnet-4-6 --observe --attempts 3\n\n# Batch over the split\npython3 scripts/03_batch_brt.py --model anthropic:claude-sonnet-4-6 --observe --attempts 3") }}
 
+<!-- STATUS -->
+<h2 class="h5 mt-4" id="status">Instance status (what has run, what is left)</h2>
+<p class="small text-muted mb-2">Same table as the <a href="/status">Status</a> page. No model calls, no cost.</p>
+{{ cmd("# Summary by status and repository\npython3 scripts/15_status.py\n\n# Ids with one status (paired, one_arm, pending, excluded, development, unused)\npython3 scripts/15_status.py --list unused --repo sympy/sympy\npython3 scripts/15_status.py --list excluded -v   # with the reason") }}
+
 <!-- 9. WEBAPP -->
 <h2 class="h5 mt-4" id="webapp">9. Webapp (this dashboard)</h2>
 {{ cmd("# Serve the dashboard\ncd webapp && flask --app app run\n\n# Backfill SQLite from results.jsonl (idempotent)\ncd webapp && flask --app app sync") }}

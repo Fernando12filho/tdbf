@@ -287,7 +287,9 @@ than rewriting the append-only log.
 (primary — gold-free gate; `--breaker`, `--score-brt`)**, `08_metrics_report.py`
 (reporting), `09_bestofn_pipeline.py` (best-of-N BRT + Selector + iterated fix),
 `10_gate_ab.py` (paired per-instance A/B between two `run_group`s — one run per
-(instance, mode), so cost stays comparable across groups). Offline smokes:
+(instance, mode), so cost stays comparable across groups), `15_status.py` (where every Lite
+instance stands — paired / pending / excluded / dev set / never drawn, and whether its image is
+on disk; `src/tdbf/ledger.py`, also the webapp `/status` page). Offline smokes:
 `scripts/agent_*_smoke.py` (runtime, tools, brt, fix, breaker, multiagent, bestofn,
 deployable, pipeline, nudge) + `00_smoke_test.py` — no Docker/API needed. **Run all of
 them before and after any change to the agent or harness path.**

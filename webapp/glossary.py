@@ -258,3 +258,18 @@ TERMS: dict[str, dict] = {
 # Which sections each page shows at the bottom.
 RESULTS_SECTIONS = [s for s in SECTIONS if s[0] != "Development terms"]
 DEVELOPMENT_SECTIONS = SECTIONS
+
+# The Status page uses only a few terms; show just those, in glossary order.
+STATUS_TERMS = ("swebench", "instance", "repo", "frozen_sample", "docker_image",
+                "arm", "paired", "gold_patch", "dev_set", "run_group")
+
+
+def sections_for(keys) -> list:
+    """SECTIONS narrowed to the given term keys (empty sections dropped)."""
+    wanted = set(keys)
+    out = []
+    for title, entries in SECTIONS:
+        kept = [e for e in entries if e[0] in wanted]
+        if kept:
+            out.append((title, kept))
+    return out

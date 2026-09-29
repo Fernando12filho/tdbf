@@ -19,6 +19,7 @@ import db
 import glossary
 import research_data
 
+from tdbf import ledger as tdbf_ledger
 from tdbf import metrics as tdbf_metrics
 
 app = Flask(__name__)
@@ -150,6 +151,22 @@ def development():
             not in tdbf_metrics.EXPERIMENT_RUN_GROUPS]
     return render_template("development.html", rep=tdbf_metrics.build_report(recs),
                            glossary_sections=glossary.DEVELOPMENT_SECTIONS)
+
+
+@app.route("/status")
+def status():
+    """Where every SWE-bench Lite instance stands: run, pending, excluded, or
+    never drawn. Same table as scripts/15_status.py (tdbf.ledger)."""
+    led = tdbf_ledger.load_ledger(RESULTS_FILE.parent)
+    status_filter = request.args.get("status") or ""
+    repo_filter = request.args.get("repo") or ""
+    rows = [r for r in led["rows"]
+            if (not status_filter or r["status"] == status_filter)
+            and (not repo_filter or r["repo"] == repo_filter)]
+    return render_template(
+        "status.html", led=led, rows=rows, statuses=tdbf_ledger.STATUSES,
+        status_filter=status_filter, repo_filter=repo_filter,
+        glossary_sections=glossary.sections_for(glossary.STATUS_TERMS))
 
 
 @app.route("/metrics")

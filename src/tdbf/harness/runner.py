@@ -336,7 +336,24 @@ def run_harness(
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         sys.stderr.write(proc.stdout[-4000:] + "\n" + proc.stderr[-4000:])
+    _stash_summary_reports(run_id)
     return proc.returncode
+
+
+HARNESS_SUMMARY_DIR = Path("logs") / "harness_reports"
+
+
+def _stash_summary_reports(run_id: str) -> None:
+    """Move the harness's `<model>.<run_id>.json` summary out of the cwd.
+
+    The harness always writes this run-level summary to the current directory
+    (its `--report_dir` flag is accepted but ignored). Nothing reads it — the
+    verdict comes from the per-instance report under `report_dir` — so it is
+    kept only for reference, under logs/.
+    """
+    for path in Path(".").glob(f"*.{run_id}.json"):
+        HARNESS_SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
+        path.replace(HARNESS_SUMMARY_DIR / path.name)
 
 
 def report_dir(run_id: str, model_name: str, instance_id: str) -> Path:
