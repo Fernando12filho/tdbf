@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% import "_glossary.html" as g with context %}
+{% block title %}Status — TDBF{% endblock %}
+{% block content %}
+
+{% set badge = {'paired': 'success', 'one_arm': 'warning', 'pending': 'info',
+                'excluded': 'danger', 'development': 'secondary', 'unused': 'light'} %}
+{% set label = {} %}{% for k, l, _ in statuses %}{% set _ = label.update({k: l}) %}{% endfor %}
+
+<h1 class="h3 mb-1">Status</h1>
+<p class="text-muted mb-4">
+  Where every {{ g.term('instance', 'instance') }} of {{ g.term('swebench') }} stands: run by
+  both {{ g.term('arm', 'arms') }}, still to run, left out, or never drawn into a sample.
+  Also shown with <code>python3 scripts/15_status.py</code>.
+</p>
+
+{% if not led.complete_index %}
+<div class="alert alert-warning small">
+  The full list of Lite instances is not cached yet, so only instances that appear in a
+  sample or a run are shown. Run <code>python3 scripts/15_status.py</code> once to cache it.
+</div>
+{% endif %}
+
+<!-- ── Summary ─────────────────────────────────────────────────── -->
+<table class="table table-sm align-middle mb-2">
+  <thead><tr><th>Status</th><th class="text-end">Instances</th><th>Meaning</th></tr></thead>
+  <tbody>
+  {% for key, name, meaning in statuses %}
+    <tr>
+      <td><a href="{{ url_for('status', status=key) }}#instances"
+             class="badge text-bg-{{ badge[key] }} text-decoration-none">{{ name }}</a></td>
+      <td class="text-end fw-semibold">{{ led.counts[key] }}</td>
+      <td class="small">{{ meaning }}</td>
+    </tr>
+  {% endfor %}
+    <tr class="table-light"><td>Total</td><td class="text-end fw-semibold">{{ led.total }}</td><td></td></tr>
+  </tbody>
+</table>
+<p class="small text-muted mb-4">
+  "Both arms finished" means a {{ g.term('paired', 'paired') }} result exists for the
+  experiment's {{ led.arms|join(' and ') }} {{ g.term('run_group', 'run groups') }}.
+  {% if led.images_known %}
+    {{ led.images_on_disk }} instance {{ g.term('docker_image', 'images') }} are on disk.
+  {% else %}
+    Docker was not reachable, so which {{ g.term('docker_image', 'images') }} are on disk is unknown.
+  {% endif %}
+</p>
+
+<!-- ── By repository ───────────────────────────────────────────── -->
+<h2 class="h5 mb-3">By {{ g.term('repo', 'repository') }}</h2>
+<div class="table-responsive mb-4">
+<table class="table table-sm align-middle">
+  <thead><tr>
+    <th>Repository</th><th class="text-end">Total</th>
+    {% for key, name, _ in statuses %}<th class="text-end">{{ name }}</th>{% endfor %}
+    {% if led.images_known %}<th class="text-end">Image on disk</th>{% endif %}
+  </tr></thead>
+  <tbody>
+  {% for t in led.repos %}
+    <tr>
+      <td><a href="{{ url_for('status', repo=t.repo) }}#instances">{{ t.repo }}</a></td>
+      <td class="text-end">{{ t.total }}</td>
+      {% for key, _, _ in statuses %}
+        <td class="text-end">{% if t[key] %}<a href="{{ url_for('status', repo=t.repo, status=key) }}#instances">{{ t[key] }}</a>{% else %}<span class="text-muted">0</span>{% endif %}</td>
+      {% endfor %}
+      {% if led.images_known %}<td class="text-end">{{ t.images }}</td>{% endif %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<!-- ── Instances ───────────────────────────────────────────────── -->
+<h2 class="h5 mb-2" id="instances">Instances</h2>
+<form class="row g-2 align-items-end mb-3" method="get" action="{{ url_for('status') }}#instances">
+  <div class="col-auto">
+    <label class="form-label small mb-0">Status</label>
+    <select name="status" class="form-select form-select-sm">
+      <option value="">All</option>
+      {% for key, name, _ in statuses %}
+      <option value="{{ key }}" {% if key == status_filter %}selected{% endif %}>{{ name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <label class="form-label small mb-0">Repository</label>
+    <select name="repo" class="form-select form-select-sm">
+      <option value="">All</option>
+      {% for t in led.repos|sort(attribute='repo') %}
+      <option value="{{ t.repo }}" {% if t.repo == repo_filter %}selected{% endif %}>{{ t.repo }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-sm btn-dark">Filter</button>
+    {% if status_filter or repo_filter %}<a class="btn btn-sm btn-link" href="{{ url_for('status') }}#instances">Clear</a>{% endif %}
+  </div>
+  <div class="col-auto small text-muted">{{ rows|length }} shown</div>
+</form>
+
+<div class="table-responsive mb-4">
+<table class="table table-sm align-middle small">
+  <thead><tr>
+    <th>Instance</th><th>Status</th><th>Arms finished</th><th>Environment</th>
+    <th class="text-end">Other runs</th><th>Last run</th>
+    {% if led.images_known %}<th>Image</th>{% endif %}
+  </tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td><code>{{ r.instance_id }}</code></td>
+      <td><span class="badge text-bg-{{ badge[r.status] }}">{{ label[r.status] }}</span></td>
+      <td>{{ r.arms_done|join(', ') or '—' }}</td>
+      <td>{% if r.env_state %}<span {% if r.env_reason %}title="{{ r.env_reason }}" class="term"{% endif %}>{{ r.env_state|replace('_', ' ') }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+      <td class="text-end" {% if r.models %}title="{{ r.models|join(', ') }}"{% endif %}>{{ r.runs or '' }}</td>
+      <td>{{ r.last_run or '' }}</td>
+      {% if led.images_known %}<td>{% if r.image %}yes{% else %}<span class="text-muted">no</span>{% endif %}</td>{% endif %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="small text-muted mb-4">
+  Other runs: result records outside the paired experiment (development runs, trials),
+  hover for the models. Hover an environment state for the reason it was left out.
+</p>
+
+{{ g.glossary(glossary_sections) }}
+{% endblock %}
