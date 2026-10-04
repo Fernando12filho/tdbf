@@ -58,3 +58,5 @@ thesisproposal/main.log
 # The frozen RQ1 sample must be versioned: its commit is the pre-registration record.
 !sample_lite_frozen.json
 !sample_lite_env.json
+!sample_lite_ext_frozen.json
+!sample_lite_ext_env.json
