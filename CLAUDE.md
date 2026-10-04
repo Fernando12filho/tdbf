@@ -294,9 +294,11 @@ than rewriting the append-only log.
 `10_gate_ab.py` (paired per-instance A/B between two `run_group`s — one run per
 (instance, mode), so cost stays comparable across groups), `15_status.py` (where every Lite
 instance stands — paired / pending / excluded / dev set / never drawn, and whether its image is
-on disk; `src/tdbf/ledger.py`, also the webapp `/status` page). Offline smokes:
+on disk; `src/tdbf/ledger.py`, also the webapp `/status` page), `16_nightly_batch.py` (one
+instance at a time: pull the prebuilt image -> gold check -> script 11's paired unit -> delete
+the image; writes the sample's env record; run under `caffeinate -i`). Offline smokes:
 `scripts/agent_*_smoke.py` (runtime, tools, brt, fix, breaker, multiagent, bestofn,
-deployable, pipeline, nudge, guards) + `00_smoke_test.py` — no Docker/API needed. **Run all of
+deployable, pipeline, nudge, guards) + `batch_smoke.py` + `00_smoke_test.py` — no Docker/API needed. **Run all of
 them before and after any change to the agent or harness path.**
 
 **`webapp/`** — Flask app (`app.py`, `db.py`, `research_data.py`, `seed_docs.py`)
