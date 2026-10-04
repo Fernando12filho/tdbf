@@ -47,6 +47,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from tdbf.agent.pipeline import (
+    brt_retries_summary,
     brt_transcript_dict,
     take_served,
     fix_run_record,
@@ -115,6 +116,7 @@ def brt_deployable_record(
     if scored:  # offline label, informational — NOT used by the gate
         attempt["level"] = phase.level
         attempt["outcome_fixed"] = phase.outcome_fixed
+    extra = {"brt_retries": brt_retries_summary(phase)} if phase.prior_attempts else {}
     return {
         "instance_id": inst.instance_id,
         "repo": inst.repo,
@@ -129,6 +131,7 @@ def brt_deployable_record(
         "failure_reason_buggy": phase.failure_reason_buggy,
         "best_attempt": 1,
         "attempts": [attempt],
+        **extra,  # gate-retry attempts before the final one, only when any ran
     }
 
 

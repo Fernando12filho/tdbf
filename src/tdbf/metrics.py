@@ -439,7 +439,12 @@ def build_results(records: list[dict], *, sample_ids: list[str] | None = None,
                      and _flag(r, "run_group") == "rq1-sweep"])
 
     tf, rx = units["test-first"], units["reactive"]
-    paired = sorted(set(tf) & set(rx))
+    # The frozen rule excludes an environment-invalid instance before any arm
+    # runs. The sweep enforces that, but a result must not depend on the driver
+    # having done so: anything the environment record marks other than valid is
+    # left out here too (instances it does not know are kept).
+    states = env_states or {}
+    paired = sorted(i for i in set(tf) & set(rx) if states.get(i, "valid") == "valid")
     n = len(paired)
     if not n:
         return {"n": 0}
@@ -521,7 +526,7 @@ def build_results(records: list[dict], *, sample_ids: list[str] | None = None,
     left_out = []
     if sample_ids is not None:
         for iid in sample_ids:
-            if iid in tf and iid in rx:
+            if iid in paired:
                 continue
             state = (env_states or {}).get(iid, "not run")
             left_out.append({"instance_id": iid, "state": state})

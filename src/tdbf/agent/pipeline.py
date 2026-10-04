@@ -109,6 +109,28 @@ def _breaks_dict(phase) -> list[dict]:
     return [{"verdict": bk.verdict, "feedback": bk.feedback} for bk in (getattr(phase, "breaks", None) or [])]
 
 
+def brt_retries_summary(phase: "BrtPhaseResult") -> list[dict]:
+    """Per-attempt summary of the gate-retry attempts before the final one (the
+    final attempt is the record's `attempts[0]`). Empty when no retry ran."""
+    return [
+        {
+            "attempt": k + 1,
+            "stop_cause": r.stop_cause,
+            "iterations": r.iterations,
+            "truncated_turns": r.truncated_turns,
+            "num_tool_calls": sum(len(s.tool_calls) for s in r.steps),
+            "submitted": bool(sub and sub.strip()),
+            "outcome_buggy": outcome,
+            "failure_reason_buggy": reason,
+            "test_code": sub,
+            "input_tokens": r.total_input_tokens,
+            "output_tokens": r.total_output_tokens,
+            "step_summary": step_summary(r.steps),
+        }
+        for k, (r, sub, outcome, reason) in enumerate(phase.prior_attempts or [])
+    ]
+
+
 def brt_transcript_dict(inst: SWEBenchInstance, model_name: str, phase: "BrtPhaseResult") -> dict:
     r = phase.agent
     d = {
@@ -120,6 +142,13 @@ def brt_transcript_dict(inst: SWEBenchInstance, model_name: str, phase: "BrtPhas
         "messages": serialise_messages(r.messages),
         "submission": phase.submission,
     }
+    if phase.prior_attempts:  # gate retries: keep the rejected attempts' turns too
+        d["prior_attempts"] = [
+            {"attempt": k + 1, "stop_cause": pr.stop_cause, "submission": sub,
+             "outcome_buggy": outcome, "failure_reason_buggy": reason,
+             "messages": serialise_messages(pr.messages)}
+            for k, (pr, sub, outcome, reason) in enumerate(phase.prior_attempts)
+        ]
     if phase.reviews:
         d["reviews"] = _reviews_dict(phase)
     return d
@@ -153,7 +182,7 @@ def brt_run_record(
     if phase.reviews:  # Phase C only — single-agent records stay byte-identical
         attempt["critic_rounds"] = len(phase.reviews)
         attempt["critic_verdicts"] = [rv.verdict for rv in phase.reviews]
-    return {
+    rec = {
         "instance_id": inst.instance_id,
         "repo": inst.repo,
         "model": model_name,
@@ -164,6 +193,9 @@ def brt_run_record(
         "best_attempt": 1,
         "attempts": [attempt],
     }
+    if phase.prior_attempts:  # only when a gate retry ran
+        rec["brt_retries"] = brt_retries_summary(phase)
+    return rec
 
 
 def fix_transcript_dict(inst: SWEBenchInstance, model_name: str, phase: "FixPhaseResult") -> dict:
@@ -316,6 +348,11 @@ class BrtPhaseResult:
     # "runtime" (crashed before asserting) or None (undetermined). Gold-free —
     # parsed from buggy-side pytest output only. Gates `reproduces_on_buggy`.
     failure_reason_buggy: str | None = None
+    # Gate-retry attempts BEFORE the final one, oldest first: (AgentResult,
+    # submission, outcome_buggy, failure_reason). `agent` above is only the last
+    # attempt, so without this every rejected attempt vanished from the records
+    # and transcripts (387 of Arm B's 2,633 RQ1 calls). Empty when no retry ran.
+    prior_attempts: list = None  # type: ignore[assignment]
 
     @property
     def level(self) -> int:
@@ -485,6 +522,7 @@ def run_brt_phase(
         # submits a clean-failing BRT on attempt 0, so the loop breaks immediately
         # (byte-identical to the pre-retry behaviour).
         run_task = task
+        prior: list = []
         for attempt in range(brt_retries + 1):
             label = "BRT agent" if attempt == 0 else f"BRT agent retry {attempt}/{brt_retries}"
             print(f"Running {label} (max_iter={max_iterations}, max_tok={max_total_tokens}) ...")
@@ -499,6 +537,9 @@ def run_brt_phase(
             if outcome_buggy == "fail" and failure_reason_buggy != "runtime":
                 break  # reached its assertion and failed = candidate BRT (L3/L4)
             if attempt < brt_retries:
+                prior.append((result, submission,
+                              str(outcome_buggy) if outcome_buggy is not None else None,
+                              failure_reason_buggy))
                 bad = ("L1 (passes on buggy)" if outcome_buggy == "pass"
                        else "L2 (crashes before asserting)" if failure_reason_buggy == "runtime"
                        else "L2 (errors on buggy)" if outcome_buggy == "error"
@@ -601,6 +642,7 @@ def run_brt_phase(
         cost_usd=cost,
         submit_nudge_limit=agent.submit_nudge_limit,
         failure_reason_buggy=failure_reason_buggy,
+        prior_attempts=prior,
         reviews=reviews,
         total_input_tokens=tot_in,
         total_output_tokens=tot_out,
