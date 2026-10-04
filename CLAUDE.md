@@ -175,7 +175,12 @@ BRT level semantics:
 ## Key invariants
 
 - **Never pass `gold_patch` or `test_patch` to the generation agent.** This is the fairness control the whole experiment depends on. `context_safe_dict()` is safe; direct field access is not.
-- The harness invocation uses `--namespace ''` (`build_locally=True`) to build Docker images locally rather than pulling prebuilt registry images.
+- The harness runs in local-build mode (`--namespace ''`) UNLESS the official prebuilt image is
+  present under its registry name (`runner.registry_image`, e.g.
+  `swebench/sweb.eval.x86_64.django_1776_django-11620:latest`); then it uses the registry mode
+  and builds nothing. Local mode builds any missing base/env image even when the instance image
+  exists, so after deleting env images a pulled prebuilt image must keep BOTH tags (registry
+  name for the harness, `sweb.eval.x86_64.<id>:latest` for ContainerSession).
 - Run outputs go to `runs/<run_id>/` and harness logs to `logs/run_evaluation/<run_id>/`.
 - **Every fix is scored under a fresh run id, and the verdict is verified** before it
   is believed (`pipeline.score_fix_patch` / `_verify_scored`). The SWE-bench harness
@@ -291,7 +296,7 @@ than rewriting the append-only log.
 instance stands — paired / pending / excluded / dev set / never drawn, and whether its image is
 on disk; `src/tdbf/ledger.py`, also the webapp `/status` page). Offline smokes:
 `scripts/agent_*_smoke.py` (runtime, tools, brt, fix, breaker, multiagent, bestofn,
-deployable, pipeline, nudge) + `00_smoke_test.py` — no Docker/API needed. **Run all of
+deployable, pipeline, nudge, guards) + `00_smoke_test.py` — no Docker/API needed. **Run all of
 them before and after any change to the agent or harness path.**
 
 **`webapp/`** — Flask app (`app.py`, `db.py`, `research_data.py`, `seed_docs.py`)

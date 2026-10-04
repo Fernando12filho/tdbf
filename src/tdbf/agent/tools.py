@@ -286,6 +286,16 @@ class EditFileTool(_SessionTool):
         new = arguments.get("new_str", "")
         if not path:
             return ToolResult("edit_file requires a non-empty 'path'.", is_error=True)
+        # Only repo files can be edited: the fix is captured as `git diff` of the
+        # checkout. An absolute path used to be READ from the real file but WRITTEN
+        # to a new copy at /testbed/<path> -- "Edited" was reported and nothing
+        # changed. A path that climbs out with ".." would vanish from the diff too.
+        if path.startswith("/") or ".." in path.split("/"):
+            return ToolResult(
+                f"edit_file only edits files inside the repository; give a path relative "
+                f"to the repo root (got {path!r}).",
+                is_error=True,
+            )
         if not isinstance(old, str) or old == "":
             return ToolResult("edit_file requires a non-empty 'old_str'.", is_error=True)
         res = self.session.read_file(path)
