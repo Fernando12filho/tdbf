@@ -24,11 +24,14 @@ import os
 import subprocess
 from pathlib import Path
 
-from .metrics import EXPERIMENT_ARMS, load_records
+from .metrics import EXPERIMENT_ARMS, load_records, unit_arms
 
 # (frozen sample file, its environment record). An extension sample is added
 # here once it is frozen; the development set is read from the first file.
-SAMPLE_FILES = (("sample_lite_frozen.json", "sample_lite_env.json"),)
+SAMPLE_FILES = (
+    ("sample_lite_frozen.json", "sample_lite_env.json"),
+    ("sample_lite_ext_frozen.json", "sample_lite_ext_env.json"),   # extension, n=90
+)
 
 LITE_INDEX = Path("runs") / "lite_index.json"
 
@@ -83,7 +86,6 @@ def build_ledger(*, lite_ids: list[str] | None, records: list[dict],
 
     # Which experiment arms finished, from sweep_unit records only: a unit is
     # written only after its arm(s) produced a verified verdict.
-    arm_groups = {group: label for label, group, _ in EXPERIMENT_ARMS}
     done: dict[str, set[str]] = collections.defaultdict(set)
     runs: dict[str, int] = collections.Counter()
     models: dict[str, set[str]] = collections.defaultdict(set)
@@ -99,9 +101,7 @@ def build_ledger(*, lite_ids: list[str] | None, records: list[dict],
         ts = r.get("timestamp") or ""
         if ts > last.get(iid, ""):
             last[iid] = ts
-        group = (r.get("flags") or {}).get("run_group")
-        if r.get("mode") == "sweep_unit" and group in arm_groups:
-            done[iid].add(arm_groups[group])
+        done[iid] |= unit_arms(r)
 
     ids = set(lite_ids or []) | set(sample_of) | dev | set(runs)
     n_arms = len(EXPERIMENT_ARMS)

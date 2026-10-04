@@ -349,15 +349,29 @@ def build_report(records: list[dict]) -> dict:
 
 
 # ── the main experiment (webapp Results page) ───────────────────────────────
-# One model, one frozen sample, two arms run over the same instances. Every
-# number below is over those instances only; development runs never mix in.
+# One model, the frozen samples (base + extension, pooled), two arms run over the
+# same instances. Every number below is over those instances only; development
+# runs never mix in.
 
-# (label, run_group, flags.arm of the fix-phase record)
+# (label, run groups, flags.arm of the fix-phase record). The base sample ran
+# each arm as its own block (rq1-sweep = test-first, rq1-armA = reactive); the
+# extension runs both arms as one unit per instance, so rq1-ext serves both.
 EXPERIMENT_ARMS = (
-    ("test-first", "rq1-sweep", "deployable"),
-    ("reactive", "rq1-armA", "reactive"),
+    ("test-first", ("rq1-sweep", "rq1-ext"), "deployable"),
+    ("reactive", ("rq1-armA", "rq1-ext"), "reactive"),
 )
-EXPERIMENT_RUN_GROUPS = frozenset(g for _, g, _ in EXPERIMENT_ARMS)
+EXPERIMENT_RUN_GROUPS = frozenset(g for _, gs, _ in EXPERIMENT_ARMS for g in gs)
+_UNIT_SIDE = {"test-first": "arm_b", "reactive": "arm_a"}
+
+
+def unit_arms(rec: dict) -> set[str]:
+    """Experiment arms a `sweep_unit` record completed: its run group must belong
+    to the arm AND the unit must carry that arm's outcome (an AB unit carries both)."""
+    if rec.get("mode") != "sweep_unit":
+        return set()
+    group = _flag(rec, "run_group")
+    return {label for label, groups, _ in EXPERIMENT_ARMS
+            if group in groups and rec.get(_UNIT_SIDE[label]) is not None}
 
 # Why an attempt did not resolve, decided from the scorer's own lists of
 # hidden tests that failed. SWE-bench records WHICH tests failed, not how many
@@ -425,18 +439,32 @@ def build_results(records: list[dict], *, sample_ids: list[str] | None = None,
     report what was left out and why.
     """
     units = {
-        label: _latest([r for r in records if r.get("mode") == "sweep_unit"
-                        and _flag(r, "run_group") == group])
-        for label, group, _ in EXPERIMENT_ARMS
+        label: _latest([r for r in records if label in unit_arms(r)])
+        for label, _, _ in EXPERIMENT_ARMS
     }
     fixes = {
         label: _latest([r for r in records if r.get("mode") == "fix_agent"
-                        and _flag(r, "run_group") == group
+                        and _flag(r, "run_group") in groups
                         and _flag(r, "arm") == arm])
-        for label, group, arm in EXPERIMENT_ARMS
+        for label, groups, arm in EXPERIMENT_ARMS
     }
+    tf_groups = dict((label, groups) for label, groups, _ in EXPERIMENT_ARMS)["test-first"]
     tests = _latest([r for r in records if r.get("mode") == "agent_deployable"
-                     and _flag(r, "run_group") == "rq1-sweep"])
+                     and _flag(r, "run_group") in tf_groups])
+    arm_flag = {label: arm for label, _, arm in EXPERIMENT_ARMS}
+    by_pair: dict[str, list[dict]] = collections.defaultdict(list)
+    for r in records:
+        if r.get("mode") != "sweep_unit" and _flag(r, "pair_id"):
+            by_pair[_flag(r, "pair_id")].append(r)
+
+    def arm_calls(label: str, unit: dict) -> int:
+        """A one-arm unit's `calls` is that arm's; an AB unit's covers both arms,
+        so count this arm's own records (same pair_id), as script 11 does."""
+        if _flag(unit, "arms") != "AB":
+            return unit.get("calls") or 0
+        return sum(sum(((_flag(r, "served_by") or {}).values()))
+                   for r in by_pair.get(_flag(unit, "pair_id"), [])
+                   if _flag(r, "arm") == arm_flag[label])
 
     tf, rx = units["test-first"], units["reactive"]
     # The frozen rule excludes an environment-invalid instance before any arm
@@ -456,8 +484,8 @@ def build_results(records: list[dict], *, sample_ids: list[str] | None = None,
 
     # ── per arm: fixed, calls, dates, how the fix agent stopped ─────────────
     arms = []
-    for label, group, _ in EXPERIMENT_ARMS:
-        calls = [units[label][i].get("calls") or 0 for i in paired]
+    for label, groups, _ in EXPERIMENT_ARMS:
+        calls = [arm_calls(label, units[label][i]) for i in paired]
         stamps = sorted(units[label][i].get("timestamp", "") for i in paired)
         stops = collections.Counter(
             _stop_kind(_best_attempt(fixes[label][i]).get("stop_cause"))
@@ -465,7 +493,7 @@ def build_results(records: list[dict], *, sample_ids: list[str] | None = None,
         n_fix = sum(stops.values())
         arms.append({
             "label": label,
-            "run_group": group,
+            "run_group": ", ".join(groups),
             "resolved": rate(sum(resolved(label, i) for i in paired), n),
             "calls_total": sum(calls),
             "calls_mean": sum(calls) / n,

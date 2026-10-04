@@ -150,6 +150,36 @@ def check_env_exclusion() -> None:
     assert res["left_out"] == [{"instance_id": "a__a-2", "state": "environment_invalid"}]
     print("  ok  build_results leaves out env-invalid instances and lists them")
 
+    # Extension: one AB unit per instance in rq1-ext pools with the base sample's
+    # one-arm units, and each arm's calls come from its own records, not the
+    # unit's combined total.
+    ab = {"instance_id": "e__e-1", "repo": "demo/pkg", "mode": "sweep_unit", "model": "m",
+          "timestamp": "2026-10-06T00:00:00", "calls": 70,
+          "flags": {"run_group": "rq1-ext", "arms": "AB", "pair_id": "p1"},
+          "arm_a": {"resolved": False}, "arm_b": {"resolved": True}}
+    arm_recs = [
+        {"instance_id": "e__e-1", "mode": "agent_deployable", "timestamp": "2026-10-06",
+         "gate_accepted": True, "best_level": 4,
+         "flags": {"run_group": "rq1-ext", "arm": "deployable", "pair_id": "p1",
+                   "served_by": {"m|P": 20}}},
+        {"instance_id": "e__e-1", "mode": "fix_agent", "timestamp": "2026-10-06",
+         "resolved": True, "attempts": [{"stop_cause": "submit"}],
+         "flags": {"run_group": "rq1-ext", "arm": "deployable", "pair_id": "p1",
+                   "served_by": {"m|P": 25}}},
+        {"instance_id": "e__e-1", "mode": "fix_agent", "timestamp": "2026-10-06",
+         "resolved": False, "attempts": [{"stop_cause": "submit_forced"}],
+         "flags": {"run_group": "rq1-ext", "arm": "reactive", "pair_id": "p1",
+                   "served_by": {"m|P": 25}}},
+    ]
+    pooled = metrics.build_results(recs + [ab] + arm_recs)
+    assert pooled["n"] == 3, pooled["n"]
+    assert pooled["paired"]["tf_only"] == ["a__a-1", "a__a-2", "e__e-1"], pooled["paired"]
+    arms = {a["label"]: a for a in pooled["arms"]}
+    assert arms["test-first"]["calls_total"] == 1 + 1 + 45, arms["test-first"]["calls_total"]
+    assert arms["reactive"]["calls_total"] == 1 + 1 + 25, arms["reactive"]["calls_total"]
+    assert pooled["funnel"]["gate_rate"]["num"] == 1     # only e__e-1 has a test record
+    print("  ok  extension AB units pool with the base sample; per-arm calls not doubled")
+
 
 def main() -> int:
     check_colour()
