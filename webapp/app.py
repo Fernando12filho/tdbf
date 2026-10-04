@@ -118,16 +118,13 @@ def commands():
 def _frozen_sample() -> tuple[list[str] | None, dict[str, str]]:
     """The frozen sample's instance ids and each one's environment state, so the
     Results page can say which instances were left out and why."""
-    root = RESULTS_FILE.parent
-    try:
-        ids = json.loads((root / "sample_lite_frozen.json").read_text())["instances"]
-    except (OSError, ValueError, KeyError):
+    # Every registered sample (tdbf.ledger.SAMPLE_FILES), so an extension sample
+    # shows up here as soon as it is added there.
+    samples, env = tdbf_ledger.load_samples(RESULTS_FILE.parent)
+    if not samples:
         return None, {}
-    try:
-        env = json.loads((root / "sample_lite_env.json").read_text())["instances"]
-        states = {k: (v or {}).get("state", "?") for k, v in env.items()}
-    except (OSError, ValueError, KeyError, AttributeError):
-        states = {}
+    ids = [i for s in samples for i in s.get("instances") or []]
+    states = {k: (v or {}).get("state", "?") for k, v in env.items()}
     return ids, states
 
 

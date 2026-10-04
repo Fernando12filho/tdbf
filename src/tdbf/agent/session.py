@@ -19,6 +19,7 @@ socket exists). File transfer uses `docker cp`/stdin via the Docker API, so the
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 import uuid
 from dataclasses import dataclass
@@ -136,9 +137,9 @@ class ContainerSession:
             raise RuntimeError("Session not started.")
         parent = os.path.dirname(path)
         if parent:
-            self.exec(f"mkdir -p {parent}", activate=False)
+            self.exec(f"mkdir -p {shlex.quote(parent)}", activate=False)
         proc = subprocess.run(
-            ["docker", "exec", "-i", self.container, "bash", "-c", f"cat > {path}"],
+            ["docker", "exec", "-i", self.container, "bash", "-c", f"cat > {shlex.quote(path)}"],
             input=content, capture_output=True, text=True,
         )
         if proc.returncode != 0:

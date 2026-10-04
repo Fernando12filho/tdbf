@@ -16,6 +16,7 @@ This module's jobs:
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -36,6 +37,13 @@ from pathlib import Path
 # builtins SystemExit / StopIteration — so those parsed as "no evidence" and
 # a crashing test was accepted as a reproduction.
 _E_LINE_RE = re.compile(r"^E\s+(.*)$", re.MULTILINE)
+
+# Terminal colour codes. Some repos force them on (scikit-learn >= ~1.3 has
+# `addopts = --color=yes` in setup.cfg), which puts a code BEFORE the "E" of
+# every error line, so _E_LINE_RE matched nothing, the reason came back None and
+# the gate (which only rejects "runtime") accepted crashing tests. Seen live on
+# scikit-learn-25500 and -25638 in the RQ1 sweep.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 # "The test reached its assertion and it fired." `assert ...` is pytest's
 # rewritten form (it prints no AssertionError line at all); `Failed` is pytest's
@@ -330,14 +338,42 @@ def run_harness(
         "--instance_ids",
         *instance_ids,
     ]
-    if build_locally:
+    if build_locally and not all(has_registry_image(i) for i in instance_ids):
         cmd += ["--namespace", ""]
+    # Otherwise the harness's default namespace ("swebench"): it finds the
+    # prebuilt image we pulled under its registry name and builds nothing. In
+    # local mode it builds any missing base/env image even when the instance
+    # image already exists -- a conda solve per new repo version, with today's
+    # unpinned dependencies -- which is exactly what the prebuilt images avoid.
 
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         sys.stderr.write(proc.stdout[-4000:] + "\n" + proc.stderr[-4000:])
     _stash_summary_reports(run_id)
     return proc.returncode
+
+
+def registry_image(instance_id: str) -> str:
+    """The prebuilt SWE-bench image's name on Docker Hub, which is also the name
+    the harness looks for in its default (registry) mode."""
+    return f"swebench/sweb.eval.x86_64.{instance_id.lower().replace('__', '_1776_')}:latest"
+
+
+def has_registry_image(instance_id: str) -> bool:
+    """Is the prebuilt image present locally under its registry name?
+
+    Sets the Colima socket when DOCKER_HOST is unset (as ContainerSession does):
+    a failed inspect falls back to local-build mode, so "Docker unreachable" must
+    not be mistaken for "image absent"."""
+    sock = Path.home() / ".colima" / "default" / "docker.sock"
+    if not os.environ.get("DOCKER_HOST") and sock.exists():
+        os.environ["DOCKER_HOST"] = f"unix://{sock}"
+    try:
+        proc = subprocess.run(["docker", "image", "inspect", registry_image(instance_id)],
+                              capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return proc.returncode == 0
 
 
 HARNESS_SUMMARY_DIR = Path("logs") / "harness_reports"
@@ -503,6 +539,7 @@ def _parse_failure_reason(output: str) -> str | None:
     """
     if not output:
         return None
+    output = _ANSI_RE.sub("", output)
     bodies = [m.group(1).strip() for m in _E_LINE_RE.finditer(output)]
     if not bodies:
         return None

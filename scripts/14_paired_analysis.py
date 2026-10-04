@@ -24,8 +24,9 @@ from __future__ import annotations
 import argparse
 import random
 from math import comb
+from pathlib import Path
 
-from tdbf import metrics
+from tdbf import ledger, metrics
 
 SEED = 20260916  # the frozen sample's seed
 
@@ -60,7 +61,11 @@ def main() -> int:
     ap.add_argument("--file", default="results.jsonl")
     args = ap.parse_args()
 
-    res = metrics.build_results(metrics.load_records(args.file))
+    # Environment states for every frozen sample (ledger.SAMPLE_FILES), so an
+    # instance its record marks not-valid is never counted.
+    _, env = ledger.load_samples(Path(args.file).resolve().parent)
+    states = {k: (v or {}).get("state", "?") for k, v in env.items()}
+    res = metrics.build_results(metrics.load_records(args.file), env_states=states)
     n = res["n"]
     if not n:
         print("No instance has a completed unit in both arms yet.")
