@@ -1,0 +1,145 @@
+{
+  "sample": "tdbf-rq1-lite-ext-n90",
+  "written_utc": "2026-10-05T03:58:16+00:00",
+  "counts": {
+    "valid": 17
+  },
+  "instances": {
+    "django__django-11564": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-11564:latest @ sweb.eval.x86_64.django__django-11564@sha256:a565e9f99ade187a4fafee6ec7f977abd7b4ed1c96e77d13833a8fe71081aee4",
+      "pulled_utc": "2026-10-04T22:52:17+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-04T22:53:07+00:00"
+    },
+    "django__django-11583": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-11583:latest @ sweb.eval.x86_64.django__django-11583@sha256:f2ac03fe870177231ba0e72452b3617ebc54cbe62318deef41c7949397337d2e",
+      "pulled_utc": "2026-10-04T23:18:10+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-04T23:19:03+00:00"
+    },
+    "django__django-11742": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-11742:latest @ sweb.eval.x86_64.django__django-11742@sha256:64c26c94843c2885714c57bfe0a98849be19cebea3fee7b6f54394554a98a8a5",
+      "pulled_utc": "2026-10-04T23:35:27+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-04T23:36:11+00:00"
+    },
+    "django__django-11848": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-11848:latest @ sweb.eval.x86_64.django__django-11848@sha256:08eac9219e5d4b15b445fde26c587157a0ad8a2d9209e4b1e266259edf51bb4b",
+      "pulled_utc": "2026-10-04T23:48:22+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-04T23:49:02+00:00"
+    },
+    "django__django-11999": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-11999:latest @ sweb.eval.x86_64.django__django-11999@sha256:3c7e7f035f611b17f2093ee6409364bc28cce8b9bac266b9590db762d197607e",
+      "pulled_utc": "2026-10-05T00:00:37+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-05T00:01:28+00:00"
+    },
+    "django__django-12125": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-12125:latest @ sweb.eval.x86_64.django__django-12125@sha256:4345ad65eec0da8a32063c2c9a32df380e10b4fb4ccebfcfed9c4be9a185e5ff",
+      "pulled_utc": "2026-10-05T00:12:04+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-05T00:13:10+00:00"
+    },
+    "django__django-12184": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-12184:latest @ sweb.eval.x86_64.django__django-12184@sha256:c28686e155d0dd367dca0608074c62d28e5255629127d58a615594be24f20cbf",
+      "pulled_utc": "2026-10-05T00:52:54+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-05T00:53:39+00:00"
+    },
+    "django__django-12284": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-12284:latest @ sweb.eval.x86_64.django__django-12284@sha256:f6566d6750acadc4315c9bd1150506cc1be2dc1eadb55bff57561e3d6b872fe9",
+      "pulled_utc": "2026-10-05T01:11:06+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-05T01:11:45+00:00"
+    },
+    "django__django-12286": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-12286:latest @ sweb.eval.x86_64.django__django-12286@sha256:90c377f8c5ea3844a549520f78a2f1f0dfa5e92663f3c7a4d8e53beda4d4b158",
+      "pulled_utc": "2026-10-05T01:21:13+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-05T01:21:57+00:00"
+    },
+    "django__django-12453": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-12453:latest @ sweb.eval.x86_64.django__django-12453@sha256:a4ddc630adffc7e64d7f090bb3c486d4dac0fc2426ff5b5f73c2f6961a775c7a",
+      "pulled_utc": "2026-10-05T01:28:57+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-05T01:29:40+00:00"
+    },
+    "django__django-12708": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-12708:latest @ sweb.eval.x86_64.django__django-12708@sha256:3722a130f618602e5636c8c7ddd821550e2c2462b569907c4140fc162e24671e",
+      "pulled_utc": "2026-10-05T02:03:18+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-05T02:04:01+00:00"
+    },
+    "django__django-12747": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-12747:latest @ sweb.eval.x86_64.django__django-12747@sha256:c123a35429aa06d0bac81cb71288e01389d816d6e461e9695684dedb30de941c",
+      "pulled_utc": "2026-10-05T02:15:43+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-05T02:16:22+00:00"
+    },
+    "django__django-12856": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-12856:latest @ sweb.eval.x86_64.django__django-12856@sha256:d53de59169fc601caa9cc2392610aa78d11045e7ec2b61595f93667dc1db5a90",
+      "pulled_utc": "2026-10-05T02:49:55+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-05T02:50:32+00:00"
+    },
+    "django__django-13028": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-13028:latest @ sweb.eval.x86_64.django__django-13028@sha256:4250631872579b9eb6731a16a489ba31be1efff3e0c1e0eb2a7feb24215ce92b",
+      "pulled_utc": "2026-10-05T02:58:18+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-05T02:58:57+00:00"
+    },
+    "django__django-13033": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-13033:latest @ sweb.eval.x86_64.django__django-13033@sha256:1acb49e9389a6df0df9fe52bc0c87ced013e323015b4313b7397857b41166138",
+      "pulled_utc": "2026-10-05T03:09:41+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-05T03:10:19+00:00"
+    },
+    "django__django-13265": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-13265:latest @ sweb.eval.x86_64.django__django-13265@sha256:c83c172fe50ee16dd32695265e979e6a8473973fd7f8a79b1f21957db44653ba",
+      "pulled_utc": "2026-10-05T03:29:06+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-05T03:29:54+00:00"
+    },
+    "django__django-13321": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-13321:latest @ sweb.eval.x86_64.django__django-13321@sha256:3db1624f81fb97d05a4af23bf64059ec55b194bf2601e2eecf1bd6f7cc56913f",
+      "pulled_utc": "2026-10-05T03:57:38+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-05T03:58:16+00:00"
+    }
+  }
+}
