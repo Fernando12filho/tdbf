@@ -255,10 +255,8 @@ Django only (it lives in the runtests.py output parser); other repos keep today'
 rule. Reported with the environment change as one departure.
 
 - [x] **6.1 Feasibility (no model calls).** Done 10-07 on django-13447: existing
-  module + own `brt_app` both work (models, auth, test DB), ~1 s, files untracked. In a Django container: a file at
-  `tests/<module>/test_brt.py` runs alone via `./tests/runtests.py <module>.test_brt`
-  with that module's models, the standard apps and a test DB; the output separates
-  assertion failure (`FAIL:`) from crash (`ERROR:`); wall time fits the tool timeout.
+  module + own `brt_app` both work (models, auth, test DB), ~1 s, files untracked;
+  `runtests.py` output separates assertion failure (`FAIL:`) from exception (`ERROR:`).
 - [ ] **6.2 Implement** (branch `worktree-django-native-brt`). `runner.py`: Django BRT
   path chosen by module, run with `runtests.py`, outcome + failure reason parsed from
   unittest output; hint rewritten (TestCase/SimpleTestCase in an existing module).
