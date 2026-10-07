@@ -275,7 +275,16 @@ rule. Reported with the environment change as one departure.
   Django instances (incl. 13447, 12453) the SWE-bench FAIL_TO_PASS test, run through
   the new path, must fail on buggy and pass on gold-fixed (L4). Gold used offline
   for infrastructure validation only — never shown to an agent.
-- [ ] **6.4 Live pilot** (`--arms B`, run group `v2-pilot`, ~300 calls, not counted):
+- [x] **6.4 Pilot done 10-07** (`v2-pilot`, 294 calls). First run exposed the
+  agent creating its own test package via run_python (gate would accept, fix/label
+  could not see it) → module must be tracked in HEAD; Django gate verifies on a reset
+  tree (cbb0a76). Re-run, 5 instances vs frozen: L4 tests 4/5 (was 2/5), gate 5/5
+  (was 2/5), resolved 3/5 (was 2/5). 13447: 90 turns/no test → 16 turns/L4/resolved;
+  13757: rejected → L4/resolved; 12453 still hard (L3, unresolved); 15213 L4 both
+  times but the fix ran out of turns this time (run-to-run noise). Evidence for the
+  later test-first-only fixes: 12453's 2nd attempt had a correctly failing test and
+  ran out of turns before submitting; its 3rd re-read ~25 files.
+- [ ] ~~6.4 Live pilot~~ (`--arms B`, run group `v2-pilot`, ~300 calls, not counted):
   ~5 Django instances — the 3 rejected (12453, 13447, 13757) + 2 that worked.
 - [ ] **6.5 Re-run** (`--arms B`, run group `rq1-djv2`): all 37 paired Django
   instances (~2,000 calls ≈ 2 days of quota). Then the 15 pending Django extension
