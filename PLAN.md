@@ -1,9 +1,10 @@
-# TDBF — plan to submission (revised 2026-09-16 → 2026-09-27)
+# TDBF — plan to submission (revised 2026-09-16; re-cut 2026-10-07 → ~2026-10-20)
 
 Working plan for finishing the thesis. Update the checkboxes as things land;
 if a decision changes, change it *here* first so the paper sections follow one source.
 
-**Deadline: Sunday 27 September 2026.** Data freeze **Thursday 24 September**.
+**Deadline: ~Tuesday 20 October 2026** (moved; the 27 September date below is history).
+Current work: **Phase 6 — Django-native BRT execution** (end of file).
 
 > **Status 2026-09-16:** Phase 1 (originally due Sat 12) has not started in code —
 > about four days behind. `main` is pushed and in sync with GitHub. The plan below
@@ -43,6 +44,10 @@ There is no more paid API budget. Every new run uses **free OpenRouter models** 
 | 09-16 | OpenRouter limits | Fernando adds a one-time **$10** credit → free models go from 50 to 1,000 requests/day. Free models do not draw the credit down. |
 | 09-16 | Local host | The Ollama desktop (192.168.1.192) is available on request — it was simply switched off |
 | 09-21 | **Document format** | Advisor read: the write-up must be a **research paper**, not a thesis. `thesis/` is now an **ACM `acmart` paper**, single-column manuscript style — the layout of ReProAgent (arXiv:2607.09123), which Fernando picked as the format model. `main.tex` + `sections/`. Register, page budgets and layout mechanics: `thesis/WRITING_GUIDE.md` §0 |
+| 10-04 | RQ1 extension | n=90, seed 20261004, run group `rq1-ext`, tag `extension-freeze`; pooled with the base 55 |
+| 10-07 | **Django BRT execution** | The BRT tools run Django tests under bare pytest with an empty `INSTALLED_APPS` (22/41 Django BRT trajectories hit it). Fix = run the BRT the repo's own way (`runtests.py`, inside an existing test module). Test-first-only change; the reactive arm is untouched |
+| 10-07 | **Django re-run + substitution** | If Phase 6 validates, re-run the test-first arm on **every** paired Django instance (not just failures) under `rq1-djv2`; those records **replace** the old Django test-first results. Non-Django results stay. Report both the frozen and the corrected RQ1 numbers, with the departure described |
+| 10-07 | Quota while Phase 6 is built | The extension runs its 56 non-Django instances on the frozen code (valid: the change is Django-only); the 15 pending Django instances wait for Phase 6 |
 
 ## Research questions (canonical — `thesis/sections/1_introduction.tex` is the source)
 
@@ -211,3 +216,53 @@ There is no more paid API budget. Every new run uses **free OpenRouter models** 
 | Repos never built (matplotlib, sklearn, pytest, sphinx…) | sympy proven; build one of each family early; disclose any that fail |
 | Writing is the real critical path | Claude drafts ch3/ch4 so Fernando's time goes to ch2/ch5/ch6 |
 | `ContainerSession.close()` leaks containers | Reap before the freeze |
+
+---
+
+## Phase 6 — Django-native BRT execution (from Wed 7 Oct)
+
+**Why (analysis 2026-10-07, 74 pairs).** Reactive 37 vs test-first 34. By BRT
+outcome: L4 accepted 48 → 30 vs 29; L3 accepted 18 → 4 vs 5; gate rejected 8 →
+**0 vs 3** — the whole gap is gate rejections, 7 of 8 on Django. Root cause: the
+Django preamble (`runner.py` `_REPO_PREAMBLES`) loads `test_sqlite`, whose
+`INSTALLED_APPS` is empty — `runtests.py` normally adds the apps and creates the DB —
+so any BRT or probe touching models / auth / admin / contenttypes crashes, while the
+hint says "Django is already configured" and forbids `TestCase`. 22 of 41 Django BRT
+trajectories hit it, including all 5 Django no-submit runs. The fix agent's
+`run_tests` already uses `runtests.py`; only the BRT side was left behind.
+
+**Scope.** Test-first arm only (BRT tools `run_test` / `run_python` / `submit_test`,
+the gate check, the offline label, the fix agent's `run_brt`). Non-Django repos keep
+the identical path (smokes assert it). Later candidates, decided separately because
+some touch code both arms share: gate fallback (fix anyway with an *unverified*
+test), closing turns that offer only the terminal tool + keep the last
+assertion-failing test, retries that carry the last test and its error, `read_file`
+windowing / output trimming.
+
+- [ ] **6.1 Feasibility (no model calls).** In a Django container: a file at
+  `tests/<module>/test_brt.py` runs alone via `./tests/runtests.py <module>.test_brt`
+  with that module's models, the standard apps and a test DB; the output separates
+  assertion failure (`FAIL:`) from crash (`ERROR:`); wall time fits the tool timeout.
+- [ ] **6.2 Implement** (branch `worktree-django-native-brt`). `runner.py`: Django BRT
+  path chosen by module, run with `runtests.py`, outcome + failure reason parsed from
+  unittest output; hint rewritten (TestCase/SimpleTestCase in an existing module).
+  `tools.py`: `module` argument on `run_test` / `submit_test`, `run_brt` uses it;
+  `run_python` gets real Django settings (standard apps + in-memory DB). `pipeline.py`:
+  gate check, offline label and `run_brt` share the one path.
+- [ ] **6.3 Offline validation.** All `scripts/agent_*_smoke.py`, `batch_smoke.py`,
+  `00_smoke_test.py` before and after. Runner check against ground truth: for ~8
+  Django instances (incl. 13447, 12453) the SWE-bench FAIL_TO_PASS test, run through
+  the new path, must fail on buggy and pass on gold-fixed (L4). Gold used offline
+  for infrastructure validation only — never shown to an agent.
+- [ ] **6.4 Live pilot** (`--arms B`, run group `v2-pilot`, ~300 calls, not counted):
+  ~5 Django instances — the 3 rejected (12453, 13447, 13757) + 2 that worked.
+- [ ] **6.5 Re-run** (`--arms B`, run group `rq1-djv2`): all 37 paired Django
+  instances (~2,000 calls ≈ 2 days of quota). Then the 15 pending Django extension
+  instances run both arms with the new code.
+- [ ] **6.6 Results + paper.** Metrics take Django test-first from `rq1-djv2`
+  (`metrics.EXPERIMENT_ARMS`); report the frozen pre-registered result and the
+  corrected one; the departure and its evidence go in Setup / Threats.
+
+**Quota math (~950 calls/day):** non-Django pending ≈ 5.5 days, Django re-run ≈ 2,
+pending Django ≈ 2 → ~9.5 days of quota by ~20 Oct. Run in the daytime too, not only
+overnight (the counter resets at 00:00 UTC).
