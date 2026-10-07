@@ -239,7 +239,23 @@ test), closing turns that offer only the terminal tool + keep the last
 assertion-failing test, retries that carry the last test and its error, `read_file`
 windowing / output trimming.
 
-- [ ] **6.1 Feasibility (no model calls).** In a Django container: a file at
+**Measured 2026-10-07 (gold used offline, infrastructure only).** All 40 paired
+Django instances: the SWE-bench FAIL_TO_PASS tests, run with `runtests.py`, fail on
+buggy and pass on gold-fixed in **40/40** (0–4 s each, Django 3.0–5.0). On buggy
+code 27 fail only at an assertion (`FAIL`), **12 only with an exception (`ERROR`)**,
+1 both — so the assertion-only gate would reject the official test on 30% of Django
+instances. The 12 raise ValueError / TypeError / KeyError / IntegrityError /
+OperationalError / NotSupportedError / binascii.Error / Http404; none raise
+ImportError / NameError / SyntaxError.
+
+**Decision 10-07 — Django gate rule:** accept a BRT that `FAIL`s *or* `ERROR`s on
+buggy, **except** test-authoring errors: ImportError / ModuleNotFoundError /
+NameError / SyntaxError / IndentationError, or a test module that fails to load.
+Django only (it lives in the runtests.py output parser); other repos keep today's
+rule. Reported with the environment change as one departure.
+
+- [x] **6.1 Feasibility (no model calls).** Done 10-07 on django-13447: existing
+  module + own `brt_app` both work (models, auth, test DB), ~1 s, files untracked. In a Django container: a file at
   `tests/<module>/test_brt.py` runs alone via `./tests/runtests.py <module>.test_brt`
   with that module's models, the standard apps and a test DB; the output separates
   assertion failure (`FAIL:`) from crash (`ERROR:`); wall time fits the tool timeout.
