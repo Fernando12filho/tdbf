@@ -744,6 +744,13 @@ def _score_on_buggy_in_session(session: ContainerSession, submission: str) -> Co
     BRT could therefore be rejected on time or patch mechanics rather than on
     whether it reproduces the bug.
     """
+    # Native (Django): verify on the pristine buggy checkout. run_python executes
+    # arbitrary code, so the agent can leave files behind (its own test packages,
+    # helper modules, even edited sources) that a test may silently depend on; the
+    # fix agent and the label start from a fresh container without them. Resetting
+    # to base_commit makes the gate see what they will see. Still gold-free.
+    if native_brt(session.repo):
+        session.reset_tree()
     # Same placement, command and parser as the agent's own run_test.
     result, _ = run_brt_in_session(session, submission)
     return result

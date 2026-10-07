@@ -177,16 +177,21 @@ class FakeSession:
     def write_file(self, path, content) -> None:
         self.writes[path] = content
 
+    tracked = ("admin_views", "gis_tests/geoapp")  # packages of the original checkout
+
     def exec(self, command, *, timeout=120, activate=True, env=None) -> ExecResult:
         self.execs.append((command, env))
-        if command.startswith("test -d"):
-            return ExecResult(0 if env and env.get("MODPATH") in ("admin_views", "gis_tests/geoapp") else 1, "")
+        if command.startswith("git cat-file"):
+            return ExecResult(0 if env and env.get("MODPATH") in self.tracked else 1, "")
         if "runtests.py" in command or "pytest" in command:
             return ExecResult(self.rc, self.run_output)
         return ExecResult(0, "")
 
     def ensure_pytest(self) -> None:
         self._pytest_ready = True
+
+    def reset_tree(self) -> None:
+        self.execs.append(("RESET", None))
 
     def read_file(self, path, *, max_bytes=0) -> ExecResult:
         return ExecResult(1, "")
@@ -212,7 +217,10 @@ def test_tools_and_gate() -> None:
     assert not sess._pytest_ready, "runtests.py needs no pytest install"
 
     bad = run_test.execute({"code": body, "module": "no_such_pkg"})
-    assert bad.is_error and "No test package" in bad.content
+    assert bad.is_error and "not a test package of this repository" in bad.content
+    # a package the agent created itself (via run_python) is refused at submit too
+    made_up = submit.execute({"code": body, "module": "brt_fk_order"})
+    assert made_up.is_error, "agent-created packages vanish in the fix/label containers"
     unsafe = run_test.execute({"code": body, "module": "x; rm -rf /"})
     assert unsafe.is_error
 
@@ -223,8 +231,10 @@ def test_tools_and_gate() -> None:
     assert brt_module(explicit.content) == "gis_tests.geoapp", explicit.content
 
     # the gate consults the same path: an exception from the bug is a reproduction
+    sess.execs.clear()
     gate = pipeline._score_on_buggy_in_session(sess, sub.content)  # type: ignore[arg-type]
     assert gate.outcome == "fail" and gate.failure_reason == "exception"
+    assert sess.execs[0] == ("RESET", None), "gate verifies on the pristine buggy checkout"
     assert gate == "fail" and gate.failure_reason != "runtime"
     broken = FakeSession(run_output=_out([_block("ERROR", "test_x (m.T)", "NameError: name 'q'")]))
     g2 = pipeline._score_on_buggy_in_session(broken, sub.content)  # type: ignore[arg-type]

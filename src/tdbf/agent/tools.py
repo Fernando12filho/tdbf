@@ -83,12 +83,18 @@ def _resolve_module(session: ContainerSession, requested: object,
             return None, (f"'module' must be a test package name under tests/, like "
                           f"'admin_views' (got {requested!r}).")
         if name != DJANGO_BRT_APP:
-            res = session.exec('test -d "/testbed/tests/$MODPATH"', activate=False,
+            # Must be a package of the ORIGINAL checkout (tracked in git), not one
+            # the agent created with run_python: the gate runs in this session, but
+            # the fix agent and the label run in fresh containers where a package
+            # the agent made would not exist (seen in the 10-07 pilot).
+            res = session.exec('git cat-file -e "HEAD:tests/$MODPATH/__init__.py"',
                                env={"MODPATH": name.replace(".", "/")})
             if res.returncode != 0:
-                return None, (f"No test package tests/{name.replace('.', '/')}/ exists. Use glob "
-                              "(e.g. pattern 'tests/[a-z_]*/__init__.py') to list the packages, "
-                              f"or omit 'module' to use the empty app '{DJANGO_BRT_APP}'.")
+                return None, (f"tests/{name.replace('.', '/')}/ is not a test package of this "
+                              "repository. Use an existing one (glob pattern "
+                              "'tests/[a-z_]*/__init__.py' lists them) or omit 'module' to use the "
+                              f"empty app '{DJANGO_BRT_APP}'. Packages you create yourself are not "
+                              "available when the test is used later.")
         return name, None
     return (brt_module(code) or (state.module if state else None) or DJANGO_BRT_APP), None
 
