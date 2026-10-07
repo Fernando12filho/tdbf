@@ -80,8 +80,8 @@ def _resolve_module(session: ContainerSession, requested: object,
         name = name[len("tests."):]
     if name:
         if not valid_brt_module(name):
-            return None, (f"'module' must be a test package name under tests/, like "
-                          f"'admin_views' (got {requested!r}).")
+            return None, (f"'module' must be the name of a test package under tests/ "
+                          f"(tests/<package>/ -> '<package>'); got {requested!r}.")
         if name != DJANGO_BRT_APP:
             # Must be a package of the ORIGINAL checkout (tracked in git), not one
             # the agent created with run_python: the gate runs in this session, but
@@ -101,9 +101,9 @@ def _resolve_module(session: ContainerSession, requested: object,
 
 _DJANGO_MODULE_PROP = {
     "type": "string",
-    "description": ("Existing test package under tests/ to run in, e.g. 'admin_views' "
-                    "(its models and fixtures are available). Omit for an empty app of "
-                    f"your own ('{DJANGO_BRT_APP}')."),
+    "description": ("Existing test package under tests/ to run in, given as its name "
+                    "(tests/<package>/ -> '<package>'); its models and fixtures are "
+                    f"available. Omit for an empty app of your own ('{DJANGO_BRT_APP}')."),
 }
 
 

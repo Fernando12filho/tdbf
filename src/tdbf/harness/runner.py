@@ -383,20 +383,21 @@ def clean_brt_output(repo: str, output: str) -> str:
     return "\n".join(ln for ln in output.splitlines() if not _RUNTESTS_NOISE_RE.match(ln))
 
 
+# Deliberately names NO concrete test package, model or setting: example names
+# picked while debugging specific instances turned out to match the hidden-test
+# package of 7 of the 40 paired instances (removed 10-07 before the re-run).
 DJANGO_BRT_ENV_HINT = (
     "Your test runs under Django's own test runner (./tests/runtests.py), exactly as "
     "Django's test suite runs: inside an existing test package under tests/ that you "
-    "choose with the `module` argument (e.g. 'admin_views', 'model_fields', "
-    "'forms_tests'), with that package's models, the standard contrib apps "
-    "(auth, contenttypes, sessions, messages, admin, sites) and a test database. "
+    "choose with the `module` argument (find the packages with glob), with that "
+    "package's models, the standard contrib apps and a test database. "
     "Write django.test TestCase / SimpleTestCase classes, as Django's own tests do — "
     "bare pytest functions are not collected. Import the package's models absolutely "
-    "(e.g. `from admin_views.models import Article`). Do NOT configure settings or "
+    "(`from <package>.models import <Model>`). Do NOT configure settings or "
     "call django.setup(). Without `module` the test runs in an empty app of its own "
     "('brt_app'). A model you define inside the test file gets NO database table — "
-    "to use the database, pick a package whose models fit. Settings the test needs "
-    "(e.g. ROOT_URLCONF for views/admin URLs) go in @override_settings, as Django's "
-    "own tests do."
+    "to use the database, pick a package whose models fit. Settings a test needs go "
+    "in @override_settings, as Django's own tests do."
 )
 
 
