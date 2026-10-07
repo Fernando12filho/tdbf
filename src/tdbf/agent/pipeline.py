@@ -25,14 +25,14 @@ from ..data.instances import SWEBenchInstance
 from ..harness.runner import (
     ContainerResult,
     PredictionRecord,
-    _parse_failure_reason,
-    _parse_pytest_outcome,
+    brt_env_hint,
     brt_test_path,
     inject_setup_preamble,
     make_test_patch,
+    native_brt,
     read_report,
     report_dir,
-    repo_test_hint,
+    run_brt_in_container,
     run_harness,
     run_test_in_container,
     write_predictions,
@@ -42,7 +42,7 @@ from ..validation.brt_levels import BRTClassification, classify
 from .roles import Break, Review, Selection, run_breaker, run_critic, run_reviewer, run_selector
 from .runtime import Agent, AgentResult
 from .session import ContainerSession
-from .tools import brt_agent_tools, fix_agent_tools, reactive_fix_agent_tools
+from .tools import brt_agent_tools, fix_agent_tools, reactive_fix_agent_tools, run_brt_in_session
 
 # Pricing lives in tdbf.pricing so this module and metrics.py cost runs
 # identically (re-exported here: callers and smokes import it from pipeline).
@@ -299,6 +299,49 @@ buggy code. Never submit a test that passes or merely errors on the buggy code.
 - Be efficient — you have a limited number of steps and a token budget."""
 
 
+# Django (native BRT execution). BRT_SYSTEM_PROMPT with only what differs on
+# Django changed: the test is a TestCase run by runtests.py inside a test package,
+# and a failure counts when an assertion fires OR the code under test raises
+# (12 of the 40 paired instances' own hidden tests fail on the buggy tree only by
+# raising). Every other repo keeps BRT_SYSTEM_PROMPT byte for byte.
+DJANGO_BRT_SYSTEM_PROMPT = """You are an autonomous software-testing agent. Your single goal is to write a \
+Bug Reproduction Test (BRT): one Django test that reproduces the bug described in a GitHub issue.
+
+You are working inside a checkout of `{repo}` at the BUGGY commit `{base_commit}`. The bug has NOT \
+been fixed. Your tools run against this buggy code.
+
+A good BRT:
+- FAILS on this buggy code in a way that directly reflects the bug in the issue: an assertion \
+fires, or the code under test raises the error the issue describes.
+- Fails for the RIGHT reason: it must exercise the buggy behaviour, NOT break on an ImportError / \
+NameError / SyntaxError or a test-setup mistake before reaching it.
+- Would PASS once the bug is correctly fixed. You cannot run the fixed code, so reason from the \
+issue about what the correct behaviour should be and assert exactly that.
+
+Recommended workflow (you decide the specifics and when you are done):
+1. Read the issue. Use glob/grep/read_file to locate the relevant code and the existing test \
+package closest to it (tests/<package>/).
+2. Use run_python to OBSERVE the actual buggy behaviour and confirm your understanding before \
+asserting anything.
+3. Write the test and use run_test to check it FAILS on the buggy code with \
+failure_reason=assertion or failure_reason=exception.
+4. Iterate until run_test reports outcome=fail with failure_reason=assertion or exception, then \
+call submit_test with the same module.
+
+Rules:
+- {env_hint}
+- Only assert behaviour you are confident a correct fix would produce.
+- Call submit_test EXACTLY ONCE, only after run_test has confirmed outcome=fail with \
+failure_reason=assertion or exception on the buggy code. Never submit a test that passes, or that \
+fails with failure_reason=runtime (the test itself is broken).
+- Be efficient — you have a limited number of steps and a token budget."""
+
+
+def brt_system_prompt(repo: str) -> str:
+    """The BRT agent's system prompt template for this repo."""
+    return DJANGO_BRT_SYSTEM_PROMPT if native_brt(repo) else BRT_SYSTEM_PROMPT
+
+
 # Optional scaffolding (`--prompt-harden`). Targets the diagnosed qwen failure
 # modes: emitting a tool call as text instead of via the function-calling channel,
 # narrating/guessing a tool's output instead of calling it, and addressing the user.
@@ -382,11 +425,30 @@ class BrtPhaseResult:
         return self.outcome_buggy == "fail" and self.failure_reason_buggy != "runtime"
 
 
-def _brt_retry_feedback(outcome_buggy, submission: str | None, failure_reason: str | None = None) -> str:
+def _brt_retry_feedback(outcome_buggy, submission: str | None, failure_reason: str | None = None,
+                        *, native: bool = False) -> str:
     """Gold-free feedback appended to the task when a submitted BRT lands L0/L1/L2
     (it did not fail cleanly on the BUGGY tree). Reasons ONLY from the buggy-side
-    outcome — never the gold-fixed result — so the retry stays deployable."""
+    outcome — never the gold-fixed result — so the retry stays deployable.
+
+    `native` (Django): an exception raised by the code under test IS a valid
+    failure there, so the two messages that say otherwise get Django wording."""
     prev = f"\n\nYour previous test:\n{submission}\n" if submission and submission.strip() else "\n"
+    if native and outcome_buggy == "fail" and failure_reason == "runtime":
+        why = ("It FAILED on the buggy code, but the TEST ITSELF is broken (an ImportError, "
+               "NameError, SyntaxError or a test-setup mistake such as an app/model that is not "
+               "installed or a SimpleTestCase touching the database), so it never exercised the "
+               "bug. Use run_python to confirm the names and APIs you use, pick the test package "
+               "whose models you need with `module`, then make run_test report "
+               "failure_reason=assertion or exception.")
+        return (f"\n\n--- Your previous attempt did NOT reproduce the bug ---{prev}"
+                f"{why}\n\nTry again.")
+    if native and outcome_buggy not in ("pass", "error", "fail"):  # L0 — nothing usable
+        why = ("You did not submit a usable test that fails on the buggy code. Write the test, "
+               "use run_test to confirm it fails with failure_reason=assertion or exception on "
+               "the buggy code, and only then call submit_test with the same module.")
+        return (f"\n\n--- Your previous attempt did NOT reproduce the bug ---{prev}"
+                f"{why}\n\nTry again.")
     if outcome_buggy == "fail" and failure_reason == "runtime":  # L2 — crashed, never asserted
         why = ("It FAILED on the buggy code, but it CRASHED before reaching its assertion "
                "(an ImportError, NameError, AttributeError or wrong API — not an "
@@ -451,8 +513,9 @@ def run_brt_phase(
     Returns None only if the container could not be started (instance skipped).
     """
     test_path = brt_test_path(inst.repo)
-    env_hint = repo_test_hint(inst.repo) or "(no special framework setup for this repo)"
-    system = BRT_SYSTEM_PROMPT.format(
+    native = native_brt(inst.repo)
+    env_hint = brt_env_hint(inst.repo) or "(no special framework setup for this repo)"
+    system = brt_system_prompt(inst.repo).format(
         repo=inst.repo, base_commit=inst.base_commit, env_hint=env_hint
     )
     if prompt_harden:
@@ -504,8 +567,10 @@ def run_brt_phase(
         # comparison stays like-for-like without touching the gate.
         if not (sub and sub.strip()):
             return None, None, None
-        tc = inject_setup_preamble(inst.repo, sub)
-        tp = make_test_patch(test_path, tc)
+        # Native (Django): the kept test is the submission itself — it carries its
+        # module header and no preamble; the label copies it in (no patch).
+        tc = sub if native else inject_setup_preamble(inst.repo, sub)
+        tp = None if native else make_test_patch(test_path, tc)
         print("Verifying the submitted BRT — BUGGY tree, in-session ...")
         ob = _score_on_buggy_in_session(session, sub)
         print(f"  outcome_on_buggy:  {ob}"
@@ -547,7 +612,7 @@ def run_brt_phase(
                 print(f"  BRT does not reproduce the bug — {bad}. "
                       f"Retrying with feedback ({attempt + 1}/{brt_retries}).")
                 run_task = task + _brt_retry_feedback(
-                    outcome_buggy, submission, failure_reason_buggy)
+                    outcome_buggy, submission, failure_reason_buggy, native=native)
 
         # Phase C: Critic reviews the candidate BRT for specificity; on 'revise'
         # the worker re-runs with the feedback (bounded by critic_rounds). The
@@ -608,12 +673,18 @@ def run_brt_phase(
         # (and never feeds) the gate above, which is why the label can disagree
         # with the gate — that disagreement is itself worth seeing.
         print("Scoring offline — BUGGY tree (label) ...")
-        outcome_buggy_label = run_test_in_container(inst, test_patch, test_path=test_path)
+        if native:
+            outcome_buggy_label = run_brt_in_container(inst, test_code)
+        else:
+            outcome_buggy_label = run_test_in_container(inst, test_patch, test_path=test_path)
         print(f"  outcome_on_buggy(label):  {outcome_buggy_label}")
         print("Scoring offline — gold-FIXED tree ...")
-        outcome_fixed = run_test_in_container(
-            inst, test_patch, gold_patch=inst.gold_patch, test_path=test_path
-        )
+        if native:
+            outcome_fixed = run_brt_in_container(inst, test_code, gold_patch=inst.gold_patch)
+        else:
+            outcome_fixed = run_test_in_container(
+                inst, test_patch, gold_patch=inst.gold_patch, test_path=test_path
+            )
         print(f"  outcome_on_fixed:  {outcome_fixed}")
         classification = classify(outcome_buggy_label, outcome_fixed)
         print(f"  -> {classification.level_label}  (valid BRT: {classification.is_valid_brt})")
@@ -673,25 +744,16 @@ def _score_on_buggy_in_session(session: ContainerSession, submission: str) -> Co
     BRT could therefore be rejected on time or patch mechanics rather than on
     whether it reproduces the bug.
     """
-    rel = brt_test_path(session.repo)
-    code = inject_setup_preamble(session.repo, submission)
-    session.write_file(f"/testbed/{rel}", code)
-    session.ensure_pytest()
-    res = session.exec(f"python -m pytest {rel} -x --tb=short -q", timeout=180)
-    outcome = _parse_pytest_outcome(res.returncode, res.output)
-    reason = _parse_failure_reason(res.output) if outcome == "fail" else None
-    return ContainerResult(outcome, reason, res.output[-3000:])
+    # Same placement, command and parser as the agent's own run_test.
+    result, _ = run_brt_in_session(session, submission)
+    return result
 
 
 def _brt_passes_in_session(session: ContainerSession, brt_code: str) -> bool:
     """Gold-free success check for the fix loop: does the BRT PASS on the current
     (edited) tree? Buggy checkout + the agent's own edits only — no gold patch."""
-    rel = brt_test_path(session.repo)
-    code = inject_setup_preamble(session.repo, brt_code)
-    session.write_file(f"/testbed/{rel}", code)
-    session.ensure_pytest()
-    res = session.exec(f"python -m pytest {rel} -x --tb=short -q", timeout=180)
-    return _parse_pytest_outcome(res.returncode, res.output) == "pass"
+    result, _ = run_brt_in_session(session, brt_code)
+    return result.outcome == "pass"
 
 
 @dataclass
@@ -747,8 +809,10 @@ def run_brt_best_of_n(
     scoreboard of the chosen test (L0-L4); no decision ever sees the fixed tree.
     """
     test_path = brt_test_path(inst.repo)
-    env_hint = repo_test_hint(inst.repo) or "(no special framework setup for this repo)"
-    system = BRT_SYSTEM_PROMPT.format(repo=inst.repo, base_commit=inst.base_commit, env_hint=env_hint)
+    native = native_brt(inst.repo)
+    env_hint = brt_env_hint(inst.repo) or "(no special framework setup for this repo)"
+    system = brt_system_prompt(inst.repo).format(
+        repo=inst.repo, base_commit=inst.base_commit, env_hint=env_hint)
     if prompt_harden:
         system += PROMPT_HARDEN
     ctx = inst.context_safe_dict()
@@ -824,17 +888,23 @@ def run_brt_best_of_n(
     # =================== GOLD BARRIER (scoreboard only) =================== #
     brt: BrtPhaseResult | None = None
     if chosen_submission:
-        test_code = inject_setup_preamble(inst.repo, chosen_submission)
-        test_patch = make_test_patch(test_path, test_code)
+        test_code = chosen_submission if native else inject_setup_preamble(inst.repo, chosen_submission)
+        test_patch = None if native else make_test_patch(test_path, test_code)
         print("Scoring CHOSEN candidate offline — BUGGY tree ...")
-        outcome_buggy = run_test_in_container(inst, test_patch, test_path=test_path)
+        if native:
+            outcome_buggy = run_brt_in_container(inst, test_code)
+        else:
+            outcome_buggy = run_test_in_container(inst, test_patch, test_path=test_path)
         outcome_fixed = None
         classification = None
         if score_fixed:
             print("Scoring CHOSEN candidate offline — gold-FIXED tree ...")
-            outcome_fixed = run_test_in_container(
-                inst, test_patch, gold_patch=inst.gold_patch, test_path=test_path
-            )
+            if native:
+                outcome_fixed = run_brt_in_container(inst, test_code, gold_patch=inst.gold_patch)
+            else:
+                outcome_fixed = run_test_in_container(
+                    inst, test_patch, gold_patch=inst.gold_patch, test_path=test_path
+                )
             classification = classify(outcome_buggy, outcome_fixed)
             print(f"  -> {classification.level_label}  (valid BRT: {classification.is_valid_brt})")
         brt = BrtPhaseResult(

@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -174,6 +175,278 @@ def inject_setup_preamble(repo: str, test_code: str) -> str:
     """Prepend framework setup boilerplate so the model doesn't have to."""
     preamble = _REPO_PREAMBLES.get(repo, "")
     return preamble + test_code if preamble else test_code
+
+
+# ── Native BRT execution (agent path) ───────────────────────────────────────
+# The agent tools, the gold-free gate, the fix agent's run_brt and the offline
+# label all run a generated BRT through `brt_run_spec` + `parse_brt_result`, so
+# they cannot disagree about how a test runs or what its outcome was.
+#
+# For Django that is no longer bare pytest plus _REPO_PREAMBLES. `test_sqlite`
+# leaves INSTALLED_APPS empty — Django's runtests.py is what installs the contrib
+# apps and the app under test and builds the test database — so a BRT touching
+# models / auth / admin crashed before reaching the bug (22 of 41 Django BRT
+# trajectories in the RQ1 sweep). The BRT now lives inside an existing test
+# package, tests/<module>/test_brt.py, and runs through runtests.py: the command
+# the SWE-bench grader itself uses. Through this path the hidden FAIL_TO_PASS
+# tests of all 40 paired Django instances fail on the buggy tree and pass on the
+# gold-fixed one (measured 2026-10-07).
+#
+# Every other repo gets exactly the old file, preamble and pytest command. The
+# non-agentic scripts (02/03) still use brt_test_path / inject_setup_preamble /
+# run_test_in_container directly and are unaffected.
+NATIVE_BRT_REPOS = frozenset({"django/django"})
+DJANGO_BRT_APP = "brt_app"  # fallback module: an empty app of our own under tests/
+
+# The module a BRT runs in travels WITH the test, as a header comment, so every
+# consumer (gate, fix agent, label) places it where the agent ran it.
+_BRT_MODULE_HEADER = "# tdbf-brt-module: "
+_BRT_MODULE_LINE_RE = re.compile(r"^# tdbf-brt-module: *(\S*)[ \t]*\n?", re.MULTILINE)
+# A dotted package name under tests/ — also what keeps it safe to put in a command.
+_MODULE_NAME_RE = re.compile(r"^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$")
+
+_RUNTESTS = "./tests/runtests.py --verbosity 2 --settings=test_sqlite --parallel 1"
+
+
+def native_brt(repo: str) -> bool:
+    """Does this repo run BRTs through its own test runner (not bare pytest)?"""
+    return repo in NATIVE_BRT_REPOS
+
+
+def valid_brt_module(name: str) -> bool:
+    return bool(name) and bool(_MODULE_NAME_RE.match(name))
+
+
+def brt_module(code: str) -> str | None:
+    """The test package a BRT declares in its header, or None."""
+    m = _BRT_MODULE_LINE_RE.search(code or "")
+    if m and valid_brt_module(m.group(1)):
+        return m.group(1)
+    return None
+
+
+def set_brt_module(code: str, module: str) -> str:
+    """Return `code` with exactly one module header, naming `module`."""
+    body = _BRT_MODULE_LINE_RE.sub("", code or "")
+    return f"{_BRT_MODULE_HEADER}{module}\n{body}"
+
+
+@dataclass
+class BrtRunSpec:
+    """How to run one BRT: files to write (repo-relative path -> content) and the
+    command to run from /testbed with the testbed env active."""
+
+    files: dict[str, str]
+    command: str
+    needs_pytest: bool
+
+
+def brt_run_spec(repo: str, code: str, *, test_name: str = "test_brt") -> BrtRunSpec:
+    if native_brt(repo):
+        module = brt_module(code) or DJANGO_BRT_APP
+        rel_dir = "tests/" + module.replace(".", "/")
+        files = {f"{rel_dir}/{test_name}.py": code}
+        if module == DJANGO_BRT_APP:
+            files[f"{rel_dir}/__init__.py"] = ""
+        return BrtRunSpec(files, f"{_RUNTESTS} {module}.{test_name}", needs_pytest=False)
+    rel = brt_test_path(repo)
+    return BrtRunSpec(
+        {rel: inject_setup_preamble(repo, code)},
+        f"python -m pytest {rel} -x --tb=short -q",
+        needs_pytest=True,
+    )
+
+
+# Errors that mean the TEST is broken, not that the code under test misbehaved.
+# Everything else a Django BRT raises counts as the bug manifesting: on the buggy
+# tree 12 of the 40 paired instances' own hidden tests fail ONLY with an exception
+# (ValueError, TypeError, KeyError, IntegrityError, OperationalError, Http404 ...),
+# none of them with one of these.
+_AUTHORING_ERRORS = frozenset(
+    {"ImportError", "ModuleNotFoundError", "NameError", "SyntaxError",
+     "IndentationError", "TabError",
+     # Django's ways of saying the TEST is set up wrong: settings / app registry
+     # misuse, or a SimpleTestCase touching the database.
+     # DatabaseOperationForbidden subclasses AssertionError, so unittest reports
+     # it as a FAIL — it is matched in FAIL blocks too.
+     "ImproperlyConfigured", "AppRegistryNotReady", "DatabaseOperationForbidden",
+     "SystemCheckError"}
+)
+_AUTHORING_MESSAGES = (
+    "isn't in an application in INSTALLED_APPS",
+    "doesn't declare an explicit app_label",
+    "are not allowed in SimpleTestCase",
+    # a model the test defined itself never gets a table; none of the 40 hidden
+    # FAIL_TO_PASS tests fails on the buggy tree with this message
+    "no such table",
+)
+_UNITTEST_HEADER_RE = re.compile(r"^(FAIL|ERROR): (.*)$")
+_UNITTEST_RAN_RE = re.compile(r"^Ran (\d+) tests? in", re.MULTILINE)
+_UNITTEST_EXC_RE = re.compile(r"^([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)(?::(?:\s.*)?)?$")
+# unittest's way of reporting a test module that could not be imported
+_MODULE_LOAD_FAILURE = ("unittest.loader._FailedTest", "unittest.loader.ModuleImportFailure")
+
+
+def _unittest_problems(output: str) -> list[tuple[str, str, str | None, bool]]:
+    """(kind, header, exception name, is_authoring_error) for each FAIL/ERROR
+    block in unittest output.
+
+    A block is: header, optional docstring line(s), a ----- separator, the
+    traceback. The exception is the first unindented line after the LAST
+    traceback frame, so a multi-line assertion message or a chained exception
+    does not confuse it."""
+    lines = output.splitlines()
+    out: list[tuple[str, str, str | None, bool]] = []
+    i = 0
+    while i < len(lines):
+        m = _UNITTEST_HEADER_RE.match(lines[i])
+        if not m:
+            i += 1
+            continue
+        j = i + 1
+        while j < min(i + 6, len(lines)) and not lines[j].startswith("-----"):
+            j += 1  # docstring lines between the header and the separator
+        j += 1
+        body: list[str] = []
+        while j < len(lines) and not lines[j].startswith(("=====", "-----")):
+            body.append(lines[j])
+            j += 1
+        last_frame = max((k for k, ln in enumerate(body) if ln.startswith("  ")), default=-1)
+        exc = None
+        for ln in body[last_frame + 1:]:
+            em = _UNITTEST_EXC_RE.match(ln.strip()) if ln and not ln[0].isspace() else None
+            if em:
+                exc = em.group(1)
+                break
+        text = "\n".join(body)
+        authoring = (exc is not None and exc.split(".")[-1] in _AUTHORING_ERRORS) or any(
+            msg in text for msg in _AUTHORING_MESSAGES)
+        out.append((m.group(1), m.group(2), exc, authoring))
+        i = j
+    return out
+
+
+def parse_runtests_result(returncode: int, output: str) -> tuple[str, str | None]:
+    """(outcome, failure_reason) from Django runtests.py (unittest) output.
+
+    outcome: "pass" | "fail" | "error" | "absent", as for pytest.
+    failure_reason (only when outcome == "fail"):
+      "assertion" — an assertion fired (a FAIL block),
+      "exception" — the code under test raised (an ERROR that is not a test-authoring error),
+      "runtime"   — the test itself is broken (ImportError / NameError / SyntaxError ...).
+    The gate accepts anything but "runtime", so "exception" is a reproduction.
+    """
+    output = _ANSI_RE.sub("", output or "")
+    problems = _unittest_problems(output)
+    if any(any(tag in hdr for tag in _MODULE_LOAD_FAILURE) for _, hdr, _, _ in problems):
+        return "error", None  # the test module did not even import
+    ran = _UNITTEST_RAN_RE.search(output)
+    if ran is None:
+        return "error", None  # runner died before running anything (bad label, check error, timeout)
+    if int(ran.group(1)) == 0:
+        return "absent", None
+    if not problems:
+        return ("pass", None) if returncode == 0 else ("error", None)
+    # Assertion evidence wins, as in the pytest parser; a test-setup error never
+    # counts as evidence of the bug, whichever block kind unittest filed it under.
+    if any(kind == "FAIL" and not authoring for kind, _, _, authoring in problems):
+        return "fail", "assertion"
+    if any(kind == "ERROR" and not authoring for kind, _, _, authoring in problems):
+        return "fail", "exception"
+    return "fail", "runtime"
+
+
+def parse_brt_result(repo: str, returncode: int, output: str) -> tuple[str, str | None]:
+    """(outcome, failure_reason) for a BRT run made from `brt_run_spec`."""
+    if native_brt(repo):
+        return parse_runtests_result(returncode, output)
+    outcome = _parse_pytest_outcome(returncode, output)
+    return outcome, (_parse_failure_reason(output) if outcome == "fail" else None)
+
+
+# runtests.py at verbosity 2 prints dozens of migration / database lines before
+# the result. Tool output is clipped to its first few thousand characters, so
+# unfiltered they would push the actual failure out of what the agent sees.
+_RUNTESTS_NOISE_RE = re.compile(
+    r"^\s*(?:Applying |Creating table |Running deferred SQL|Synchroniz|Operations to perform|"
+    r"Apply all migrations|Running migrations|Creating test database|Destroying test database|"
+    r"Cloning test database|Using existing test database|Testing against Django|"
+    r"Importing application|Found \d+ test|Skipping setup of unused|Creating tables|"
+    r"Installing (?:custom SQL|indexes)|System check identified no issues)"
+)
+
+
+def clean_brt_output(repo: str, output: str) -> str:
+    """What the agent is shown of a BRT run: runtests.py setup chatter removed."""
+    if not native_brt(repo):
+        return output
+    return "\n".join(ln for ln in output.splitlines() if not _RUNTESTS_NOISE_RE.match(ln))
+
+
+DJANGO_BRT_ENV_HINT = (
+    "Your test runs under Django's own test runner (./tests/runtests.py), exactly as "
+    "Django's test suite runs: inside an existing test package under tests/ that you "
+    "choose with the `module` argument (e.g. 'admin_views', 'model_fields', "
+    "'forms_tests'), with that package's models, the standard contrib apps "
+    "(auth, contenttypes, sessions, messages, admin, sites) and a test database. "
+    "Write django.test TestCase / SimpleTestCase classes, as Django's own tests do — "
+    "bare pytest functions are not collected. Import the package's models absolutely "
+    "(e.g. `from admin_views.models import Article`). Do NOT configure settings or "
+    "call django.setup(). Without `module` the test runs in an empty app of its own "
+    "('brt_app'). A model you define inside the test file gets NO database table — "
+    "to use the database, pick a package whose models fit. Settings the test needs "
+    "(e.g. ROOT_URLCONF for views/admin URLs) go in @override_settings, as Django's "
+    "own tests do."
+)
+
+
+def brt_env_hint(repo: str) -> str:
+    """Environment hint for the BRT agent's prompt (agent path)."""
+    if repo == "django/django":
+        return DJANGO_BRT_ENV_HINT
+    return repo_test_hint(repo)
+
+
+def run_brt_in_container(
+    instance: "object",
+    code: str,
+    *,
+    gold_patch: str | None = None,
+    timeout: int = 120,
+) -> "ContainerResult":
+    """Offline counterpart of an in-session BRT run, in a fresh container: the
+    label's buggy run (gold_patch=None) and fixed run. Native repos only; other
+    repos keep make_test_patch + run_test_in_container. The BRT files are copied
+    in rather than applied as a hand-built diff, so a patch cannot fail to apply."""
+    instance_id: str = instance.instance_id  # type: ignore[attr-defined]
+    image_name = f"sweb.eval.x86_64.{instance_id}:latest"
+    spec = brt_run_spec(instance.repo, code)  # type: ignore[attr-defined]
+    with tempfile.TemporaryDirectory(dir=str(Path.home())) as tmpdir:
+        tmp = Path(tmpdir)
+        lines = ["source /opt/miniconda3/bin/activate", "conda activate testbed", "cd /testbed"]
+        if gold_patch is not None:
+            (tmp / "gold.patch").write_text(gold_patch)
+            lines.append("git apply /patches/gold.patch || exit 97")
+        for k, (rel, content) in enumerate(spec.files.items()):
+            (tmp / f"f{k}").write_text(content)
+            dest = shlex.quote(f"/testbed/{rel}")
+            lines.append(f"mkdir -p $(dirname {dest}) && cp /patches/f{k} {dest}")
+        if spec.needs_pytest:
+            lines.append("python -m pytest --version > /dev/null 2>&1 || pip install pytest -q")
+        lines.append(spec.command)
+        cmd = ["docker", "run", "--rm", "-v", f"{tmpdir}:/patches:ro", image_name,
+               "bash", "-c", "\n".join(lines)]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return ContainerResult("error", output="timeout")
+        if "Unable to find image" in proc.stderr:
+            raise RuntimeError(f"Docker image {image_name!r} not found.")
+        full = proc.stdout + proc.stderr
+        if proc.returncode == 97:
+            return ContainerResult("absent", output=full[-3000:])
+        outcome, reason = parse_brt_result(instance.repo, proc.returncode, full)  # type: ignore[attr-defined]
+        return ContainerResult(outcome, reason, full[-3000:])
 
 
 def fetch_python_version(instance: "object") -> str | None:
@@ -499,7 +772,7 @@ class ContainerResult:
     that compares against "pass"/"fail"/etc. needs no changes.
     """
     outcome: str               # "pass" | "fail" | "error" | "absent"
-    failure_reason: str | None = None  # "assertion" | "runtime" | None
+    failure_reason: str | None = None  # "assertion" | "runtime" | "exception" (native) | None
     output: str | None = None  # tail of captured pytest output (for repair/debug)
 
     def __str__(self) -> str:

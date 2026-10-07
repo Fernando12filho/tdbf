@@ -18,14 +18,20 @@ import json
 
 from ..harness.runner import (
     _REPO_PREAMBLES,
-    _parse_failure_reason,
+    DJANGO_BRT_APP,
+    ContainerResult,
     _parse_pytest_outcome,
-    brt_test_path,
-    inject_setup_preamble,
+    brt_module,
+    brt_run_spec,
+    clean_brt_output,
+    native_brt,
+    parse_brt_result,
     repo_test_command,
     repo_test_label,
+    set_brt_module,
+    valid_brt_module,
 )
-from .session import ContainerSession
+from .session import ContainerSession, ExecResult
 from .types import Tool, ToolResult
 
 _MAX_OUTPUT = 2500  # chars of tool output fed back to the model
@@ -36,6 +42,63 @@ def _clip(text: str, limit: int = _MAX_OUTPUT) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + f"\n...[clipped, {len(text) - limit} more chars]"
+
+
+def run_brt_in_session(session: ContainerSession, code: str, *,
+                       test_name: str = "test_brt",
+                       timeout: int = 180) -> tuple[ContainerResult, ExecResult]:
+    """Write a BRT into the live (buggy or agent-edited) tree and run it the
+    repo's way. The ONE place a BRT is executed in a session: run_test, run_brt,
+    the gold-free gate and the fix loop's accept check all come through here, so
+    they cannot disagree about placement, command or outcome. Gold-free: it only
+    ever sees the tree the session holds."""
+    spec = brt_run_spec(session.repo, code, test_name=test_name)
+    for rel, content in spec.files.items():
+        session.write_file(f"/testbed/{rel}", content)
+    if spec.needs_pytest:
+        session.ensure_pytest()
+    res = session.exec(spec.command, timeout=timeout)
+    outcome, reason = parse_brt_result(session.repo, res.returncode, res.output)
+    return ContainerResult(outcome, reason, res.output[-3000:]), res
+
+
+class _BrtModuleState:
+    """The Django test package the BRT agent last ran its test in, shared by
+    run_test and submit_test so a submission without `module` lands where the
+    agent actually ran it."""
+
+    def __init__(self) -> None:
+        self.module: str | None = None
+
+
+def _resolve_module(session: ContainerSession, requested: object,
+                    code: str, state: _BrtModuleState | None) -> tuple[str | None, str | None]:
+    """(module, error). Order: the `module` argument, the code's own header, the
+    module of the last run_test, then the fallback app."""
+    name = str(requested or "").strip().strip("/").replace("/", ".")
+    if name.startswith("tests."):
+        name = name[len("tests."):]
+    if name:
+        if not valid_brt_module(name):
+            return None, (f"'module' must be a test package name under tests/, like "
+                          f"'admin_views' (got {requested!r}).")
+        if name != DJANGO_BRT_APP:
+            res = session.exec('test -d "/testbed/tests/$MODPATH"', activate=False,
+                               env={"MODPATH": name.replace(".", "/")})
+            if res.returncode != 0:
+                return None, (f"No test package tests/{name.replace('.', '/')}/ exists. Use glob "
+                              "(e.g. pattern 'tests/[a-z_]*/__init__.py') to list the packages, "
+                              f"or omit 'module' to use the empty app '{DJANGO_BRT_APP}'.")
+        return name, None
+    return (brt_module(code) or (state.module if state else None) or DJANGO_BRT_APP), None
+
+
+_DJANGO_MODULE_PROP = {
+    "type": "string",
+    "description": ("Existing test package under tests/ to run in, e.g. 'admin_views' "
+                    "(its models and fixtures are available). Omit for an empty app of "
+                    f"your own ('{DJANGO_BRT_APP}')."),
+}
 
 
 class _SessionTool(Tool):
@@ -180,10 +243,44 @@ class RunPythonTool(_SessionTool):
         "required": ["code"],
     }
 
+    # Django: the snippet runs inside a TestCase under runtests.py, so it sees the
+    # same apps, models and test database as the BRT will (a bare `python` probe
+    # had INSTALLED_APPS empty and crashed on any model import).
+    DJANGO_DESCRIPTION = (
+        "Run a Python snippet inside the buggy Django checkout, under Django's own test runner: "
+        "the standard contrib apps are installed, a test database exists, and with `module` that "
+        "test package's models are available too. Returns the snippet's printed output (or the "
+        "traceback if it raises). Use this to observe the actual buggy behaviour before writing "
+        "assertions."
+    )
+    _DJANGO_PROBE = (
+        "from django.test import TestCase\n\n\n"
+        "class TdbfProbe(TestCase):\n"
+        "    def test_probe(self):\n"
+        "        with open('/tmp/tdbf_probe.py') as f:\n"
+        "            src = f.read()\n"
+        "        exec(compile(src, '<run_python>', 'exec'), {'__name__': '__main__'})\n"
+    )
+
+    def __init__(self, session: ContainerSession) -> None:
+        super().__init__(session)
+        if native_brt(session.repo):
+            self.description = self.DJANGO_DESCRIPTION
+            self.input_schema = {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "Python source to execute."},
+                    "module": _DJANGO_MODULE_PROP,
+                },
+                "required": ["code"],
+            }
+
     def execute(self, arguments: dict) -> ToolResult:
         code = arguments.get("code", "")
         if not str(code).strip():
             return ToolResult("run_python requires non-empty 'code'.", is_error=True)
+        if native_brt(self.session.repo):
+            return self._execute_native(str(code), arguments.get("module"))
         preamble = _REPO_PREAMBLES.get(self.session.repo, "")
         self.session.write_file("/tmp/tdbf_probe.py", preamble + code)
         res = self.session.exec("python /tmp/tdbf_probe.py", timeout=90)
@@ -191,6 +288,18 @@ class RunPythonTool(_SessionTool):
         if not body:
             body = "(no output)" if res.returncode == 0 else "(no output; non-zero exit)"
         tag = "" if res.returncode == 0 else f"[exit {res.returncode}] "
+        return ToolResult(_clip(tag + body))
+
+    def _execute_native(self, code: str, requested: object) -> ToolResult:
+        module, err = _resolve_module(self.session, requested, "", None)
+        if err:
+            return ToolResult(err, is_error=True)
+        self.session.write_file("/tmp/tdbf_probe.py", code)
+        result, res = run_brt_in_session(
+            self.session, set_brt_module(self._DJANGO_PROBE, module),
+            test_name="test_tdbf_probe", timeout=90)
+        body = clean_brt_output(self.session.repo, res.output).strip() or "(no output)"
+        tag = "" if result.outcome == "pass" else "[the snippet raised — see the traceback] "
         return ToolResult(_clip(tag + body))
 
 
@@ -208,22 +317,46 @@ class RunTestTool(_SessionTool):
         "required": ["code"],
     }
 
+    DJANGO_DESCRIPTION = (
+        "Write the given test module to tests/<module>/test_brt.py and run it with Django's own test "
+        "runner (./tests/runtests.py <module>.test_brt) against the BUGGY code. Returns outcome "
+        "(fail/pass/error) and, for a failure, failure_reason: 'assertion' (an assertion fired), "
+        "'exception' (the code under test raised) or 'runtime' (the test itself is broken: an "
+        "import/name/syntax error or a test-setup mistake). A good Bug Reproduction Test FAILS here "
+        "with 'assertion' or 'exception', for the reason described in the issue. The test is NOT "
+        "run against any fixed code — that is scored separately."
+    )
+    DJANGO_SCHEMA = {
+        "type": "object",
+        "properties": {
+            "code": {"type": "string", "description": "Full test module source: django.test TestCase / SimpleTestCase classes."},
+            "module": _DJANGO_MODULE_PROP,
+        },
+        "required": ["code"],
+    }
+
+    def __init__(self, session: ContainerSession, state: _BrtModuleState | None = None) -> None:
+        super().__init__(session)
+        self.state = state
+        if native_brt(session.repo):
+            self.description = self.DJANGO_DESCRIPTION
+            self.input_schema = self.DJANGO_SCHEMA
+
     def execute(self, arguments: dict) -> ToolResult:
         code = arguments.get("code", "")
         if not str(code).strip():
             return ToolResult("run_test requires non-empty 'code'.", is_error=True)
-        rel_path = brt_test_path(self.session.repo)
-        full_code = inject_setup_preamble(self.session.repo, code)
-        self.session.write_file(f"/testbed/{rel_path}", full_code)
-        self.session.ensure_pytest()
-        res = self.session.exec(
-            f"python -m pytest {rel_path} -x --tb=short -q",
-            timeout=180,
-        )
-        outcome = _parse_pytest_outcome(res.returncode, res.output)
-        reason = _parse_failure_reason(res.output) if outcome == "fail" else None
-        header = f"outcome={outcome}" + (f" failure_reason={reason}" if reason else "")
-        return ToolResult(f"{header}\n\n{_clip(res.output)}")
+        if native_brt(self.session.repo):
+            module, err = _resolve_module(self.session, arguments.get("module"), str(code), self.state)
+            if err:
+                return ToolResult(err, is_error=True)
+            if self.state is not None:
+                self.state.module = module
+            code = set_brt_module(str(code), module)
+        result, res = run_brt_in_session(self.session, str(code))
+        header = f"outcome={result.outcome}" + (
+            f" failure_reason={result.failure_reason}" if result.failure_reason else "")
+        return ToolResult(f"{header}\n\n{_clip(clean_brt_output(self.session.repo, res.output))}")
 
 
 class SubmitTestTool(Tool):
@@ -246,10 +379,38 @@ class SubmitTestTool(Tool):
     }
     terminal = True
 
+    DJANGO_DESCRIPTION = (
+        "Submit your final Bug Reproduction Test and finish. Call this only once you have used "
+        "run_test to confirm the test fails on the buggy code for the right reason "
+        "(failure_reason 'assertion' or 'exception'). Provide the complete test module source and "
+        "the same `module` you ran it in."
+    )
+    DJANGO_SCHEMA = {
+        "type": "object",
+        "properties": {
+            "code": {"type": "string", "description": "The final, complete test module."},
+            "module": _DJANGO_MODULE_PROP,
+        },
+        "required": ["code"],
+    }
+
+    def __init__(self, session: ContainerSession | None = None,
+                 state: _BrtModuleState | None = None) -> None:
+        self.session = session
+        self.state = state
+        if session is not None and native_brt(session.repo):
+            self.description = self.DJANGO_DESCRIPTION
+            self.input_schema = self.DJANGO_SCHEMA
+
     def execute(self, arguments: dict) -> ToolResult:
         code = arguments.get("code", "")
         if not str(code).strip():
             return ToolResult("submit_test requires non-empty 'code'.", is_error=True)
+        if self.session is not None and native_brt(self.session.repo):
+            module, err = _resolve_module(self.session, arguments.get("module"), str(code), self.state)
+            if err:
+                return ToolResult(err, is_error=True)
+            return ToolResult(set_brt_module(str(code), module))
         return ToolResult(str(code))
 
 
@@ -331,17 +492,14 @@ class RunBrtTool(_SessionTool):
 
     def __init__(self, session: ContainerSession, brt_code: str) -> None:
         super().__init__(session)
-        self._brt_code = inject_setup_preamble(session.repo, brt_code)
-        self._rel_path = brt_test_path(session.repo)
+        # Placement and preamble come from brt_run_spec (Django: the module named
+        # in the BRT's header, no preamble — so no double django.setup()).
+        self._brt_code = brt_code
 
     def execute(self, arguments: dict) -> ToolResult:
-        self.session.write_file(f"/testbed/{self._rel_path}", self._brt_code)
-        self.session.ensure_pytest()
-        res = self.session.exec(
-            f"python -m pytest {self._rel_path} -x --tb=short -q", timeout=180
-        )
-        outcome = _parse_pytest_outcome(res.returncode, res.output)
-        return ToolResult(f"outcome={outcome}\n\n{_clip(res.output)}")
+        result, res = run_brt_in_session(self.session, self._brt_code)
+        return ToolResult(f"outcome={result.outcome}\n\n"
+                          f"{_clip(clean_brt_output(self.session.repo, res.output))}")
 
 
 class RunTestsTool(_SessionTool):
@@ -657,13 +815,14 @@ def assert_breaker_gold_free(tools: list[Tool]) -> None:
 
 def brt_agent_tools(session: ContainerSession) -> list[Tool]:
     """The standard gold-free toolset for a single BRT agent (Phase A)."""
+    state = _BrtModuleState()  # Django: the module run_test last used, for submit_test
     tools: list[Tool] = [
         ReadFileTool(session),
         GrepTool(session),
         GlobTool(session),
         RunPythonTool(session),
-        RunTestTool(session),
-        SubmitTestTool(),
+        RunTestTool(session, state),
+        SubmitTestTool(session, state),
     ]
     assert_gold_free(tools)
     return tools

@@ -257,7 +257,14 @@ rule. Reported with the environment change as one departure.
 - [x] **6.1 Feasibility (no model calls).** Done 10-07 on django-13447: existing
   module + own `brt_app` both work (models, auth, test DB), ~1 s, files untracked;
   `runtests.py` output separates assertion failure (`FAIL:`) from exception (`ERROR:`).
-- [ ] **6.2 Implement** (branch `worktree-django-native-brt`). `runner.py`: Django BRT
+- [x] **6.2 Implemented 10-07** — `runner.brt_run_spec` / `parse_runtests_result`
+  (+ setup errors and "no such table" counted as a broken test, found in the live
+  check), `tools.run_brt_in_session` shared by run_test / run_brt / gate / fix
+  loop, `run_brt_in_container` for the label, `DJANGO_BRT_SYSTEM_PROMPT`.
+  Smokes 18/18 (new `agent_django_brt_smoke.py`). Live, no model: django-13447
+  through the real tools → gate accept → label **L4**; Django 3.0/py3.6 OK.
+  Original plan text:
+- [ ] ~~6.2 Implement~~ (branch `worktree-django-native-brt`). `runner.py`: Django BRT
   path chosen by module, run with `runtests.py`, outcome + failure reason parsed from
   unittest output; hint rewritten (TestCase/SimpleTestCase in an existing module).
   `tools.py`: `module` argument on `run_test` / `submit_test`, `run_brt` uses it;
