@@ -134,8 +134,15 @@ def results():
     Numbers come from tdbf.metrics.build_results (also behind script 14)."""
     recs = tdbf_metrics.load_records(RESULTS_FILE)
     ids, states = _frozen_sample()
-    res = tdbf_metrics.build_results(recs, sample_ids=ids, env_states=states)
-    return render_template("results.html", res=res,
+    # ?view=original: Django test-first from the first runs (no rq1-djv2
+    # substitution). The other view's resolved counts go in the note.
+    original = request.args.get("view") == "original"
+    views = {False: tdbf_metrics.EXPERIMENT_ARMS, True: tdbf_metrics.EXPERIMENT_ARMS_ORIGINAL}
+    res = tdbf_metrics.build_results(recs, sample_ids=ids, env_states=states,
+                                     arms_def=views[original])
+    other = tdbf_metrics.build_results(recs, sample_ids=ids, env_states=states,
+                                       arms_def=views[not original])
+    return render_template("results.html", res=res, other=other, original=original,
                            glossary_sections=glossary.RESULTS_SECTIONS)
 
 

@@ -22,6 +22,33 @@
 {% else %}
 {% set tf = res.arms[0] %}{% set rx = res.arms[1] %}
 
+<!-- ── Django substitution note ──────────────────────────────────── -->
+{% set otf = other.arms[0] if other.n else none %}{% set orx = other.arms[1] if other.n else none %}
+<div class="alert {{ 'alert-warning' if original else 'alert-info' }} small mb-4">
+  {% if not original %}
+  <strong>Django {{ g.term('test_first', 'test-first') }} results come from a re-run.</strong>
+  In the first runs, the Django tests that test-first writes ran in a setup with no
+  Django apps installed, so the tests could not use the models they needed (22 of 41
+  Django test-writing runs hit this). That was
+  a fault in our environment, not in the method. After fixing it (the tests now run
+  through Django's own test runner, <code>runtests.py</code>, as the grader does),
+  test-first was run again on all 40 paired Django instances (run group
+  <code>rq1-djv2</code>), and those runs replace the first ones here. The
+  {{ g.term('reactive', 'reactive') }} arm was not re-run: it never ran those tests.
+  The rest of the extension (<code>rq1-ext-v2</code>) already uses the fixed setup.
+  {% if otf %}Without the replacement: test-first {{ otf.resolved.num }}/{{ otf.resolved.den }},
+  reactive {{ orx.resolved.num }}/{{ orx.resolved.den }}.{% endif %}
+  <a href="{{ url_for('results', view='original') }}">Show the original view</a>
+  {% else %}
+  <strong>Original view:</strong> Django {{ g.term('test_first', 'test-first') }} results
+  from the first runs, before the environment fix (no Django apps installed when the
+  tests ran). These are not the main results.
+  {% if otf %}With the re-run (<code>rq1-djv2</code>): test-first {{ otf.resolved.num }}/{{ otf.resolved.den }},
+  reactive {{ orx.resolved.num }}/{{ orx.resolved.den }}.{% endif %}
+  <a href="{{ url_for('results') }}">Back to the main results</a>
+  {% endif %}
+</div>
+
 <!-- ── Setup ─────────────────────────────────────────────────────── -->
 <div class="card mb-4">
   <div class="card-body small">
