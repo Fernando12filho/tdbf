@@ -39,6 +39,16 @@ from tdbf.data.instances import InstanceStore
 
 FAILING = "def test_tdbf_env_probe_fails():\n    assert 1 == 2\n"
 PASSING = "def test_tdbf_env_probe_passes():\n    assert 1 == 1\n"
+# Native repos (Django) run BRTs through their own unittest runner, which does
+# not collect bare pytest functions ("Ran 0 tests" -> absent).
+NATIVE_FAILING = ("from django.test import SimpleTestCase\n\n\n"
+                  "class TdbfEnvProbe(SimpleTestCase):\n"
+                  "    def test_tdbf_env_probe_fails(self):\n"
+                  "        self.assertEqual(1, 2)\n")
+NATIVE_PASSING = ("from django.test import SimpleTestCase\n\n\n"
+                  "class TdbfEnvProbe(SimpleTestCase):\n"
+                  "    def test_tdbf_env_probe_passes(self):\n"
+                  "        self.assertEqual(1, 1)\n")
 
 
 def check_instance(inst, split: str, run_dir: Path) -> dict:
@@ -59,8 +69,11 @@ def check_instance(inst, split: str, run_dir: Path) -> dict:
             status["brt_error"] = f"session: {e}"
         else:
             try:
-                bad = pipeline._score_on_buggy_in_session(session, FAILING)
-                good = pipeline._score_on_buggy_in_session(session, PASSING)
+                native = pipeline.native_brt(inst.repo)
+                bad = pipeline._score_on_buggy_in_session(
+                    session, NATIVE_FAILING if native else FAILING)
+                good = pipeline._score_on_buggy_in_session(
+                    session, NATIVE_PASSING if native else PASSING)
                 status["brt_fail_ok"] = bad == "fail" and bad.failure_reason == "assertion"
                 status["brt_pass_ok"] = good == "pass"
                 if not (status["brt_fail_ok"] and status["brt_pass_ok"]):

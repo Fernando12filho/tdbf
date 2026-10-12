@@ -353,24 +353,38 @@ def build_report(records: list[dict]) -> dict:
 # same instances. Every number below is over those instances only; development
 # runs never mix in.
 
-# (label, run groups, flags.arm of the fix-phase record). The base sample ran
-# each arm as its own block (rq1-sweep = test-first, rq1-armA = reactive); the
-# extension runs both arms as one unit per instance, so rq1-ext serves both.
+# (label, run groups in precedence order, flags.arm of the fix-phase record).
+# The base sample ran each arm as its own block (rq1-sweep = test-first,
+# rq1-armA = reactive); the extension runs both arms as one unit per instance,
+# so rq1-ext and rq1-ext-v2 serve both. rq1-ext-v2 is the rest of the extension,
+# run with the Django-native BRT code (identical to rq1-ext's code elsewhere).
+#
+# rq1-djv2 SUBSTITUTES test-first on Django: the original Django BRTs ran under
+# a preamble with no INSTALLED_APPS, an environment fault, so test-first was
+# re-run on all 40 paired Django instances (reactive kept). When an instance has
+# units in several of an arm's groups, the LATER-listed group wins (never the
+# later timestamp), and its fix/test records come from that same group.
 EXPERIMENT_ARMS = (
-    ("test-first", ("rq1-sweep", "rq1-ext"), "deployable"),
-    ("reactive", ("rq1-armA", "rq1-ext"), "reactive"),
+    ("test-first", ("rq1-sweep", "rq1-ext", "rq1-ext-v2", "rq1-djv2"), "deployable"),
+    ("reactive", ("rq1-armA", "rq1-ext", "rq1-ext-v2"), "reactive"),
+)
+# The same experiment without the Django substitution (original test-first
+# records), reported alongside the corrected numbers.
+EXPERIMENT_ARMS_ORIGINAL = (
+    ("test-first", ("rq1-sweep", "rq1-ext", "rq1-ext-v2"), "deployable"),
+    ("reactive", ("rq1-armA", "rq1-ext", "rq1-ext-v2"), "reactive"),
 )
 EXPERIMENT_RUN_GROUPS = frozenset(g for _, gs, _ in EXPERIMENT_ARMS for g in gs)
 _UNIT_SIDE = {"test-first": "arm_b", "reactive": "arm_a"}
 
 
-def unit_arms(rec: dict) -> set[str]:
+def unit_arms(rec: dict, arms=EXPERIMENT_ARMS) -> set[str]:
     """Experiment arms a `sweep_unit` record completed: its run group must belong
     to the arm AND the unit must carry that arm's outcome (an AB unit carries both)."""
     if rec.get("mode") != "sweep_unit":
         return set()
     group = _flag(rec, "run_group")
-    return {label for label, groups, _ in EXPERIMENT_ARMS
+    return {label for label, groups, _ in arms
             if group in groups and rec.get(_UNIT_SIDE[label]) is not None}
 
 # Why an attempt did not resolve, decided from the scorer's own lists of
@@ -392,6 +406,24 @@ def _latest(recs: list[dict]) -> dict[str, dict]:
     for r in sorted(recs, key=lambda x: x.get("timestamp", "")):
         out[r["instance_id"]] = r
     return out
+
+
+def _preferred(recs: list[dict], groups: tuple[str, ...]) -> dict[str, dict]:
+    """instance_id -> its record from the highest-precedence run group (the
+    later-listed one); the most recent record breaks ties within a group."""
+    rank = {g: k for k, g in enumerate(groups)}
+    out: dict[str, dict] = {}
+    for r in sorted(recs, key=lambda x: (rank.get(_flag(x, "run_group"), -1),
+                                         x.get("timestamp", ""))):
+        out[r["instance_id"]] = r
+    return out
+
+
+def _same_group(recs: list[dict], units: dict[str, dict]) -> dict[str, dict]:
+    """instance_id -> the latest of `recs` from the run group of that instance's
+    chosen unit, so a substituted unit never borrows an older run's records."""
+    return _latest([r for r in recs if r["instance_id"] in units
+                    and _flag(r, "run_group") == _flag(units[r["instance_id"]], "run_group")])
 
 
 def _failure_kind(fix_rec: dict | None, *, gated: bool = True) -> str:
@@ -430,28 +462,28 @@ def _median(xs: list[float]) -> float | None:
 
 
 def build_results(records: list[dict], *, sample_ids: list[str] | None = None,
-                  env_states: dict[str, str] | None = None) -> dict:
+                  env_states: dict[str, str] | None = None,
+                  arms_def=EXPERIMENT_ARMS) -> dict:
     """Numbers for the Results page: the frozen-sample experiment only.
 
     Instances are those with a completed unit in BOTH arms (paired), so every
     rate shares one denominator N. `sample_ids` / `env_states` (the frozen
     sample file and the environment record) are optional and only used to
-    report what was left out and why.
+    report what was left out and why. `arms_def` picks the arm definition
+    (EXPERIMENT_ARMS_ORIGINAL = without the Django substitution).
     """
     units = {
-        label: _latest([r for r in records if label in unit_arms(r)])
-        for label, _, _ in EXPERIMENT_ARMS
+        label: _preferred([r for r in records if label in unit_arms(r, arms_def)], groups)
+        for label, groups, _ in arms_def
     }
     fixes = {
-        label: _latest([r for r in records if r.get("mode") == "fix_agent"
-                        and _flag(r, "run_group") in groups
-                        and _flag(r, "arm") == arm])
-        for label, groups, arm in EXPERIMENT_ARMS
+        label: _same_group([r for r in records if r.get("mode") == "fix_agent"
+                            and _flag(r, "arm") == arm], units[label])
+        for label, _, arm in arms_def
     }
-    tf_groups = dict((label, groups) for label, groups, _ in EXPERIMENT_ARMS)["test-first"]
-    tests = _latest([r for r in records if r.get("mode") == "agent_deployable"
-                     and _flag(r, "run_group") in tf_groups])
-    arm_flag = {label: arm for label, _, arm in EXPERIMENT_ARMS}
+    tests = _same_group([r for r in records if r.get("mode") == "agent_deployable"],
+                        units["test-first"])
+    arm_flag = {label: arm for label, _, arm in arms_def}
     by_pair: dict[str, list[dict]] = collections.defaultdict(list)
     for r in records:
         if r.get("mode") != "sweep_unit" and _flag(r, "pair_id"):
@@ -484,7 +516,7 @@ def build_results(records: list[dict], *, sample_ids: list[str] | None = None,
 
     # ── per arm: fixed, calls, dates, how the fix agent stopped ─────────────
     arms = []
-    for label, groups, _ in EXPERIMENT_ARMS:
+    for label, groups, _ in arms_def:
         calls = [arm_calls(label, units[label][i]) for i in paired]
         stamps = sorted(units[label][i].get("timestamp", "") for i in paired)
         stops = collections.Counter(
@@ -520,7 +552,7 @@ def build_results(records: list[dict], *, sample_ids: list[str] | None = None,
 
     # ── why attempts did not resolve ─────────────────────────────────────────
     failure = {}
-    for label, _, _ in EXPERIMENT_ARMS:
+    for label, _, _ in arms_def:
         c = collections.Counter(
             _failure_kind(fixes[label].get(i),
                           gated=(label != "test-first" or i in gated))

@@ -129,6 +129,31 @@ def test_left_out_and_dev_isolation() -> None:
     assert r["arms"][0]["calls_total"] == 180  # the dev record's 999 calls stay out
 
 
+def test_substitution_precedence() -> None:
+    """rq1-djv2 replaces test-first by group precedence, not by date, and a
+    substituted instance takes its fix/test records from rq1-djv2 only."""
+    sub = "rq1-djv2"
+    b = lambda ok, lvl, gated: {"resolved": ok, "brt_level": lvl, "gate_accepted": gated}
+    recs = _records() + [
+        # older than the originals, still wins: i2 now fails its hidden test
+        _unit("i2", sub, arm_b=b(False, 4, True), day="2026-09-01"),
+        {**_test("i2", level=4, gated=True), "flags": {"run_group": sub}},
+        _fix("i2", sub, "deployable", resolved=False, f2p=["t_bug"]),
+        # gate rejects now: no fix record in rq1-djv2, so the old group's i4
+        # fix (an F2P failure) must NOT be borrowed
+        _unit("i4", sub, arm_b=b(False, 2, False), day="2026-09-01"),
+        {**_test("i4", level=2, gated=False), "flags": {"run_group": sub}},
+    ]
+    r = M.build_results(recs)
+    assert r["paired"] == {"both": ["i1"], "tf_only": [], "rx_only": ["i3"],
+                           "neither": ["i2", "i4"]}
+    fail = {d["key"]: d["count"] for d in r["failure"]["test-first"]}
+    assert (fail["resolved"], fail["f2p_fail"], fail["gate_rejected"]) == (1, 1, 2)
+    assert r["levels"] == [0, 0, 2, 0, 2]   # i3, i4 L2; i1, i2 L4
+    orig = M.build_results(recs, arms_def=M.EXPERIMENT_ARMS_ORIGINAL)
+    assert orig["paired"] == M.build_results(_records())["paired"]
+
+
 def test_paired_script_mcnemar() -> None:
     spec = importlib.util.spec_from_file_location(
         "paired", ROOT / "scripts" / "14_paired_analysis.py")
@@ -149,6 +174,7 @@ def main() -> int:
         test_funnel_levels_c2p_valid,
         test_failure_kinds_and_stages,
         test_left_out_and_dev_isolation,
+        test_substitution_precedence,
         test_paired_script_mcnemar,
     ]
     for t in tests:

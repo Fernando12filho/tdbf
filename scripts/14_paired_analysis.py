@@ -16,7 +16,8 @@ On top of the pairing it runs the two analyses the frozen sample pre-registered:
       resample the N pairs with replacement, 10,000 times (seed 20260916);
       the CI is the 2.5th to 97.5th percentile of the resampled d.
 
-  python3 scripts/14_paired_analysis.py
+  python3 scripts/14_paired_analysis.py              # Django test-first = rq1-djv2
+  python3 scripts/14_paired_analysis.py --original   # without that substitution
 """
 
 from __future__ import annotations
@@ -59,13 +60,17 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--file", default="results.jsonl")
+    ap.add_argument("--original", action="store_true",
+                    help="original Django test-first records (no rq1-djv2 substitution)")
     args = ap.parse_args()
 
     # Environment states for every frozen sample (ledger.SAMPLE_FILES), so an
     # instance its record marks not-valid is never counted.
     _, env = ledger.load_samples(Path(args.file).resolve().parent)
     states = {k: (v or {}).get("state", "?") for k, v in env.items()}
-    res = metrics.build_results(metrics.load_records(args.file), env_states=states)
+    arms_def = metrics.EXPERIMENT_ARMS_ORIGINAL if args.original else metrics.EXPERIMENT_ARMS
+    res = metrics.build_results(metrics.load_records(args.file), env_states=states,
+                                arms_def=arms_def)
     n = res["n"]
     if not n:
         print("No instance has a completed unit in both arms yet.")
@@ -81,6 +86,8 @@ def main() -> int:
     pairs = [(i in tf_won, i in rx_won) for i in ids]
 
     arms = {a["label"]: a for a in res["arms"]}
+    print("view: " + ("ORIGINAL (no Django substitution)" if args.original
+                      else "CORRECTED (Django test-first = rq1-djv2)"))
     print(f"paired instances: {n}\n")
     print("                      test-first")
     print("                    resolved   not")

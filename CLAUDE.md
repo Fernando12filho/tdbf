@@ -149,6 +149,14 @@ Two generation modes:
 
 Thin wrapper around `swebench.harness.run_evaluation`. Key functions:
 
+- **Agent path (since 2026-10-07, PLAN.md Phase 6):** the agent tools, the gold-free
+  gate, the fix agent's `run_brt` and the offline label run a BRT through
+  `brt_run_spec` + `parse_brt_result` (in-session: `tools.run_brt_in_session`; label:
+  `run_brt_in_container`). Django BRTs live in `tests/<module>/test_brt.py` (module
+  carried as a `# tdbf-brt-module:` header) and run through `runtests.py`, like the
+  grader; `failure_reason` gains `"exception"` (code under test raised = accepted).
+  Every other repo gets the old pytest file/command byte for byte. The helpers below
+  remain the non-agentic (02/03) path.
 - `brt_test_path(repo)`: returns the repo-relative path for the generated test file. Django repos → `tests/test_brt.py`; everything else → `test_brt.py` (repo root). Uses `_REPO_TEST_SUBDIRS` mapping.
 - `inject_setup_preamble(repo, test_code)`: prepends framework bootstrap code (e.g. `django.setup()`) so the model doesn't have to and can't get it wrong. Uses `_REPO_PREAMBLES` mapping.
 - `repo_test_hint(repo)`: returns a one-line string for the generation prompt about the environment (e.g. "Django is pre-configured").

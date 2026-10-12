@@ -43,7 +43,7 @@ class BRTClassification:
     outcome_on_buggy: Outcome
     outcome_on_fixed: Outcome
     rationale: str
-    l3_subtype: str | None = None  # "runtime" | "wrong_assertion" | None (L3 only)
+    l3_subtype: str | None = None  # "runtime" | "wrong_assertion" | "wrong_exception" | None (L3 only)
 
     @property
     def is_valid_brt(self) -> bool:
@@ -109,6 +109,8 @@ def classify(
         l3_subtype = "runtime"
     elif failure_reason == "assertion":
         l3_subtype = "wrong_assertion"
+    elif failure_reason == "exception":  # native (Django) runs: the code raised
+        l3_subtype = "wrong_exception"
 
     return BRTClassification(
         BRTLevel.L3_CANDIDATE, b, f,
