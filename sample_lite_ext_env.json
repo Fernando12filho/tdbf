@@ -1,8 +1,8 @@
 {
   "sample": "tdbf-rq1-lite-ext-n90",
-  "written_utc": "2026-10-12T06:12:33+00:00",
+  "written_utc": "2026-10-20T07:40:12+00:00",
   "counts": {
-    "valid": 40
+    "valid": 70
   },
   "instances": {
     "django__django-11564": {
@@ -168,7 +168,7 @@
     "matplotlib__matplotlib-23314": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-23314:latest @ sweb.eval.x86_64.matplotlib__matplotlib-23314@sha256:f88a00b6cfc878eb62965e836134dd9425b0188bfa2b8154d439bda001ed604c",
-      "pulled_utc": "2026-10-07T19:13:41+00:00",
+      "pulled_utc": "2026-10-16T23:28:23+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-07T19:15:12+00:00"
@@ -176,7 +176,7 @@
     "matplotlib__matplotlib-23476": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-23476:latest @ sweb.eval.x86_64.matplotlib__matplotlib-23476@sha256:10230151c40fbb30c572497c0d2cc6bebead75042568f9223c3266043e6fc249",
-      "pulled_utc": "2026-10-07T19:24:55+00:00",
+      "pulled_utc": "2026-10-16T23:56:23+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-07T19:25:37+00:00"
@@ -184,7 +184,7 @@
     "matplotlib__matplotlib-23964": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-23964:latest @ sweb.eval.x86_64.matplotlib__matplotlib-23964@sha256:1268aa88cfc19ec17849e353b12a69189e20820e1937cac82b5773fb227b80f2",
-      "pulled_utc": "2026-10-07T19:51:33+00:00",
+      "pulled_utc": "2026-10-17T01:09:34+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-07T19:53:03+00:00"
@@ -192,7 +192,7 @@
     "matplotlib__matplotlib-23987": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-23987:latest @ sweb.eval.x86_64.matplotlib__matplotlib-23987@sha256:a0f064917dac3bcb3a9e34d4e7e2a0eaf5b5b6cfe91fc9048a6a5de06dd7aa5f",
-      "pulled_utc": "2026-10-07T22:13:32+00:00",
+      "pulled_utc": "2026-10-17T01:33:01+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-07T22:14:12+00:00"
@@ -200,7 +200,7 @@
     "matplotlib__matplotlib-24265": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-24265:latest @ sweb.eval.x86_64.matplotlib__matplotlib-24265@sha256:a8bf2e42811e4fc7ab9a837f2178640ac83b18fd0eaaf7ed9aea8d3362769057",
-      "pulled_utc": "2026-10-07T22:27:55+00:00",
+      "pulled_utc": "2026-10-17T02:08:07+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-07T22:29:34+00:00"
@@ -208,7 +208,7 @@
     "matplotlib__matplotlib-25079": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-25079:latest @ sweb.eval.x86_64.matplotlib__matplotlib-25079@sha256:2d73277bb5ab5305b3eca34585792467231e394cc1c3557bfe81a852fe45d731",
-      "pulled_utc": "2026-10-07T22:42:10+00:00",
+      "pulled_utc": "2026-10-17T02:27:00+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-07T22:43:58+00:00"
@@ -216,7 +216,7 @@
     "matplotlib__matplotlib-25311": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-25311:latest @ sweb.eval.x86_64.matplotlib__matplotlib-25311@sha256:3e08e93c4788b52c21ed959dc401e62e5dd6d95f52b92a389018a36b8f1e3142",
-      "pulled_utc": "2026-10-07T23:10:55+00:00",
+      "pulled_utc": "2026-10-17T04:00:57+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-07T23:12:47+00:00"
@@ -324,6 +324,246 @@
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-12T06:12:33+00:00"
+    },
+    "mwaskom__seaborn-3190": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.mwaskom_1776_seaborn-3190:latest @ sweb.eval.x86_64.mwaskom__seaborn-3190@sha256:5ce876a52439385a2638f21617febf25a333c24b0db555cb9e37230b4db2cdcc",
+      "pulled_utc": "2026-10-17T04:52:32+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-17T04:53:00+00:00"
+    },
+    "pallets__flask-4045": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.pallets_1776_flask-4045:latest @ sweb.eval.x86_64.pallets__flask-4045@sha256:1425b0801ddf4b2607e552e56516cce3d389bab0a3ce06f58e6fa6a7835c703c",
+      "pulled_utc": "2026-10-17T05:27:38+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-17T05:28:09+00:00"
+    },
+    "psf__requests-1963": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.psf_1776_requests-1963:latest @ sweb.eval.x86_64.psf__requests-1963@sha256:5ca751c160affa98d160831608fffe3e2c4fb61c4fb2dad2b147ef2a885088e4",
+      "pulled_utc": "2026-10-17T05:52:22+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-17T05:53:05+00:00"
+    },
+    "psf__requests-2317": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.psf_1776_requests-2317:latest @ sweb.eval.x86_64.psf__requests-2317@sha256:c6b5c8846507b5e48e307decca28dbdfa4f5ef17070c1087aacde765e8c4b178",
+      "pulled_utc": "2026-10-17T06:22:06+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-17T06:23:07+00:00"
+    },
+    "pydata__xarray-3364": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.pydata_1776_xarray-3364:latest @ sweb.eval.x86_64.pydata__xarray-3364@sha256:8591047f512d8d26b4d0e121d2d04eb6b95fa6ad41e13d92fe64f5ef66244c27",
+      "pulled_utc": "2026-10-17T06:43:15+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-17T06:43:46+00:00"
+    },
+    "pydata__xarray-4094": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.pydata_1776_xarray-4094:latest @ sweb.eval.x86_64.pydata__xarray-4094@sha256:6bcd1fe581af0796691ac3527b940d43e5e1bfd6539adeecebb12f3e4b25dc2c",
+      "pulled_utc": "2026-10-18T03:07:18+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-17T08:11:45+00:00"
+    },
+    "pylint-dev__pylint-7080": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-7080:latest @ sweb.eval.x86_64.pylint-dev__pylint-7080@sha256:3389f0d1319ca611d04a209fc30990c131e0bae9acfeb2163938c75ad23479fe",
+      "pulled_utc": "2026-10-18T04:31:30+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-18T04:32:14+00:00"
+    },
+    "pylint-dev__pylint-7228": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-7228:latest @ sweb.eval.x86_64.pylint-dev__pylint-7228@sha256:b3a905a9b866c0155cfd5af9ba55e19f1884b69eaf5b09ab4d82c1cce8b46088",
+      "pulled_utc": "2026-10-18T06:19:25+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-18T06:19:57+00:00"
+    },
+    "pytest-dev__pytest-5103": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5103:latest @ sweb.eval.x86_64.pytest-dev__pytest-5103@sha256:1648c614485c81d9e08bcf9ec8014fb38cd2f20fad6bea782552d923a35ce714",
+      "pulled_utc": "2026-10-18T06:47:15+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-18T06:47:47+00:00"
+    },
+    "pytest-dev__pytest-5221": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5221:latest @ sweb.eval.x86_64.pytest-dev__pytest-5221@sha256:547472f1933751a67623599dae697188232c9712a46ab66fb69330f88b911e5a",
+      "pulled_utc": "2026-10-18T08:28:07+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-18T08:28:40+00:00"
+    },
+    "pytest-dev__pytest-5413": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5413:latest @ sweb.eval.x86_64.pytest-dev__pytest-5413@sha256:75700210c9eb925d1abde2cb95b7dfffc2c409376ae434854375bacaa193864f",
+      "pulled_utc": "2026-10-18T08:49:16+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-18T08:49:45+00:00"
+    },
+    "pytest-dev__pytest-5495": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5495:latest @ sweb.eval.x86_64.pytest-dev__pytest-5495@sha256:86b356cf05ac9a623ba8943849e25ce2d0bcebc506753b1361595e5ad488a9b3",
+      "pulled_utc": "2026-10-18T09:08:53+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-18T09:09:25+00:00"
+    },
+    "pytest-dev__pytest-5692": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5692:latest @ sweb.eval.x86_64.pytest-dev__pytest-5692@sha256:5b0e6b914a49855cc4e4de597800c95e40c7991fb76313862a7b2b4ca6ec9a00",
+      "pulled_utc": "2026-10-18T09:45:50+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-18T09:46:20+00:00"
+    },
+    "scikit-learn__scikit-learn-10297": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-10297:latest @ sweb.eval.x86_64.scikit-learn__scikit-learn-10297@sha256:58b80e9100f9d107291b5ea37c76583ed4851d8e18ec07aef197f1803a290986",
+      "pulled_utc": "2026-10-18T09:59:23+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-18T09:59:51+00:00"
+    },
+    "scikit-learn__scikit-learn-11040": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-11040:latest @ sweb.eval.x86_64.scikit-learn__scikit-learn-11040@sha256:cab6b76525c41a66adee15e6ff56e3af6c6ef89a1bfa90f3ae57e18ba503f4b7",
+      "pulled_utc": "2026-10-18T10:20:37+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-18T10:21:05+00:00"
+    },
+    "scikit-learn__scikit-learn-13584": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-13584:latest @ sweb.eval.x86_64.scikit-learn__scikit-learn-13584@sha256:5ca83e8c588bfede26f650da0d725c7093d3e57105586522f9d2829e30117b8c",
+      "pulled_utc": "2026-10-19T03:18:17+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-18T11:04:10+00:00"
+    },
+    "scikit-learn__scikit-learn-14087": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-14087:latest @ sweb.eval.x86_64.scikit-learn__scikit-learn-14087@sha256:b0e9f68baa5df7a97e08f89cfc3c185597b640fff66b9b7dce4664ea884251ea",
+      "pulled_utc": "2026-10-19T03:54:13+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-19T03:54:58+00:00"
+    },
+    "scikit-learn__scikit-learn-15512": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-15512:latest @ sweb.eval.x86_64.scikit-learn__scikit-learn-15512@sha256:b2854e68b923a7e27d3776a4041f8a861c1b5004f0c4bd3aa06dd0d4c40d8d0c",
+      "pulled_utc": "2026-10-19T23:59:03+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-19T23:59:36+00:00"
+    },
+    "scikit-learn__scikit-learn-15535": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-15535:latest @ sweb.eval.x86_64.scikit-learn__scikit-learn-15535@sha256:65cf79c7c9e89c316c11acdda5f276285fb67970f0ff865e1e783f801eec7e53",
+      "pulled_utc": "2026-10-20T01:10:58+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-20T01:11:29+00:00"
+    },
+    "sphinx-doc__sphinx-8282": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8282:latest @ sweb.eval.x86_64.sphinx-doc__sphinx-8282@sha256:ed33c4edb0f6e40c6ddc450cfacfd216e74ca2076ed17425df4786c89c09dd7b",
+      "pulled_utc": "2026-10-20T01:29:24+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-20T01:29:54+00:00"
+    },
+    "sphinx-doc__sphinx-8506": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8506:latest @ sweb.eval.x86_64.sphinx-doc__sphinx-8506@sha256:63dfc9e06aecd26d6b76eb4bda169638e26976d4318fb1baf20d6977dc6e1def",
+      "pulled_utc": "2026-10-20T02:02:04+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-20T02:02:35+00:00"
+    },
+    "sphinx-doc__sphinx-8595": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8595:latest @ sweb.eval.x86_64.sphinx-doc__sphinx-8595@sha256:d24f9894d781546578028592ad7630cb40973b69af4705582b5e274afc573628",
+      "pulled_utc": "2026-10-20T02:38:01+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-20T02:38:32+00:00"
+    },
+    "sphinx-doc__sphinx-8713": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8713:latest @ sweb.eval.x86_64.sphinx-doc__sphinx-8713@sha256:7ba9df7ec272f679584db9aede948951ff220b69c55076f0ca54e2777cd80f8e",
+      "pulled_utc": "2026-10-20T03:00:36+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-20T03:01:06+00:00"
+    },
+    "sphinx-doc__sphinx-8721": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8721:latest @ sweb.eval.x86_64.sphinx-doc__sphinx-8721@sha256:8f02afdb324767a2e56b7940569ea822cfa58c3c1f0ef9a910162d21cf52c3f5",
+      "pulled_utc": "2026-10-20T03:19:25+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-20T03:19:55+00:00"
+    },
+    "sympy__sympy-12236": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-12236:latest @ sweb.eval.x86_64.sympy__sympy-12236@sha256:d767f3ac506efa1e75534b2e16cd6faae0b8b0184d9cf86fe8e3e09ad8609482",
+      "pulled_utc": "2026-10-20T04:05:33+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-20T04:06:21+00:00"
+    },
+    "sympy__sympy-13915": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-13915:latest @ sweb.eval.x86_64.sympy__sympy-13915@sha256:8826acc7413f8e7e55bb488d2fcb4a9da3cd3dd73c7abda821e5496804383175",
+      "pulled_utc": "2026-10-20T05:21:07+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-20T05:21:43+00:00"
+    },
+    "sympy__sympy-14396": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-14396:latest @ sweb.eval.x86_64.sympy__sympy-14396@sha256:2d294ae08deefc25918bacf8376662b88a639a22a63b1a0f62badb2c89d85973",
+      "pulled_utc": "2026-10-20T06:16:32+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-20T06:17:09+00:00"
+    },
+    "sympy__sympy-14774": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-14774:latest @ sweb.eval.x86_64.sympy__sympy-14774@sha256:1c3e7e826b3d32c7f2dc155470ace96063278ed78af91b9f0c8268824053779e",
+      "pulled_utc": "2026-10-20T06:39:44+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-20T06:40:21+00:00"
+    },
+    "sympy__sympy-14817": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-14817:latest @ sweb.eval.x86_64.sympy__sympy-14817@sha256:5bd1a67d6f489b2dc4d55720fccef8fe9cafbfdfbce7fc55ad138afa27b8a9de",
+      "pulled_utc": "2026-10-20T06:53:35+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-20T06:54:12+00:00"
+    },
+    "sympy__sympy-15011": {
+      "state": "valid",
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-15011:latest @ sweb.eval.x86_64.sympy__sympy-15011@sha256:f8d13e691a2572c008fd0abadd1b95aab12c06aec9180b815d2781076ec87a8b",
+      "pulled_utc": "2026-10-20T07:39:34+00:00",
+      "reason": null,
+      "gold_resolved": true,
+      "checked_utc": "2026-10-20T07:40:12+00:00"
     }
   }
 }
