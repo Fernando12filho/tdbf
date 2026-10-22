@@ -60,3 +60,9 @@ thesisproposal/main.log
 !sample_lite_env.json
 !sample_lite_ext_frozen.json
 !sample_lite_ext_env.json
+
+# Not published: paper sources, notes, sample/env records
+thesis/
+thesisproposal/
+*.md
+!README.md
