@@ -79,10 +79,16 @@ def main() -> None:
                 labels[iid] = {"repo": "demo/pkg", "run_group": "g", "level": c["level"],
                                "outcome_buggy": "fail", "outcome_fixed": "pass",
                                "failure_reason_buggy": "assertion", "files": ["test_brt.py"]}
+                # the harness's real layout: report.json in <run>/<model>/<id>/,
+                # the applied patch in <run>/pred_pre__<model>/<id>/ and pred_post__
                 rdir = logs / RUN / MODEL / iid
                 rdir.mkdir(parents=True)
                 (rdir / "report.json").write_text(json.dumps(c["report"]))
-                (rdir / "model_patch.diff").write_text(patch + ("# changed\n" if c.get("wrong_patch") else ""))
+                for phase in ("pred_pre", "pred_post"):
+                    pdir = logs / RUN / f"{phase}__{MODEL}" / iid
+                    pdir.mkdir(parents=True)
+                    wrong = c.get("wrong_patch") and phase == "pred_post"
+                    (pdir / "model_patch.diff").write_text(patch + ("# changed\n" if wrong else ""))
                 meta = tmp / "harness" / "tdbf_run_meta" / RUN / f"{iid}.json"
                 meta.parent.mkdir(parents=True, exist_ok=True)
                 started = "2999-01-01T00:00:00+00:00" if c.get("stale") else "2000-01-01T00:00:00+00:00"

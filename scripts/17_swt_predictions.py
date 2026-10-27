@@ -146,8 +146,11 @@ def ingest(logs: Path, predictions: Path, run_id: str, model_name: str,
                 skipped += 1
                 continue
             sha = _sha(patches[iid])
-            scored = rdir / "model_patch.diff"
-            if not scored.exists() or _sha(scored.read_text()) != sha:
+            # the harness writes the patch it applied into each run's folder
+            # (pred_pre__<model>, pred_post__<model>), not next to report.json
+            scored = [logs / run_id / f"{phase}__{model_dir}" / iid / "model_patch.diff"
+                      for phase in ("pred_pre", "pred_post")]
+            if not all(p.exists() and _sha(p.read_text()) == sha for p in scored):
                 print(f"  {iid:40s} REFUSED: the harness scored a different patch")
                 skipped += 1
                 continue
@@ -168,7 +171,10 @@ def ingest(logs: Path, predictions: Path, run_id: str, model_name: str,
             report = json.loads(report_path.read_text()).get(iid, {})
             evidence = ROOT / "runs" / "swt" / run_id / iid
             for d in (logs / run_id).glob(f"*/{iid}"):
-                shutil.copytree(d, evidence / d.parent.name, dirs_exist_ok=True)
+                # image_build_dir is the harness's link to its image build logs,
+                # dangling when (as here) no image was built
+                shutil.copytree(d, evidence / d.parent.name, dirs_exist_ok=True,
+                                ignore=shutil.ignore_patterns("image_build_dir"))
             rec = {
                 "instance_id": iid,
                 "repo": lab["repo"],
