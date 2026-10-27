@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% import "_glossary.html" as g with context %}
+{% block title %}SWT-bench — TDBF{% endblock %}
+{% block content %}
+
+{% macro pct(r) -%}
+  {%- if r and r.den -%}
+    <span class="fw-semibold">{{ r.pct }}</span> <span class="text-muted small">({{ r.num }}/{{ r.den }})</span>
+  {%- else -%}<span class="text-muted">—</span>{%- endif -%}
+{%- endmacro %}
+
+{% set verdict_label = {'S': 'S', 'f2p_only': 'F→P only', 'no_f2p': 'no F→P', 'not_applied': 'not applied'} %}
+
+<h1 class="h3 mb-1">SWT-bench re-scoring</h1>
+<p class="text-muted mb-4">
+  The tests our test-first agent already wrote (the ones behind the
+  <a href="{{ url_for('results') }}">Results</a> page), judged a second time by the official
+  {{ g.term('swt_harness', 'SWT-bench scorer') }} instead of ours. No new model calls:
+  this is {{ g.term('rescoring', 're-scoring') }}. It checks that our
+  {{ g.term('levels', 'L4') }} means the same as SWT-bench's {{ g.term('swt_success', 'S') }},
+  and puts our tests on the scale other tools report on.
+</p>
+
+{% if not res.n %}
+<div class="alert alert-secondary">
+  No re-scored instance yet. Records come from
+  <code>scripts/17_swt_predictions.py ingest</code> into <code>swt_results.jsonl</code>.
+</div>
+{% else %}
+
+<!-- ── Setup ─────────────────────────────────────────────────────── -->
+<div class="card mb-4">
+  <div class="card-body small">
+    <div><span class="text-muted">{{ g.term('n', 'N') }}:</span>
+      <strong>{{ res.n }}</strong> re-scored {{ g.term('instance', 'instances') }}</div>
+    <div><span class="text-muted">Scorer:</span>
+      {{ g.term('swt_harness', 'SWT-bench harness') }}, unit-test mode, on the prebuilt
+      SWE-bench {{ g.term('docker_image', 'Docker images') }}</div>
+    <div><span class="text-muted">Run ids:</span>
+      {% for r in res.run_ids %}<code>{{ r }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</div>
+  </div>
+</div>
+
+<!-- ── 1 · Headline ──────────────────────────────────────────────── -->
+<h2 class="h5 mb-3">1 · Our tests on SWT-bench's measures</h2>
+<table class="table table-sm align-middle mb-2">
+  <thead><tr><th>Measure</th><th>Formula</th><th>Value</th></tr></thead>
+  <tbody>
+    <tr><td>{{ g.term('swt_success', 'S, strict') }}</td><td>{{ g.formula('swt_success') }}</td><td>{{ pct(res.success) }}</td></tr>
+    <tr><td>{{ g.term('swt_f2p', 'F→P, loose') }}</td><td>{{ g.formula('swt_f2p') }}</td><td>{{ pct(res.f2p) }}</td></tr>
+    <tr><td>{{ g.term('swt_applied', 'W, applied') }}</td><td>{{ g.formula('swt_applied') }}</td><td>{{ pct(res.applied) }}</td></tr>
+    <tr><td>Our label: {{ g.term('valid_brt', 'Valid-BRT (L4)') }}</td><td>{{ g.formula('valid_brt') }}</td><td>{{ pct(res.ours_l4) }}</td></tr>
+    <tr><td>{{ g.term('agreement', 'Agreement') }}, L4 vs. S</td><td>{{ g.formula('agreement') }}</td><td>{{ pct(res.agreement) }}</td></tr>
+    <tr><td>{{ g.term('coverage_delta', 'Coverage delta') }}, mean</td><td></td>
+      <td>{% if res.coverage_delta_mean is not none %}<span class="fw-semibold">{{ '%.0f%%' % (100 * res.coverage_delta_mean) }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td></tr>
+  </tbody>
+</table>
+<p class="text-muted small mb-4">S is strict and F→P is loose, so F→P ≥ S always.</p>
+
+<!-- ── 2 · Agreement ─────────────────────────────────────────────── -->
+<h2 class="h5 mb-1">2 · Our label against SWT-bench's verdict</h2>
+<p class="text-muted small mb-2">Rows: our {{ g.term('levels', 'level') }}. Columns: what the SWT-bench scorer said about the same test.
+  Agreement means L4 lands in S and everything else lands outside it.</p>
+<table class="table table-sm align-middle mb-4">
+  <thead><tr><th>Ours</th>{% for key, label in res.verdicts %}<th title="{{ label }}">{{ verdict_label[key] }}</th>{% endfor %}</tr></thead>
+  <tbody>
+    {% for row in res.cross %}
+    <tr><th>{{ row.level }}</th>
+      {% for c in row.counts %}{% set key = res.verdicts[loop.index0][0] %}
+      {% set ok = (row.level == 'L4') == (key == 'S') %}
+      <td class="{{ '' if not c else ('table-success' if ok else 'table-warning') }}">{{ c or '' }}</td>
+      {% endfor %}</tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if res.disagreements %}
+<h3 class="h6">Disagreements ({{ res.disagreements|length }})</h3>
+<table class="table table-sm align-middle mb-4">
+  <thead><tr><th>Instance</th><th>Ours</th><th>SWT-bench</th><th>Most likely cause</th><th>Evidence</th></tr></thead>
+  <tbody>
+    {% for x in res.disagreements %}
+    <tr><td><code>{{ x.instance_id }}</code></td><td>{{ x.ours }}</td><td>{{ verdict_label[x.verdict] }}</td>
+      <td class="small">{{ x.hint or '—' }}</td><td class="small"><code>{{ x.evidence }}</code></td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<!-- ── 3 · By repository ─────────────────────────────────────────── -->
+<h2 class="h5 mb-3">3 · By {{ g.term('repo', 'repository') }}</h2>
+<table class="table table-sm align-middle mb-4">
+  <thead><tr><th>Repository</th><th>N</th><th>Ours L4</th><th>S</th><th>F→P</th></tr></thead>
+  <tbody>
+    {% for r in res.repos %}
+    <tr><td>{{ r.repo }}</td><td>{{ r.n }}</td><td>{{ r.ours_l4 }}</td><td>{{ r.success }}</td><td>{{ r.f2p }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<!-- ── 4 · Published tools ───────────────────────────────────────── -->
+{% if res.tools %}
+<h2 class="h5 mb-1">4 · Other tools on the same instances ({{ g.term('published_lists', 'published results') }})</h2>
+<p class="text-muted small mb-2">
+  Only the {{ res.n }} instances re-scored here. "Ours" is our S. The other tools used other
+  {{ g.term('llm', 'models') }}, mostly GPT-4 (<code>gpt-4-1106-preview</code>), so a row compares a tool
+  and its model together.
+</p>
+<table class="table table-sm align-middle mb-2">
+  <thead><tr><th>Tool</th><th>Model</th><th>Their metric</th><th>Theirs</th><th>Both</th><th>Only ours</th><th>Only theirs</th></tr></thead>
+  <tbody>
+    {% for t in res.tools %}
+    <tr><td>{{ t.tool }}</td><td class="small"><code>{{ t.model }}</code></td>
+      <td class="small" title="{{ t.note }}">{{ t.metric }}</td>
+      <td>{{ pct(t.theirs) }}</td><td>{{ t.both }}</td><td>{{ t.only_ours }}</td><td>{{ t.only_theirs }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="text-muted small mb-4">Source of each list: <code>published_swt_lite.jsonl</code> (repository and commit recorded per row).</p>
+{% endif %}
+
+<!-- ── 5 · Every instance ────────────────────────────────────────── -->
+<h2 class="h5 mb-3">5 · Every re-scored instance</h2>
+<table class="table table-sm align-middle mb-4">
+  <thead><tr><th>Instance</th><th>Ours</th><th>SWT-bench</th><th>Coverage delta</th><th>Test file</th></tr></thead>
+  <tbody>
+    {% for x in res.rows %}
+    <tr class="{{ '' if x.agree else 'table-warning' }}"><td><code>{{ x.instance_id }}</code></td><td>{{ x.ours }}</td>
+      <td>{{ verdict_label[x.verdict] }}</td>
+      <td>{% if x.coverage_delta is not none %}{{ '%.0f%%' % (100 * x.coverage_delta) }}{% else %}—{% endif %}</td>
+      <td class="small">{% for f in x.files %}<code>{{ f }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% endif %}
+
+{{ g.glossary(glossary_sections) }}
+
+{% endblock %}

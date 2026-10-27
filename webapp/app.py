@@ -27,6 +27,8 @@ app.jinja_env.globals["GLOSSARY"] = glossary.TERMS
 db.init_db()
 
 RESULTS_FILE = Path(__file__).parent.parent / "results.jsonl"
+SWT_FILE = RESULTS_FILE.parent / "swt_results.jsonl"
+PUBLISHED_FILE = RESULTS_FILE.parent / "published_swt_lite.jsonl"
 
 _LEVEL_NAMES = {
     0: "L0 Malformed",
@@ -144,6 +146,17 @@ def results():
                                        arms_def=views[not original])
     return render_template("results.html", res=res, other=other, original=original,
                            glossary_sections=glossary.RESULTS_SECTIONS)
+
+
+@app.route("/swt")
+def swt():
+    """Our stored test-first tests re-scored by the official SWT-bench harness,
+    next to other tools' published per-instance results. Numbers come from
+    tdbf.metrics.build_swt; the records from scripts/17_swt_predictions.py ingest."""
+    res = tdbf_metrics.build_swt(tdbf_metrics.load_records(SWT_FILE),
+                                 tdbf_metrics.load_records(PUBLISHED_FILE))
+    return render_template("swt.html", res=res,
+                           glossary_sections=glossary.sections_for(glossary.SWT_TERMS))
 
 
 @app.route("/development")

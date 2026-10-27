@@ -198,6 +198,50 @@ SECTIONS: list[tuple[str, list[tuple[str, str, str, str | None]]]] = [
          "of the arm.",
          "Calls per instance = total model calls / N"),
     ]),
+    ("SWT-bench re-scoring", [
+        ("swt_bench", "SWT-bench Lite",
+         "A public benchmark for writing tests that reproduce a bug: 276 of the "
+         "SWE-bench Lite bugs, with an official scorer. Other tools that write such "
+         "tests (SWE-agent, LIBRO, Issue2Test) report their results on it.",
+         None),
+        ("rescoring", "Re-scoring",
+         "Taking the tests our agent already wrote, with no new model calls, and "
+         "judging them a second time with SWT-bench's official scorer instead of ours, "
+         "so our numbers can sit next to other tools' numbers.",
+         None),
+        ("swt_harness", "SWT-bench harness",
+         "SWT-bench's official scorer. It adds the test to the project, runs it with "
+         "the project's own test command on the buggy code and on the fixed code, and "
+         "records what each test function did.",
+         None),
+        ("swt_success", "S (success rate)",
+         "The strict SWT-bench measure. A test counts only if at least one test "
+         "function goes from failing to passing and none still fails after the fix. "
+         "Our L4 is meant to match this.",
+         "S = instances with ≥1 fail→pass test and no test failing after the fix / N"),
+        ("swt_f2p", "F→P (fail-to-pass rate)",
+         "The loose SWT-bench measure. A test counts if at least one test function "
+         "goes from failing to passing, even if another still fails after the fix. "
+         "Always at least S. The figure Issue2Test's paper reports.",
+         "F→P = instances with ≥1 fail→pass test / N"),
+        ("swt_applied", "W (applicability)",
+         "The share of tests the scorer could add to the project without an error.",
+         "W = tests that applied / N"),
+        ("coverage_delta", "Coverage delta",
+         "How many of the lines the real fix changes the test runs, beyond what the "
+         "project's existing tests already run. Higher means the test exercises the "
+         "code the bug is in.",
+         None),
+        ("agreement", "Agreement",
+         "The share of instances where SWT-bench and our scorer give the same answer "
+         "to: is this a valid test? (Our L4 against SWT-bench's S.)",
+         "Agreement = (L4 and S, or not L4 and not S) / N"),
+        ("published_lists", "Published results",
+         "Which instances other tools solved, as published by their authors. They "
+         "used other models (mostly GPT-4, from 2023), so these rows compare tools "
+         "and models together, not tools alone.",
+         None),
+    ]),
     ("Development terms", [
         ("dev_set", "Development set",
          "The 14 instances (6 astropy, 8 django) used while building the agents. "
@@ -256,12 +300,18 @@ TERMS: dict[str, dict] = {
 }
 
 # Which sections each page shows at the bottom.
-RESULTS_SECTIONS = [s for s in SECTIONS if s[0] != "Development terms"]
-DEVELOPMENT_SECTIONS = SECTIONS
+RESULTS_SECTIONS = [s for s in SECTIONS if s[0] not in ("Development terms", "SWT-bench re-scoring")]
+DEVELOPMENT_SECTIONS = [s for s in SECTIONS if s[0] != "SWT-bench re-scoring"]
 
 # The Status page uses only a few terms; show just those, in glossary order.
 STATUS_TERMS = ("swebench", "instance", "repo", "frozen_sample", "docker_image",
                 "arm", "paired", "gold_patch", "dev_set", "run_group")
+
+
+SWT_TERMS = ("instance", "repo", "docker_image", "buggy_code", "gold_patch", "fixed_code",
+             "llm", "brt", "levels", "n", "valid_brt",
+             "swt_bench", "rescoring", "swt_harness", "swt_success", "swt_f2p",
+             "swt_applied", "coverage_delta", "agreement", "published_lists")
 
 
 def sections_for(keys) -> list:

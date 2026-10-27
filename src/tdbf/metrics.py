@@ -635,6 +635,112 @@ def build_results(records: list[dict], *, sample_ids: list[str] | None = None,
     }
 
 
+# ── SWT-bench re-scoring (webapp /swt page) ─────────────────────────────────
+# Our stored test-first BRTs scored again by the official SWT-bench harness
+# (scripts/17_swt_predictions.py + 18_swt_score.py). Records live in
+# swt_results.jsonl, apart from results.jsonl; published per-instance lists of
+# other tools live in published_swt_lite.jsonl.
+
+SWT_VERDICTS = (
+    ("S", "S: success (strict)"),
+    ("f2p_only", "F→P only: a test went fail→pass, another still fails after the fix"),
+    ("no_f2p", "No F→P: no test went fail→pass"),
+    ("not_applied", "Patch did not apply"),
+)
+
+# Most likely cause of each kind of disagreement, from how the two scorers differ.
+_SWT_DISAGREEMENT_HINTS = {
+    ("L4", "not_applied"): "conversion: the exported patch did not apply",
+    ("L4", "no_f2p"): "harness ran no failing test: placement, the repo's runner, or a "
+                      "missing package in its environment (e.g. pytest)",
+    ("L4", "f2p_only"): "a test still fails after the fix under the harness's runner",
+    ("L3", "S"): "per-test vs. per-file: the harness counts tests, we count the file",
+    ("low", "S"): "the harness counts a test missing or erroring on buggy code as failing; "
+                  "we label it L2",
+}
+
+
+def swt_verdict(rec: dict) -> str:
+    m = rec.get("swt") or {}
+    if not m.get("applied"):
+        return "not_applied"
+    if m.get("success"):
+        return "S"
+    return "f2p_only" if m.get("f2p") else "no_f2p"
+
+
+def build_swt(records: list[dict], published: list[dict] | None = None) -> dict:
+    """Numbers for the /swt page. The latest stored record per instance counts."""
+    latest = _latest([r for r in records if r.get("kind") == "tdbf_test_first"])
+    rows = []
+    for iid, r in sorted(latest.items()):
+        level = (r.get("ours") or {}).get("level")
+        ours = f"L{level}" if level is not None else "L?"
+        verdict = swt_verdict(r)
+        agree = (level == 4) == (verdict == "S")
+        key = ("low" if level is not None and level <= 2 else ours, verdict)
+        rows.append({
+            "instance_id": iid, "repo": r.get("repo"), "ours": ours, "verdict": verdict,
+            "agree": agree, "hint": None if agree else _SWT_DISAGREEMENT_HINTS.get(key),
+            "files": (r.get("source") or {}).get("files") or [],
+            "coverage_delta": (r.get("swt") or {}).get("coverage_delta_pred"),
+            "run_id": (r.get("harness") or {}).get("run_id"),
+            "evidence": r.get("evidence"),
+        })
+    n = len(rows)
+    if not n:
+        return {"n": 0}
+    count = collections.Counter(x["verdict"] for x in rows)
+    m = [latest[x["instance_id"]].get("swt") or {} for x in rows]
+    cov = [x["coverage_delta"] for x in rows if x["coverage_delta"] is not None]
+
+    cross = collections.Counter((x["ours"], x["verdict"]) for x in rows)
+    levels = [lvl for lvl in ("L4", "L3", "L2", "L1", "L0", "L?")
+              if any(x["ours"] == lvl for x in rows)]
+
+    by_repo: dict[str, list[dict]] = collections.defaultdict(list)
+    for x in rows:
+        by_repo[x["repo"]].append(x)
+    repos = [{
+        "repo": repo, "n": len(xs),
+        "ours_l4": sum(x["ours"] == "L4" for x in xs),
+        "success": sum(x["verdict"] == "S" for x in xs),
+        "f2p": sum(x["verdict"] in ("S", "f2p_only") for x in xs),
+    } for repo, xs in sorted(by_repo.items(), key=lambda kv: (-len(kv[1]), kv[0]))]
+
+    # published tools, on exactly the instances we have re-scored
+    scored = {x["instance_id"] for x in rows}
+    ours_s = {x["instance_id"] for x in rows if x["verdict"] == "S"}
+    tools = []
+    for p in published or []:
+        theirs = set(p.get("instances") or []) & scored
+        tools.append({
+            "tool": p.get("tool"), "model": p.get("model"), "metric": p.get("metric"),
+            "note": p.get("note"), "source": p.get("source"),
+            "theirs": rate(len(theirs), n), "both": len(theirs & ours_s),
+            "only_ours": len(ours_s - theirs), "only_theirs": len(theirs - ours_s),
+        })
+
+    return {
+        "n": n,
+        "run_ids": sorted({x["run_id"] for x in rows if x["run_id"]}),
+        "applied": rate(sum(bool(x.get("applied")) for x in m), n),
+        "success": rate(count["S"], n),
+        "f2p": rate(count["S"] + count["f2p_only"], n),
+        "p2p": rate(sum(bool(x.get("p2p")) for x in m), n),
+        "ours_l4": rate(sum(x["ours"] == "L4" for x in rows), n),
+        "agreement": rate(sum(x["agree"] for x in rows), n),
+        "coverage_delta_mean": (sum(cov) / len(cov)) if cov else None,
+        "verdicts": SWT_VERDICTS,
+        "cross": [{"level": lvl, "counts": [cross[(lvl, v)] for v, _ in SWT_VERDICTS]}
+                  for lvl in levels],
+        "repos": repos,
+        "rows": rows,
+        "disagreements": [x for x in rows if not x["agree"]],
+        "tools": tools,
+    }
+
+
 # ── text formatter (for the CLI) ─────────────────────────────────────────────
 
 def format_text(rep: dict) -> str:
