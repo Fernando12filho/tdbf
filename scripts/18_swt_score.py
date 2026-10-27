@@ -105,7 +105,12 @@ def main() -> None:
     dataset = {i["instance_id"]: i for i in load_swebench_dataset(DATASET, "test", filter_swt=True)}
     missing = [i for i in ids if i not in dataset]
     if missing:
-        raise SystemExit(f"not in SWT-bench Lite: {' '.join(missing)}")
+        print(f"skipped, not in SWT-bench Lite ({len(missing)}): {' '.join(missing)}")
+    ids = [i for i in ids if i in dataset]
+    # images already on disk first, so a long run makes progress before any pull
+    def on_disk(iid):
+        return sh(["docker", "image", "inspect", registry_image(iid)], capture_output=True).returncode == 0
+    ids.sort(key=lambda i: not on_disk(i))
 
     summary = {}
     for iid in ids:
