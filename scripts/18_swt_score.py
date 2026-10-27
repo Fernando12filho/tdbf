@@ -46,11 +46,14 @@ import argparse
 import json
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 DATASET = "princeton-nlp/SWE-bench_Lite"
 GOLD_RUN_ID = "validate-lite-gold-1"  # the name src.report looks for
 RUN_ID = "tdbf-test-first"
+PULL_TRIES = 3
+META_DIR = "tdbf_run_meta"  # inside the harness checkout, next to run_instance_swt_logs
 
 
 def registry_image(instance_id: str) -> str:
@@ -112,15 +115,34 @@ def main() -> None:
         print(f"\n=== {iid}\n    {src_image}\n    -> " + "\n    -> ".join(tags), flush=True)
 
         local = sh(["docker", "image", "inspect", src_image], capture_output=True).returncode == 0
-        if not local and sh(["docker", "pull", "--platform", "linux/amd64", src_image]).returncode != 0:
+        # a dropped connection ("short read ... unexpected EOF") is common on big
+        # layers; docker keeps finished layers, so a retry resumes
+        if not local and not any(
+                sh(["docker", "pull", "--platform", "linux/amd64", src_image]).returncode == 0
+                for _ in range(PULL_TRIES)):
             summary[iid] = "pull failed"
             continue
+        digest = sh(["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", src_image],
+                    capture_output=True, text=True).stdout.strip()
+        started = datetime.now(timezone.utc).isoformat()
         try:
             for t in tags:
                 sh(["docker", "tag", src_image, t], check=True)
             gold = None if args.skip_gold else harness("gold", iid, GOLD_RUN_ID, args.max_workers)
             pred = harness(str(args.predictions.resolve()), iid, args.run_id, args.max_workers)
             summary[iid] = f"gold exit {gold}, prediction exit {pred}"
+            # read by `17_swt_predictions.py ingest`: which image graded this
+            # instance, and when, so a report older than this run is refused
+            meta = Path(META_DIR) / args.run_id / f"{iid}.json"
+            meta.parent.mkdir(parents=True, exist_ok=True)
+            meta.write_text(json.dumps({
+                "instance_id": iid, "run_id": args.run_id, "image": src_image,
+                "repo_digests": json.loads(digest or "[]"), "tags": tags,
+                "gold_exit": gold, "prediction_exit": pred, "started": started,
+                "finished": datetime.now(timezone.utc).isoformat(),
+                "harness_commit": sh(["git", "rev-parse", "--short", "HEAD"],
+                                     capture_output=True, text=True).stdout.strip(),
+            }, indent=1))
         finally:
             for t in tags:
                 sh(["docker", "rmi", t], capture_output=True)
