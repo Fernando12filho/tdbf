@@ -461,6 +461,30 @@ def _median(xs: list[float]) -> float | None:
     return s[m] if len(s) % 2 else (s[m - 1] + s[m]) / 2
 
 
+def _experiment_units(records: list[dict], arms_def=EXPERIMENT_ARMS
+                      ) -> tuple[dict[str, dict[str, dict]], dict[str, dict]]:
+    """Each arm's chosen unit per instance, and the test-first Phase A record
+    from the same run group as that instance's test-first unit."""
+    units = {
+        label: _preferred([r for r in records if label in unit_arms(r, arms_def)], groups)
+        for label, groups, _ in arms_def
+    }
+    tests = _same_group([r for r in records if r.get("mode") == "agent_deployable"],
+                        units["test-first"])
+    return units, tests
+
+
+def experiment_tests(records: list[dict], *, env_states: dict[str, str] | None = None,
+                     arms_def=EXPERIMENT_ARMS) -> dict[str, dict]:
+    """instance_id -> the test-first Phase A record behind the Results page, for
+    every paired instance (same pairing and precedence as build_results). Its
+    single attempt holds the test the pipeline handed to the fix agent."""
+    units, tests = _experiment_units(records, arms_def)
+    states = env_states or {}
+    return {i: tests[i] for i in sorted(set(units["test-first"]) & set(units["reactive"]))
+            if states.get(i, "valid") == "valid" and i in tests}
+
+
 def build_results(records: list[dict], *, sample_ids: list[str] | None = None,
                   env_states: dict[str, str] | None = None,
                   arms_def=EXPERIMENT_ARMS) -> dict:
@@ -472,17 +496,12 @@ def build_results(records: list[dict], *, sample_ids: list[str] | None = None,
     report what was left out and why. `arms_def` picks the arm definition
     (EXPERIMENT_ARMS_ORIGINAL = without the Django substitution).
     """
-    units = {
-        label: _preferred([r for r in records if label in unit_arms(r, arms_def)], groups)
-        for label, groups, _ in arms_def
-    }
+    units, tests = _experiment_units(records, arms_def)
     fixes = {
         label: _same_group([r for r in records if r.get("mode") == "fix_agent"
                             and _flag(r, "arm") == arm], units[label])
         for label, _, arm in arms_def
     }
-    tests = _same_group([r for r in records if r.get("mode") == "agent_deployable"],
-                        units["test-first"])
     arm_flag = {label: arm for label, _, arm in arms_def}
     by_pair: dict[str, list[dict]] = collections.defaultdict(list)
     for r in records:
