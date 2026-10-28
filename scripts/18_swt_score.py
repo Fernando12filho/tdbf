@@ -54,6 +54,7 @@ GOLD_RUN_ID = "validate-lite-gold-1"  # the name src.report looks for
 RUN_ID = "tdbf-test-first"
 PULL_TRIES = 3
 META_DIR = "tdbf_run_meta"  # inside the harness checkout, next to run_instance_swt_logs
+TDBF_ROOT = Path(__file__).resolve().parent.parent  # for --ingest
 
 
 def registry_image(instance_id: str) -> str:
@@ -82,6 +83,21 @@ def harness(predictions: str, instance_id: str, run_id: str, workers: int) -> in
                "--cache_level", "instance", "--clean", "False"]).returncode
 
 
+def ingest(args, instance_id: str) -> None:
+    """Store one finished instance in the tdbf repo. Ingest re-checks the patch
+    hash and the report's freshness and never stores a verdict twice, so calling
+    it per instance is safe. A failure is reported, not fatal: the reports stay
+    in run_instance_swt_logs and a later manual ingest picks them up.
+    Committing swt_results.jsonl stays a manual step."""
+    script = TDBF_ROOT / "scripts" / "17_swt_predictions.py"
+    rc = sh([args.ingest_python, str(script), "ingest",
+             "--logs", str(Path("run_instance_swt_logs").resolve()),
+             "--predictions", str(args.predictions.resolve()),
+             "--run-id", args.run_id, "--ids", instance_id]).returncode
+    if rc != 0:
+        print(f"    ingest of {instance_id} failed (exit {rc}); run 17 ingest by hand later", flush=True)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--predictions", required=True, type=Path)
@@ -90,6 +106,11 @@ def main() -> None:
     ap.add_argument("--skip-gold", action="store_true", help="no gold run (no coverage, no image check)")
     ap.add_argument("--rm-image", action="store_true", help="delete the prebuilt image after each instance")
     ap.add_argument("--max-workers", type=int, default=1)
+    ap.add_argument("--ingest", action="store_true",
+                    help="after each instance, store its verdict in the tdbf repo's swt_results.jsonl "
+                         "(17_swt_predictions.py ingest), so the webapp /swt page updates during the run")
+    ap.add_argument("--ingest-python", default="python3",
+                    help="a python with the tdbf package installed (the harness venv does not have it)")
     args = ap.parse_args()
 
     if not Path("src/exec_spec.py").exists():
@@ -148,6 +169,8 @@ def main() -> None:
                 "harness_commit": sh(["git", "rev-parse", "--short", "HEAD"],
                                      capture_output=True, text=True).stdout.strip(),
             }, indent=1))
+            if args.ingest:
+                ingest(args, iid)
         finally:
             for t in tags:
                 sh(["docker", "rmi", t], capture_output=True)

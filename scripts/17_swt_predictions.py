@@ -120,7 +120,7 @@ def swt_metrics(report: dict) -> dict:
 
 
 def ingest(logs: Path, predictions: Path, run_id: str, model_name: str,
-           store: Path, allow_no_meta: bool) -> None:
+           store: Path, allow_no_meta: bool, ids: list[str] | None = None) -> None:
     """Append one verified record per scored instance to `store`, and copy the
     raw evidence to runs/swt/<run_id>/<instance>/.
 
@@ -132,6 +132,8 @@ def ingest(logs: Path, predictions: Path, run_id: str, model_name: str,
     patches = {p["instance_id"]: p["model_patch"] for p in
                (json.loads(l) for l in predictions.read_text().splitlines() if l.strip())}
     labels = json.loads(predictions.with_suffix(".labels.json").read_text())
+    if ids:  # 18_swt_score.py --ingest stores one instance at a time
+        labels = {i: lab for i, lab in labels.items() if i in ids}
     have = {(r["instance_id"], r["harness"]["run_id"], r["source"]["patch_sha256"])
             for r in metrics.load_records(store)}
     model_dir = model_name.replace("/", "__")
@@ -260,11 +262,13 @@ def main() -> None:
     ig.add_argument("--store", type=Path, default=STORE)
     ig.add_argument("--allow-no-meta", action="store_true",
                     help="accept a report without 18_swt_score.py metadata (patch hash still checked)")
+    ig.add_argument("--ids", nargs="+", help="only these instances (default: all in the predictions file)")
     args = ap.parse_args()
     if args.cmd == "export":
         export(None if args.all else args.ids, args.out, args.model_name)
     elif args.cmd == "ingest":
-        ingest(args.logs, args.predictions, args.run_id, args.model_name, args.store, args.allow_no_meta)
+        ingest(args.logs, args.predictions, args.run_id, args.model_name, args.store,
+               args.allow_no_meta, args.ids)
     else:
         compare(args.logs, args.predictions, args.run_id, args.model_name)
 

@@ -97,6 +97,11 @@ def main() -> None:
         preds.with_suffix(".labels.json").write_text(json.dumps(labels))
         store = tmp / "swt_results.jsonl"
 
+        print("ingest one instance (18_swt_score.py --ingest)")
+        one = tmp / "one.jsonl"
+        m17.ingest(logs, preds, RUN, MODEL, one, allow_no_meta=False, ids=["i3"])
+        check("--ids stores only that instance", [r["instance_id"] for r in M.load_records(one)], ["i3"])
+
         print("ingest")
         m17.ingest(logs, preds, RUN, MODEL, store, allow_no_meta=False)
         recs = M.load_records(store)
