@@ -212,10 +212,12 @@ def test_b_only_is_the_capability_probe() -> None:
 
 
 def test_default_budgets() -> None:
-    assert SW.default_budgets("openrouter:google/gemma-4-31b-it:free") == (16_000, 1_000_000)
-    assert SW.default_budgets("openrouter:google/gemma-4-31b-it") == (4_096, 300_000)
-    assert SW.default_budgets("anthropic:claude-sonnet-4-6") == (4_096, 300_000)
-    assert SW.default_budgets("ollama:qwen2.5-coder:14b@http://h:11434") == (4_096, 300_000)
+    # one budget for every model: a paid id of the experiment's model must not
+    # silently get less than its ':free' twin did
+    for spec in ("openrouter:google/gemma-4-31b-it:free",
+                 "openrouter:nvidia/nemotron-3-super-120b-a12b@deepinfra",
+                 "anthropic:claude-sonnet-4-6", "ollama:qwen2.5-coder:14b@http://h:11434"):
+        assert SW.default_budgets(spec) == (16_000, 1_000_000), spec
 
 
 def test_daily_budget_is_respected() -> None:
@@ -300,8 +302,27 @@ def test_failed_unit_still_counts_its_calls_against_the_quota() -> None:
         assert json.loads(usage_path.read_text()) != {}, "failed unit was not billed"
 
 
+def test_run_group_refuses_a_different_model() -> None:
+    _stub_world()
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td); store = _Store(root)
+        store.save({"mode": "sweep_unit", "instance_id": "demo__pkg-1",
+                    "model": "openrouter:demo/model:free",
+                    "flags": {"run_group": "smoke", "arms": "AB"}})
+        try:
+            _sweep(root, store, _cfg(root), [_inst(1)])
+        except SystemExit as e:
+            assert "pick a new --run-group" in str(e), e
+        else:
+            raise AssertionError("a group made by another model must not be resumed")
+        assert len(store.records()) == 1, "nothing may run before the refusal"
+        # the same model in its own group is fine
+        assert len(_sweep(root, store, _cfg(root, run_group="fresh"), [_inst(1)]).done) == 1
+
+
 def main() -> int:
     tests = [
+        test_run_group_refuses_a_different_model,
         test_ab_unit_records_share_a_pair_id,
         test_env_gate_drops_instances_not_marked_valid,
         test_failed_unit_still_counts_its_calls_against_the_quota,

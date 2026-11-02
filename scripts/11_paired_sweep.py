@@ -64,8 +64,12 @@ from tdbf.data.instances import InstanceStore
 from tdbf.models.llm import build_client, calls_served_total, is_upstream_throttle
 from tdbf.results import RESULTS_FILE, save_run
 
-FREE_BUDGETS = (16_000, 1_000_000)      # (tokens per turn, total tokens) — decided 09-16
-DEFAULT_BUDGETS = (4_096, 300_000)      # script 07's defaults
+# (tokens per turn, total tokens per phase), decided 09-16 for the RQ1 sweep. Every
+# model gets the same budget: it is a condition of the experiment, not of the price
+# tier. Until 2026-11-02 only ':free' ids got it and everything else fell back to
+# script 07's (4096, 300000), so a paid id of the same model would have run with a
+# third of the budget (no stored experiment run was affected: all were ':free').
+EXPERIMENT_BUDGETS = (16_000, 1_000_000)
 
 EXIT_OK, EXIT_QUOTA, EXIT_FAILURES = 0, 3, 4
 
@@ -88,9 +92,9 @@ def m07():
 # ── small pieces ──────────────────────────────────────────────────────────────
 
 def default_budgets(model_spec: str) -> tuple[int, int]:
-    if model_spec.startswith("openrouter:") and model_spec.endswith(":free"):
-        return FREE_BUDGETS
-    return DEFAULT_BUDGETS
+    """The same for every model; override with --max-tokens-per-turn / --max-tokens
+    (the values used are recorded in each record's flags)."""
+    return EXPERIMENT_BUDGETS
 
 
 def arm_order(seed: int, instance_id: str) -> str:
@@ -242,6 +246,28 @@ def completed_units(results_path: Path, model_name: str, run_group: str, arms: s
     return done
 
 
+def other_models_in_group(results_path: Path, model_name: str, run_group: str) -> set[str]:
+    """Models other than `model_name` that already have records in `run_group`.
+
+    A run group is one experimental condition, and resuming keys on the exact model
+    name. Resuming a group with a different spec (say the paid id of a model whose
+    ':free' id made the group) would not see its finished units, re-run and re-pay
+    every one of them, and mix two serving setups under one group."""
+    others: set[str] = set()
+    if not results_path.exists():
+        return others
+    for line in results_path.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            r = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if (r.get("flags") or {}).get("run_group") == run_group and r.get("model") != model_name:
+            others.add(r.get("model") or "?")
+    return others
+
+
 # ── the two arms ──────────────────────────────────────────────────────────────
 
 @dataclass
@@ -367,6 +393,11 @@ def run_sweep(cfg: Config, instances, *, save=save_run, results_path: Path = RES
               usage_path: Path | None = None) -> Summary:
     usage = Usage(usage_path or cfg.out_dir / cfg.run_group / "usage.json", cfg.daily_budget)
     model_name = build_client(cfg.model, num_ctx=cfg.num_ctx).name
+    others = other_models_in_group(results_path, model_name, cfg.run_group)
+    if others:
+        raise SystemExit(
+            f"run group {cfg.run_group!r} already holds records from {sorted(others)}, "
+            f"not {model_name!r}. One group is one condition: pick a new --run-group.")
     done = completed_units(results_path, model_name, cfg.run_group, cfg.arms)
     s = Summary()
     consecutive = 0
@@ -474,9 +505,9 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=0, help="seeds the per-instance arm order")
     ap.add_argument("--max-iterations", type=int, default=30)
     ap.add_argument("--max-tokens-per-turn", type=int, default=None,
-                    help="default: 16000 for free OpenRouter models, else 4096")
+                    help="default: 16000, for every model")
     ap.add_argument("--max-tokens", type=int, default=None,
-                    help="total per phase; default: 1000000 for free OpenRouter models, else 300000")
+                    help="total per phase; default: 1000000, for every model")
     ap.add_argument("--num-ctx", type=int, default=None, help="Ollama only")
     ap.add_argument("--no-score-brt", action="store_true",
                     help="skip the offline L0-L4 label (it costs Docker time, no model calls)")

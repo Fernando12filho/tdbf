@@ -22,7 +22,8 @@ Only one batch runs at a time (lock file). Keep the machine awake:
 
     caffeinate -i python3 scripts/16_nightly_batch.py \\
         --sample sample_lite_ext_frozen.json --run-group rq1-ext \\
-        --model openrouter:nvidia/nemotron-3-super-120b-a12b:free
+        --model openrouter:nvidia/nemotron-3-super-120b-a12b@deepinfra
+    # (the ':free' id was withdrawn 2026-10-27; paid ids need a pinned provider)
 
     # one-instance trial, or a plan without Docker or model calls
     python3 scripts/16_nightly_batch.py ... --ids django__django-11099 --max-instances 1
