@@ -124,6 +124,28 @@ def main() -> None:
         check("published", (t["theirs"]["num"], t["both"], t["only_ours"], t["only_theirs"]), (2, 1, 1, 1))
         check("empty store", M.build_swt([], published), {"n": 0})
 
+        print("coverage delta, aggregated like the harness's report")
+        def rec(iid, success, delta):
+            return {"instance_id": iid, "kind": "tdbf_test_first", "repo": "demo/pkg",
+                    "ours": {"level": 4 if success else 3},
+                    "swt": {"applied": True, "success": success, "f2p": success,
+                            "coverage_delta_pred": delta}}
+        cov = M.build_swt([rec("a", True, 0.8), rec("b", True, 0.4),
+                           rec("c", False, 0.3), rec("d", False, None)])["coverage"]
+        # d has no executable changed lines: out of the denominator, not a zero
+        check("delta all", (round(cov["all"]["value"], 4), cov["all"]["den"]), (0.5, 3))
+        check("delta S", (round(cov["s"]["value"], 4), cov["s"]["den"]), (0.6, 2))
+        check("delta not S", (round(cov["not_s"]["value"], 4), cov["not_s"]["den"]), (0.3, 1))
+
+        print("leaderboard")
+        board = [{"tool": "Hi", "success_pct": 90.0, "coverage_delta_pct": 50.0, "n": 276},
+                 {"tool": "Lo", "success_pct": 10.0, "coverage_delta_pct": 5.0, "n": 276}]
+        lb = M.build_swt(recs, published, board)["leaderboard"]
+        check("ours inserted by S", [b["tool"] for b in lb],
+              ["Hi", "TDBF test-first (ours)", "Lo"])
+        check("our row on our N", next(b for b in lb if b["ours"])["n"], 3)
+        check("no leaderboard, no rows", M.build_swt(recs, published)["leaderboard"], [])
+
         print("webapp /swt")
         cwd = os.getcwd()
         os.chdir(ROOT / "webapp")
@@ -137,6 +159,11 @@ def main() -> None:
         html = page.get_data(as_text=True)
         check("status", page.status_code, 200)
         check("lists the disagreement", "per-test vs. per-file" in html, True)
+        webapp.LEADERBOARD_FILE = tmp / "board.jsonl"
+        webapp.LEADERBOARD_FILE.write_text("\n".join(json.dumps(x) for x in board) + "\n")
+        html = client.get("/swt").get_data(as_text=True)
+        check("leaderboard section", "SWT-bench Lite leaderboard" in html and "TDBF test-first (ours)" in html, True)
+        check("coverage rows", "Δᶜ S" in html, True)
         webapp.SWT_FILE = tmp / "empty.jsonl"
         check("empty page renders", client.get("/swt").status_code, 200)
 

@@ -29,6 +29,7 @@ db.init_db()
 RESULTS_FILE = Path(__file__).parent.parent / "results.jsonl"
 SWT_FILE = RESULTS_FILE.parent / "swt_results.jsonl"
 PUBLISHED_FILE = RESULTS_FILE.parent / "published_swt_lite.jsonl"
+LEADERBOARD_FILE = RESULTS_FILE.parent / "published_swt_leaderboard.jsonl"
 
 _LEVEL_NAMES = {
     0: "L0 Malformed",
@@ -154,7 +155,8 @@ def swt():
     next to other tools' published per-instance results. Numbers come from
     tdbf.metrics.build_swt; the records from scripts/17_swt_predictions.py ingest."""
     res = tdbf_metrics.build_swt(tdbf_metrics.load_records(SWT_FILE),
-                                 tdbf_metrics.load_records(PUBLISHED_FILE))
+                                 tdbf_metrics.load_records(PUBLISHED_FILE),
+                                 tdbf_metrics.load_records(LEADERBOARD_FILE))
     return render_template("swt.html", res=res,
                            glossary_sections=glossary.sections_for(glossary.SWT_TERMS))
 

@@ -669,8 +669,28 @@ def swt_verdict(rec: dict) -> str:
     return "f2p_only" if m.get("f2p") else "no_f2p"
 
 
-def build_swt(records: list[dict], published: list[dict] | None = None) -> dict:
-    """Numbers for the /swt page. The latest stored record per instance counts."""
+def _swt_coverage(rows: list[dict]) -> dict:
+    """SWT-bench's coverage delta, computed as its harness reports it
+    (src/report.py, figures/util.py sum_coverage_delta / count_coverage_delta_gold):
+    the sum of the per-instance deltas over the instances whose gold patch has
+    executable changed lines. The harness sets the prediction's and the gold's delta
+    together, only when such lines exist (src/grading.py), so a stored delta of None
+    marks an instance it leaves out of the denominator."""
+    countable = [x for x in rows if x["coverage_delta"] is not None]
+    if not countable:
+        return {"value": None, "pct": None, "num": 0.0, "den": 0}
+    total = sum(x["coverage_delta"] for x in countable)
+    return {"value": total / len(countable), "pct": f"{100 * total / len(countable):.1f}%",
+            "num": total, "den": len(countable)}
+
+
+def build_swt(records: list[dict], published: list[dict] | None = None,
+              leaderboard: list[dict] | None = None) -> dict:
+    """Numbers for the /swt page. The latest stored record per instance counts.
+
+    `leaderboard` is SWT-bench's own Lite leaderboard (published_swt_leaderboard.jsonl):
+    aggregate S and coverage delta on all 276 instances. Our row is added for
+    reference, on our N, and marked as ours."""
     latest = _latest([r for r in records if r.get("kind") == "tdbf_test_first"])
     rows = []
     for iid, r in sorted(latest.items()):
@@ -721,6 +741,23 @@ def build_swt(records: list[dict], published: list[dict] | None = None) -> dict:
             "only_ours": len(ours_s - theirs), "only_theirs": len(theirs - ours_s),
         })
 
+    s_rows = [x for x in rows if x["verdict"] == "S"]
+    coverage = {"all": _swt_coverage(rows), "s": _swt_coverage(s_rows),
+                "not_s": _swt_coverage([x for x in rows if x["verdict"] != "S"])}
+
+    board = []
+    if leaderboard:
+        board = [dict(b, ours=False) for b in leaderboard]
+        board.append({
+            "tool": "TDBF test-first (ours)", "model": "nemotron-3-super-120b-a12b",
+            "success_pct": round(100 * count["S"] / n, 1),
+            "coverage_delta_pct": (round(100 * coverage["all"]["value"], 1)
+                                   if coverage["all"]["value"] is not None else None),
+            "date": None, "mode": "unittest", "n": n, "ours": True,
+            "source": "swt_results.jsonl, this page",
+        })
+        board.sort(key=lambda b: -(b.get("success_pct") or 0))
+
     return {
         "n": n,
         "run_ids": sorted({x["run_id"] for x in rows if x["run_id"]}),
@@ -731,6 +768,8 @@ def build_swt(records: list[dict], published: list[dict] | None = None) -> dict:
         "ours_l4": rate(sum(x["ours"] == "L4" for x in rows), n),
         "agreement": rate(sum(x["agree"] for x in rows), n),
         "coverage_delta_mean": (sum(cov) / len(cov)) if cov else None,
+        "coverage": coverage,
+        "leaderboard": board,
         "verdicts": SWT_VERDICTS,
         "cross": [{"level": lvl, "counts": [cross[(lvl, v)] for v, _ in SWT_VERDICTS]}
                   for lvl in levels],

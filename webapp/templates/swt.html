@@ -51,11 +51,21 @@
     <tr><td>{{ g.term('swt_applied', 'W, applied') }}</td><td>{{ g.formula('swt_applied') }}</td><td>{{ pct(res.applied) }}</td></tr>
     <tr><td>Our label: {{ g.term('valid_brt', 'Valid-BRT (L4)') }}</td><td>{{ g.formula('valid_brt') }}</td><td>{{ pct(res.ours_l4) }}</td></tr>
     <tr><td>{{ g.term('agreement', 'Agreement') }}, L4 vs. S</td><td>{{ g.formula('agreement') }}</td><td>{{ pct(res.agreement) }}</td></tr>
-    <tr><td>{{ g.term('coverage_delta', 'Coverage delta') }}, mean</td><td></td>
-      <td>{% if res.coverage_delta_mean is not none %}<span class="fw-semibold">{{ '%.0f%%' % (100 * res.coverage_delta_mean) }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td></tr>
+    {% macro cov(c) -%}
+      {%- if c and c.pct -%}<span class="fw-semibold">{{ c.pct }}</span> <span class="text-muted small">(over {{ c.den }})</span>
+      {%- else -%}<span class="text-muted">—</span>{%- endif -%}
+    {%- endmacro %}
+    <tr><td>{{ g.term('coverage_delta', 'Δᶜ all') }}, coverage delta</td>
+      <td class="small">sum of Δᶜ / instances with executable changed lines</td><td>{{ cov(res.coverage.all) }}</td></tr>
+    <tr><td>{{ g.term('coverage_delta', 'Δᶜ S') }}, on successes</td>
+      <td class="small">the same, over the S instances only</td><td>{{ cov(res.coverage.s) }}</td></tr>
+    <tr><td>{{ g.term('coverage_delta', 'Δᶜ not S') }}</td>
+      <td class="small">the same, over the other instances</td><td>{{ cov(res.coverage['not_s']) }}</td></tr>
   </tbody>
 </table>
-<p class="text-muted small mb-4">S is strict and F→P is loose, so F→P ≥ S always.</p>
+<p class="text-muted small mb-4">S is strict and F→P is loose, so F→P ≥ S always.
+  Δᶜ is computed by the SWT-bench harness from its gold run on the same image; we only
+  aggregate it the way its report script does (<code>src/report.py</code>).</p>
 
 <!-- ── 2 · Agreement ─────────────────────────────────────────────── -->
 <h2 class="h5 mb-1">2 · Our label against SWT-bench's verdict</h2>
@@ -119,8 +129,39 @@
 <p class="text-muted small mb-4">Source of each list: <code>published_swt_lite.jsonl</code> (repository and commit recorded per row).</p>
 {% endif %}
 
-<!-- ── 5 · Every instance ────────────────────────────────────────── -->
-<h2 class="h5 mb-3">5 · Every re-scored instance</h2>
+<!-- ── 5 · Leaderboard ───────────────────────────────────────────── -->
+{% if res.leaderboard %}
+<h2 class="h5 mb-1">5 · {{ g.term('swt_leaderboard', 'SWT-bench Lite leaderboard') }}</h2>
+<p class="text-muted small mb-2">
+  Totals as published by the SWT-bench authors, on all 276 Lite instances, each tool with
+  its own {{ g.term('llm', 'model') }}. Our row is on our {{ res.n }} instances, a subset of the
+  276, so it is a reference point, not a ranking. Per-instance comparison is in section 4.
+  "reproduction" mode runs the test as a standalone script instead of inside the project's
+  test suite; we, and most rows, use unit-test mode.
+</p>
+<table class="table table-sm align-middle mb-2">
+  <thead><tr><th>Tool</th><th>Model</th><th>S</th><th>Δᶜ all</th><th>N</th><th>Mode</th><th>Date</th></tr></thead>
+  <tbody>
+    {% for b in res.leaderboard %}
+    <tr class="{{ 'table-primary fw-semibold' if b.ours else '' }}"><td>{{ b.tool }}</td>
+      <td class="small">{{ b.model or '—' }}</td>
+      <td>{{ '%.1f%%' % b.success_pct }}</td>
+      <td>{% if b.coverage_delta_pct is not none %}{{ '%.1f%%' % b.coverage_delta_pct }}{% else %}—{% endif %}</td>
+      <td>{{ b.n }}</td>
+      <td class="small {{ 'text-warning-emphasis' if b.mode != 'unittest' else '' }}">{{ b.mode }}</td>
+      <td class="small">{{ b.date or '—' }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="text-muted small mb-4">Source: <code>published_swt_leaderboard.jsonl</code>, copied from
+  <code>github.com/logic-star-ai/swt-bench@eee3862 docs/runs.csv</code>.
+  Issue2Test is not on the leaderboard: its paper reports 30.4% (84/276) with GPT-4o-mini,
+  most likely the loose F→P (its scorer is not released), and no Δᶜ. Its per-instance list
+  is in section 4.</p>
+{% endif %}
+
+<!-- ── 6 · Every instance ────────────────────────────────────────── -->
+<h2 class="h5 mb-3">6 · Every re-scored instance</h2>
 <table class="table table-sm align-middle mb-4">
   <thead><tr><th>Instance</th><th>Ours</th><th>SWT-bench</th><th>Coverage delta</th><th>Test file</th></tr></thead>
   <tbody>

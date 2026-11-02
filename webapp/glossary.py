@@ -227,10 +227,19 @@ SECTIONS: list[tuple[str, list[tuple[str, str, str, str | None]]]] = [
         ("swt_applied", "W (applicability)",
          "The share of tests the scorer could add to the project without an error.",
          "W = tests that applied / N"),
-        ("coverage_delta", "Coverage delta",
+        ("coverage_delta", "Coverage delta (Δᶜ)",
          "How many of the lines the real fix changes the test runs, beyond what the "
-         "project's existing tests already run. Higher means the test exercises the "
-         "code the bug is in.",
+         "project's existing tests already run. Lines the fix removes are measured on "
+         "the buggy code, lines it adds on the fixed code, and only executable lines "
+         "count. Higher means the test exercises the code the bug is in. Computed by "
+         "the SWT-bench harness itself, not by us.",
+         "per instance: Δᶜ = changed lines the test covers and the existing tests don't "
+         "/ executable changed lines;  Δᶜ all = sum of Δᶜ / instances with executable "
+         "changed lines;  Δᶜ S = the same over the S instances only"),
+        ("swt_leaderboard", "SWT-bench leaderboard",
+         "The success rate S and coverage delta each tool reached on all 276 SWT-bench "
+         "Lite instances, as listed by the SWT-bench authors. Each tool ran with its own "
+         "model. Only totals are published, no per-instance results.",
          None),
         ("agreement", "Agreement",
          "The share of instances where SWT-bench and our scorer give the same answer "
@@ -311,7 +320,8 @@ STATUS_TERMS = ("swebench", "instance", "repo", "frozen_sample", "docker_image",
 SWT_TERMS = ("instance", "repo", "docker_image", "buggy_code", "gold_patch", "fixed_code",
              "llm", "brt", "levels", "n", "valid_brt",
              "swt_bench", "rescoring", "swt_harness", "swt_success", "swt_f2p",
-             "swt_applied", "coverage_delta", "agreement", "published_lists")
+             "swt_applied", "coverage_delta", "agreement", "published_lists",
+             "swt_leaderboard")
 
 
 def sections_for(keys) -> list:
