@@ -238,8 +238,77 @@ def test_own_quota_429_is_not_retried() -> None:
     assert len(sdk.calls) == 1, "and must not be retried (it would burn quota)"
 
 
+PAID = "nvidia/nemotron-3-super-120b-a12b"
+
+
+def _billed(cost, provider="DeepInfra"):
+    r = _completion(model=PAID, provider=provider)
+    r.usage = SimpleNamespace(prompt_tokens=120, completion_tokens=15, cost=cost)
+    return r
+
+
+def test_paid_id_needs_a_pinned_provider() -> None:
+    try:
+        build_client(f"openrouter:{PAID}")
+    except ValueError as e:
+        assert "@<provider>" in str(e), e
+    else:
+        raise AssertionError("an unpinned paid id must be refused")
+    c = build_client(f"openrouter:{PAID}@deepinfra")
+    assert (c.model, c.provider) == (PAID, "deepinfra"), (c.model, c.provider)
+    assert c.name == f"openrouter:{PAID}@deepinfra", c.name
+    assert short_model(c.name) == PAID, "metrics group on the model, not the provider"
+    assert build_client(f"openrouter:{MODEL}").provider is None  # free ids stay unpinned
+
+
+def test_pin_is_sent_without_fallbacks() -> None:
+    c = OpenRouterClient(PAID, provider="deepinfra", empty_backoff=0.0)
+    sdk = _FakeSDK([_billed(0.001), _billed(0.002)])
+    c._client = sdk
+    c.run_tools(system="s", messages=[Message(role="user", content="x")], tools=TOOLS)
+    c.complete("s", "u")
+    for sent in sdk.calls:
+        assert sent["extra_body"] == {"provider": {"order": ["deepinfra"],
+                                                   "allow_fallbacks": False}}, sent
+    unpinned_sdk = _FakeSDK([_completion()])
+    u = OpenRouterClient(MODEL, empty_backoff=0.0)
+    u._client = unpinned_sdk
+    u.run_tools(system="s", messages=[Message(role="user", content="x")], tools=TOOLS)
+    assert unpinned_sdk.calls[0]["extra_body"] == {}, "unpinned requests are unchanged"
+
+
+def test_billed_cost_is_what_a_phase_records() -> None:
+    from tdbf.agent.pipeline import billed_mark, phase_cost
+    c = OpenRouterClient(PAID, provider="deepinfra", empty_backoff=0.0)
+    c._client = _FakeSDK([_billed(0.0012), _billed(0.0030), _billed(0.0100)])
+    msg = [Message(role="user", content="x")]
+    c.run_tools(system="s", messages=msg, tools=TOOLS)       # before the phase
+    mark = billed_mark(c)
+    c.run_tools(system="s", messages=msg, tools=TOOLS)
+    c.run_tools(system="s", messages=msg, tools=TOOLS)
+    assert phase_cost(c, mark, 240, 30) == 0.013, phase_cost(c, mark, 240, 30)
+    # the cost survives take_served's reset (it is cumulative, read by difference)
+    take_served(c)
+    assert phase_cost(c, mark, 240, 30) == 0.013
+    # no billed call in the phase: the pricing table decides (paid id: unpriced)
+    assert phase_cost(c, billed_mark(c), 1, 1) is None
+    # a free response reporting no cost leaves the table in charge ($0.00)
+    f = OpenRouterClient(MODEL, empty_backoff=0.0)
+    f._client = _FakeSDK([_completion()])
+    m = billed_mark(f)
+    f.run_tools(system="s", messages=msg, tools=TOOLS)
+    assert phase_cost(f, m, 120, 15) == 0.0
+    # clients that report no cost: the table, as before
+    a = AnthropicClient("claude-sonnet-4-6")
+    assert billed_mark(a) is None
+    assert phase_cost(a, None, 1_000_000, 0) == 3.0
+
+
 def main() -> int:
     tests = [
+        test_paid_id_needs_a_pinned_provider,
+        test_pin_is_sent_without_fallbacks,
+        test_billed_cost_is_what_a_phase_records,
         test_spec_parsing,
         test_auto_router_refused,
         test_free_models_cost_exactly_zero,

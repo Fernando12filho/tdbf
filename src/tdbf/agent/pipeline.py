@@ -65,6 +65,28 @@ def take_served(client) -> dict | None:
     return served
 
 
+def billed_mark(client) -> tuple[float, int] | None:
+    """(billed USD, billed calls) so far, for clients that report what each call
+    cost (OpenRouter); None for the rest."""
+    if not hasattr(client, "billed_calls"):
+        return None
+    return (client.billed_usd, client.billed_calls)
+
+
+def phase_cost(client, mark, in_tok: int, out_tok: int, *,
+               cache_write_tok: int = 0, cache_read_tok: int = 0) -> float | None:
+    """A phase's cost: what the provider billed since `mark` when it reported it,
+    otherwise the pricing table from token counts.
+
+    OpenRouter prices one model differently per provider, so its billed figure is
+    the true one; the table is the fallback for vendors that report no cost
+    (Anthropic, Ollama) and for a phase that made no billed call."""
+    if mark is not None and client.billed_calls > mark[1]:
+        return round(client.billed_usd - mark[0], 6)
+    return cost_usd(client.name, in_tok, out_tok,
+                    cache_write_tok=cache_write_tok, cache_read_tok=cache_read_tok)
+
+
 def serialise_messages(messages) -> list[dict]:
     """Flatten the agent message trace to JSON-serialisable dicts (transcripts)."""
     out = []
@@ -512,6 +534,7 @@ def run_brt_phase(
 
     Returns None only if the container could not be started (instance skipped).
     """
+    bill0 = billed_mark(client)  # OpenRouter's billed cost, read at the end
     test_path = brt_test_path(inst.repo)
     native = native_brt(inst.repo)
     env_hint = brt_env_hint(inst.repo) or "(no special framework setup for this repo)"
@@ -652,8 +675,8 @@ def run_brt_phase(
     finally:
         session.close()
 
-    cost = cost_usd(client.name, tot_in, tot_out,
-                    cache_write_tok=tot_cw, cache_read_tok=tot_cr)
+    cost = phase_cost(client, bill0, tot_in, tot_out,
+                      cache_write_tok=tot_cw, cache_read_tok=tot_cr)
     print(
         f"BRT agent done: stop={result.stop_cause}  iters={result.iterations}  "
         f"tokens={tot_in}/{tot_out}"
@@ -815,6 +838,7 @@ def run_brt_best_of_n(
     selection all use the buggy tree only. `score_fixed` governs ONLY the offline
     scoreboard of the chosen test (L0-L4); no decision ever sees the fixed tree.
     """
+    bill0 = billed_mark(client)  # OpenRouter's billed cost, read at the end
     test_path = brt_test_path(inst.repo)
     native = native_brt(inst.repo)
     env_hint = brt_env_hint(inst.repo) or "(no special framework setup for this repo)"
@@ -890,7 +914,7 @@ def run_brt_best_of_n(
     finally:
         session.close()
 
-    cost = cost_usd(client.name, tot_in, tot_out)
+    cost = phase_cost(client, bill0, tot_in, tot_out)
 
     # =================== GOLD BARRIER (scoreboard only) =================== #
     brt: BrtPhaseResult | None = None
@@ -1122,6 +1146,7 @@ def run_fix_phase(
 
     Returns None only if the container could not be started (instance skipped).
     """
+    bill0 = billed_mark(client)  # OpenRouter's billed cost, read at the end
     reactive = brt_code is None
     if reactive and (max_attempts > 1 or reviewer_client is not None
                      or breaker_client is not None):
@@ -1273,8 +1298,8 @@ def run_fix_phase(
     finally:
         session.close()
 
-    cost = cost_usd(client.name, tot_in, tot_out,
-                    cache_write_tok=tot_cw, cache_read_tok=tot_cr)
+    cost = phase_cost(client, bill0, tot_in, tot_out,
+                      cache_write_tok=tot_cw, cache_read_tok=tot_cr)
     print(
         f"Fix agent done: stop={result.stop_cause}  iters={result.iterations}  "
         f"tokens={tot_in}/{tot_out}"

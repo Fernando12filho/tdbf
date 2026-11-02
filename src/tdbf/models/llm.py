@@ -669,6 +669,16 @@ class OpenRouterClient(_OpenAIToolMixin):
       request, so a run made with them can be neither named nor reproduced.
       They are refused.
 
+    - Provider pinning (paid ids, 2026-11-02). A paid id is served by whichever
+      provider OpenRouter picks, and providers differ in precision (fp8 vs bf16)
+      and price. A paid id therefore needs an explicit provider, sent with
+      `allow_fallbacks: false` so routing cannot change mid-run; it is part of
+      `name` ('openrouter:<id>@<provider>'), so every record says what served it.
+      `:free` ids may stay unpinned (their pool was a single provider).
+    - Billed cost. OpenRouter returns what each call actually cost
+      (`usage.cost`); it is summed in `billed_usd`, which the pipeline prefers
+      over the token-price table (prices differ per provider).
+
     Reads OPENROUTER_API_KEY. Model ids look like
     'nvidia/nemotron-3-super-120b-a12b:free'.
     """
@@ -685,6 +695,7 @@ class OpenRouterClient(_OpenAIToolMixin):
         empty_retries: int = 3,
         empty_backoff: float = 5.0,
         upstream_waits: tuple[float, ...] = (30.0, 60.0, 120.0, 240.0),
+        provider: str | None = None,
     ) -> None:
         # Worst case for a dead endpoint is (max_retries + 1) x timeout, because
         # the SDK retries timeouts as well as 429/5xx. It was 6 x 300 s = 30 min
@@ -697,8 +708,15 @@ class OpenRouterClient(_OpenAIToolMixin):
                 "per request, so the run could not be named or reproduced. Pin an "
                 "exact model id instead."
             )
+        if not provider and not model.endswith(":free"):
+            raise ValueError(
+                f"{model!r} is a paid OpenRouter id: pin its provider with "
+                f"'openrouter:{model}@<provider>' (e.g. @deepinfra). Unpinned, OpenRouter "
+                "may route calls of one run to providers with different precision."
+            )
         self.model = model
-        self.name = f"openrouter:{model}"
+        self.provider = provider or None
+        self.name = f"openrouter:{model}" + (f"@{provider}" if provider else "")
         self._api_key_env = api_key_env
         self._timeout = timeout
         self._max_retries = max_retries
@@ -709,6 +727,9 @@ class OpenRouterClient(_OpenAIToolMixin):
         self._upstream_waits = upstream_waits
         self._client = None
         self.served: Counter = Counter()
+        # cumulative, never reset: a phase reads the difference across its run
+        self.billed_usd = 0.0
+        self.billed_calls = 0
 
     def _ensure(self):
         if self._client is None:
@@ -743,6 +764,18 @@ class OpenRouterClient(_OpenAIToolMixin):
         served_model = getattr(resp, "model", None) or self.model
         self.served[f"{served_model}|{provider}"] += 1
         _CALLS_SERVED += 1
+        usage = getattr(resp, "usage", None)
+        cost = getattr(usage, "cost", None)
+        if cost is None:
+            cost = (getattr(usage, "model_extra", None) or {}).get("cost")
+        if isinstance(cost, (int, float)):
+            self.billed_usd += float(cost)
+            self.billed_calls += 1
+
+    def _extra_body(self) -> dict:
+        if not self.provider:
+            return {}
+        return {"provider": {"order": [self.provider], "allow_fallbacks": False}}
 
     def _call(self, create):
         """`create()`, waiting out an upstream shared-pool throttle a few times.
@@ -791,6 +824,7 @@ class OpenRouterClient(_OpenAIToolMixin):
             max_tokens=max_tokens,
             messages=_to_openai_messages(system, messages),
             tools=_to_openai_tools(tools),
+            extra_body=self._extra_body(),
         ))
         duration = time.perf_counter() - t0  # includes any retry back-off
         return _parse_openai_response(resp, self.name, duration, {t.name for t in tools})
@@ -807,6 +841,7 @@ class OpenRouterClient(_OpenAIToolMixin):
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
+            extra_body=self._extra_body(),
         ))
         duration = time.perf_counter() - t0
         usage = getattr(resp, "usage", None)
@@ -995,6 +1030,7 @@ def build_client(
       'anthropic:claude-opus-4-7'
       'openai:gpt-4-turbo'
       'openrouter:nvidia/nemotron-3-super-120b-a12b:free'
+      'openrouter:nvidia/nemotron-3-super-120b-a12b@deepinfra'   (paid: provider pinned)
 
     The keyword options apply to Ollama only (they are the local arm's fairness
     knobs) and are ignored by the hosted vendors. Passing None keeps the
@@ -1027,5 +1063,7 @@ def build_client(
     if vendor == "openrouter":
         # rest is the full OpenRouter id, which may itself contain a colon
         # ('nvidia/nemotron-3-super-120b-a12b:free') — partition split on the first.
-        return OpenRouterClient(model=rest)
+        # An optional '@<provider>' pins the serving provider; ids contain no '@'.
+        model, _, provider = rest.partition("@")
+        return OpenRouterClient(model=model, provider=provider or None)
     raise ValueError(f"Unknown vendor in spec {spec!r}")
