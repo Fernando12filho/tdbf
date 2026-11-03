@@ -45,6 +45,7 @@ failures. Re-running the same command resumes.
 from __future__ import annotations
 
 import argparse
+import collections
 import importlib.util
 import json
 import random
@@ -346,6 +347,32 @@ def run_arm_b(inst, cfg: Config, common: dict, records: list[dict]) -> dict:
             "cost_usd": out.cost_usd}
 
 
+def run_arm_t(inst, cfg: Config, common: dict, records: list[dict]) -> dict:
+    """Test agent only: test-first's Phase A (script 07 --brt-only), gate and retries
+    as in Arm B, plus the offline L0-L4 label; no fix phase. For the test-agent
+    studies, whose tests are then scored by the SWT-bench harness (scripts 17/18)."""
+    base = cfg.out_dir / cfg.run_group
+    out = m07().run_one(
+        inst, cfg.model, split=cfg.split,
+        max_iterations=cfg.max_iterations, max_total_tokens=cfg.max_total_tokens,
+        max_tokens_per_turn=cfg.max_tokens_per_turn,
+        think=False, prompt_harden=False, brt_only=True, keep_container=False,
+        score_brt=True, run_group=cfg.run_group, verbose=cfg.verbose,
+        num_ctx=cfg.num_ctx, brt_dir=base / "T_brt", fix_dir=base / "T_fix_unused",
+        extra_flags=common, save=records.append,
+    )
+    if out is None:
+        raise UnitFailed("Arm T: container could not start for the BRT phase")
+    if out.brt_level is None:
+        raise UnitFailed("Arm T: the offline label did not run")
+    return {"gate_accepted": out.gate_accepted, "reproduces": out.reproduces_on_buggy,
+            "brt_level": out.brt_level, "cost_usd": out.cost_usd}
+
+
+ARM_RUNNERS = {"A": ("reactive", run_arm_a), "B": ("test-first", run_arm_b),
+               "T": ("test agent only", run_arm_t)}
+
+
 def run_unit(inst, cfg: Config) -> tuple[dict, list[dict]]:
     """Run the configured arm(s) on one instance. Returns (unit, records).
     Raises UnitFailed / quota errors; nothing is persisted here."""
@@ -356,9 +383,8 @@ def run_unit(inst, cfg: Config) -> tuple[dict, list[dict]]:
     outcomes: dict[str, dict] = {}
     t0 = time.time()
     for arm in order:
-        print(f"\n=== {inst.instance_id}: Arm {arm} "
-              f"({'reactive' if arm == 'A' else 'test-first'}) — order {order} ===")
-        runner = run_arm_a if arm == "A" else run_arm_b
+        label, runner = ARM_RUNNERS[arm]
+        print(f"\n=== {inst.instance_id}: Arm {arm} ({label}) — order {order} ===")
         outcomes[arm] = runner(inst, cfg, common, records)
     unit = {
         "instance_id": inst.instance_id,
@@ -370,6 +396,7 @@ def run_unit(inst, cfg: Config) -> tuple[dict, list[dict]]:
                   **common},
         "arm_a": outcomes.get("A"),
         "arm_b": outcomes.get("B"),
+        **({"arm_t": outcomes["T"]} if "T" in outcomes else {}),
         "calls": calls_in(records),
         "wall_seconds": round(time.time() - t0, 1),
     }
@@ -468,8 +495,14 @@ def print_summary(cfg: Config, s: Summary) -> None:
             both = sum(1 for u in s.done if u["arm_a"]["resolved"] and u["arm_b"]["resolved"])
             print(f"  this run: both resolved {both}, reactive only {a_only}, "
                   f"test-first only {b_only}, neither {len(s.done) - both - a_only - b_only}")
+        tests = [u["arm_t"] for u in s.done if u.get("arm_t")]
+        if tests:
+            levels = collections.Counter(f"L{t['brt_level']}" for t in tests)
+            print(f"  test agent: gate accepted {sum(t['gate_accepted'] for t in tests)}"
+                  f"/{len(tests)}, labels " + " ".join(f"{k}={levels[k]}" for k in
+                                                       ("L4", "L3", "L2", "L1", "L0")))
         for key, label in (("arm_a", "reactive"), ("arm_b", "test-first")):
-            got = [u[key] for u in s.done if u[key] is not None]
+            got = [u[key] for u in s.done if u.get(key) is not None]
             if got:
                 print(f"  {label:10s} resolved {sum(g['resolved'] for g in got)}/{len(got)}")
         print(f"  model calls this run: {sum(u['calls'] for u in s.done)}"
@@ -495,8 +528,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", required=True, help="e.g. openrouter:google/gemma-4-31b-it:free")
-    ap.add_argument("--arms", choices=["AB", "A", "B"], default="AB",
-                    help="AB = paired RQ1 unit; B alone = the capability probe")
+    ap.add_argument("--arms", choices=["AB", "A", "B", "T"], default="AB",
+                    help="AB = paired RQ1 unit; B alone = the capability probe; "
+                         "T = test agent only (Phase A + offline label, no fix)")
     ap.add_argument("--run-group", required=True, help="tags every record; resume key")
     ap.add_argument("--ids", nargs="+", help="instance ids")
     ap.add_argument("--sample", help="JSON file: a list of ids, or {'instances': [...]}")

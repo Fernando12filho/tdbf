@@ -211,6 +211,28 @@ def test_b_only_is_the_capability_probe() -> None:
         assert unit["flags"]["order"] == "B"
 
 
+def test_t_is_the_test_agent_only() -> None:
+    _stub_world()
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td); store = _Store(root)
+        s = _sweep(root, store, _cfg(root, arms="T"), [_inst(1)])
+        assert len(s.done) == 1, s
+        recs = store.records()
+        modes = [r["mode"] for r in recs]
+        assert modes == ["agent_deployable", "sweep_unit"], f"no fix phase: {modes}"
+        unit = recs[-1]
+        assert unit["arm_a"] is None and unit["arm_b"] is None, unit
+        assert unit["arm_t"]["gate_accepted"] is True and unit["arm_t"]["brt_level"] == 4, unit
+        assert unit["flags"]["arms"] == "T" and unit["flags"]["order"] == "T"
+        brt = recs[0]
+        assert brt["flags"]["run_group"] == "smoke" and brt["flags"]["pair_id"] == unit["flags"]["pair_id"]
+        # resume: a done T unit is skipped; a T unit does not count as a B unit
+        again = _sweep(root, store, _cfg(root, arms="T"), [_inst(1)])
+        assert again.skipped == 1 and not again.done
+        b = _sweep(root, store, _cfg(root, arms="B"), [_inst(1)])
+        assert len(b.done) == 1
+
+
 def test_default_budgets() -> None:
     # one budget for every model: a paid id of the experiment's model must not
     # silently get less than its ':free' twin did
@@ -333,6 +355,7 @@ def main() -> int:
         test_quota_error_stops_immediately,
         test_upstream_throttle_fails_the_unit_not_the_sweep,
         test_b_only_is_the_capability_probe,
+        test_t_is_the_test_agent_only,
         test_default_budgets,
         test_daily_budget_is_respected,
     ]

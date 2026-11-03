@@ -25,6 +25,12 @@ Only one batch runs at a time (lock file). Keep the machine awake:
         --model openrouter:nvidia/nemotron-3-super-120b-a12b@deepinfra
     # (the ':free' id was withdrawn 2026-10-27; paid ids need a pinned provider)
 
+    # test agent only, on the 114 SWT-bench Lite instances (study test-agent-gpt-4o-mini);
+    # paid model: lift the free-tier daily call cap
+    caffeinate -i python3 scripts/16_nightly_batch.py --arms T \\
+        --sample sample_tests_swt114_frozen.json --run-group tests-4omini \\
+        --model openrouter:openai/gpt-4o-mini-2024-07-18@openai --daily-budget 100000
+
     # one-instance trial, or a plan without Docker or model calls
     python3 scripts/16_nightly_batch.py ... --ids django__django-11099 --max-instances 1
     python3 scripts/16_nightly_batch.py ... --dry-run
@@ -287,6 +293,9 @@ def main() -> int:
     ap.add_argument("--sample", required=True, help="frozen sample file ({'instances': [...]})")
     ap.add_argument("--env-record", help="default: the sample path with _frozen -> _env")
     ap.add_argument("--run-group", required=True, help="tags every record; resume key")
+    ap.add_argument("--arms", choices=["AB", "T"], default="AB",
+                    help="AB = the paired RQ1 unit (default); T = test agent only "
+                         "(Phase A + offline label, no fix), for the test-agent studies")
     ap.add_argument("--ids", nargs="+", help="only these instances (must be in the sample)")
     ap.add_argument("--max-instances", type=int, default=None)
     ap.add_argument("--stop-at", help="UTC time to stop starting new instances, e.g. 11:00")
@@ -317,7 +326,7 @@ def main() -> int:
 
     m11 = _load("paired_sweep_batch", "11_paired_sweep.py")
     per_turn, total = m11.default_budgets(args.model)
-    cfg = m11.Config(model=args.model, arms="AB", run_group=args.run_group,
+    cfg = m11.Config(model=args.model, arms=args.arms, run_group=args.run_group,
                      split="lite" if "Lite" in sample.get("dataset", "Lite") else "verified",
                      max_tokens_per_turn=per_turn, max_total_tokens=total,
                      daily_budget=args.daily_budget, min_remaining=args.min_remaining,
@@ -350,7 +359,7 @@ def main() -> int:
                       m11=m11, check_instance=check, max_instances=args.max_instances,
                       stop_at=stop_at, min_remaining=args.min_remaining,
                       min_free_gb=args.min_free_gb, keep_images=args.keep_images)
-        print(f"\n{'=' * 64}\nbatch end {utcnow()}: {len(b.done)} paired, "
+        print(f"\n{'=' * 64}\nbatch end {utcnow()}: {len(b.done)} done, "
               f"{len(b.excluded)} excluded, {len(b.failed)} failed, {b.skipped} skipped")
         for iid, why in b.excluded:
             print(f"  excluded {iid}: {why}")
