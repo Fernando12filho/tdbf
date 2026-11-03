@@ -37,7 +37,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from tdbf import ledger, metrics
+from tdbf import ledger, metrics, studies
 from tdbf.harness.runner import brt_run_spec, make_test_patch
 
 # Where a BRT must live for the repo's OWN runner (the one SWT-bench uses) to
@@ -53,15 +53,36 @@ RUN_ID = "tdbf-test-first"
 STORE = ROOT / "swt_results.jsonl"  # append-only, tracked; kept apart from results.jsonl
 
 
-def export(ids: list[str] | None, out: Path, model_name: str) -> None:
+BRT_MODES = ("agent_deployable", "agent_brt")  # records that carry a BRT phase
+
+
+def group_tests(recs: list[dict], run_group: str) -> dict[str, dict]:
+    """The latest BRT record per instance in one run group, for tests written
+    outside the paired experiment (e.g. another model on the same instances)."""
+    out: dict[str, dict] = {}
+    for r in recs:
+        if r.get("mode") in BRT_MODES and metrics._flag(r, "run_group") == run_group:
+            out[r["instance_id"]] = r  # append-only log: later lines win
+    return out
+
+
+def export(ids: list[str] | None, out: Path, model_name: str,
+           run_group: str | None = None) -> None:
     recs = metrics.load_records(ROOT / "results.jsonl")
-    _, env = ledger.load_samples(ROOT)
-    states = {k: (v or {}).get("state", "?") for k, v in env.items()}
-    tests = metrics.experiment_tests(recs, env_states=states)
+    if run_group:
+        tests = group_tests(recs, run_group)
+        if not tests:
+            raise SystemExit(f"no BRT records in run group {run_group!r}")
+        where = f"run group {run_group}"
+    else:
+        _, env = ledger.load_samples(ROOT)
+        states = {k: (v or {}).get("state", "?") for k, v in env.items()}
+        tests = metrics.experiment_tests(recs, env_states=states)
+        where = "the paired experiment"
     if ids:
         missing = sorted(set(ids) - set(tests))
         if missing:
-            raise SystemExit(f"not in the paired experiment: {' '.join(missing)}")
+            raise SystemExit(f"not in {where}: {' '.join(missing)}")
         tests = {i: tests[i] for i in ids}
 
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -79,6 +100,7 @@ def export(ids: list[str] | None, out: Path, model_name: str) -> None:
             labels[iid] = {
                 "repo": rec["repo"],
                 "run_group": metrics._flag(rec, "run_group"),
+                "model": rec.get("model"),  # the agent's model, not the harness label
                 "level": attempt.get("level"),
                 "outcome_buggy": attempt.get("outcome_buggy"),
                 "outcome_fixed": attempt.get("outcome_fixed"),
@@ -170,6 +192,12 @@ def ingest(logs: Path, predictions: Path, run_id: str, model_name: str,
             if (iid, run_id, sha) in have:
                 print(f"  {iid:40s} already stored")
                 continue
+            study = studies.of_group(lab["run_group"])
+            if study is None or (lab.get("model") and lab["model"] not in study.models):
+                print(f"  {iid:40s} REFUSED: run group {lab['run_group']!r} / model "
+                      f"{lab.get('model')!r} do not match a registered study")
+                skipped += 1
+                continue
             report = json.loads(report_path.read_text()).get(iid, {})
             evidence = ROOT / "runs" / "swt" / run_id / iid
             for d in (logs / run_id).glob(f"*/{iid}"):
@@ -181,6 +209,8 @@ def ingest(logs: Path, predictions: Path, run_id: str, model_name: str,
                 "instance_id": iid,
                 "repo": lab["repo"],
                 "kind": "tdbf_test_first",
+                "study": study.name,           # tdbf.studies; selects the /swt view
+                "agent_model": lab.get("model") or study.models[0],
                 "source": {"run_group": lab["run_group"], "patch_sha256": sha,
                            "files": lab["files"]},
                 "ours": {k: lab[k] for k in ("level", "outcome_buggy", "outcome_fixed",
@@ -249,6 +279,9 @@ def main() -> None:
     pick.add_argument("--all", action="store_true")
     ex.add_argument("--out", type=Path, default=OUT_DIR / f"{RUN_ID}.jsonl")
     ex.add_argument("--model-name", default=MODEL_NAME)
+    ex.add_argument("--run-group", default=None,
+                    help="export this run group's latest BRT per instance instead of the "
+                         "paired experiment's test-first tests")
     cp = sub.add_parser("compare")
     cp.add_argument("--logs", type=Path, required=True, help="the harness's run_instance_swt_logs dir")
     cp.add_argument("--predictions", type=Path, default=OUT_DIR / f"{RUN_ID}.jsonl")
@@ -265,7 +298,7 @@ def main() -> None:
     ig.add_argument("--ids", nargs="+", help="only these instances (default: all in the predictions file)")
     args = ap.parse_args()
     if args.cmd == "export":
-        export(None if args.all else args.ids, args.out, args.model_name)
+        export(None if args.all else args.ids, args.out, args.model_name, args.run_group)
     elif args.cmd == "ingest":
         ingest(args.logs, args.predictions, args.run_id, args.model_name, args.store,
                args.allow_no_meta, args.ids)

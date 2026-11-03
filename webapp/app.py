@@ -154,9 +154,11 @@ def swt():
     """Our stored test-first tests re-scored by the official SWT-bench harness,
     next to other tools' published per-instance results. Numbers come from
     tdbf.metrics.build_swt; the records from scripts/17_swt_predictions.py ingest."""
+    study = request.args.get("study") or tdbf_metrics.EXPERIMENT_STUDY
     res = tdbf_metrics.build_swt(tdbf_metrics.load_records(SWT_FILE),
                                  tdbf_metrics.load_records(PUBLISHED_FILE),
-                                 tdbf_metrics.load_records(LEADERBOARD_FILE))
+                                 tdbf_metrics.load_records(LEADERBOARD_FILE),
+                                 study=study)
     return render_template("swt.html", res=res,
                            glossary_sections=glossary.sections_for(glossary.SWT_TERMS))
 

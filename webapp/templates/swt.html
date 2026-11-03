@@ -21,6 +21,20 @@
   and puts our tests on the scale other tools report on.
 </p>
 
+{% if res.studies %}
+<ul class="nav nav-tabs mb-3">
+  {% for st in res.studies %}
+  <li class="nav-item"><a class="nav-link {{ 'active' if st.name == res.study else '' }}"
+      href="{{ url_for('swt', study=st.name) }}" title="{{ st.description }}">{{ st.name }}
+      <span class="text-muted small">({{ st.n }})</span></a></li>
+  {% endfor %}
+</ul>
+{% for st in res.studies if st.name == res.study %}
+<p class="small text-muted mb-3">{{ st.description }} Model:
+  {% for m in st.models %}<code>{{ m }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+{% endfor %}
+{% endif %}
+
 {% if not res.n %}
 <div class="alert alert-secondary">
   No re-scored instance yet. Records come from

@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "webapp"))
 
-from tdbf import metrics as M  # noqa: E402
+from tdbf import metrics as M, studies  # noqa: E402
 
 RUN, MODEL = "smoke-run", "tdbf__smoke"
 
@@ -76,7 +76,8 @@ def main() -> None:
                 patch = f"diff --git a/test_brt.py b/test_brt.py\n+# {iid}\n"
                 f.write(json.dumps({"instance_id": iid, "model_name_or_path": MODEL,
                                     "model_patch": patch}) + "\n")
-                labels[iid] = {"repo": "demo/pkg", "run_group": "g", "level": c["level"],
+                labels[iid] = {"repo": "demo/pkg", "run_group": "rq1-sweep",
+                               "model": studies.NEMOTRON_FREE, "level": c["level"],
                                "outcome_buggy": "fail", "outcome_fixed": "pass",
                                "failure_reason_buggy": "assertion", "files": ["test_brt.py"]}
                 # the harness's real layout: report.json in <run>/<model>/<id>/,
@@ -110,6 +111,23 @@ def main() -> None:
         m17.ingest(logs, preds, RUN, MODEL, store, allow_no_meta=False)
         check("second ingest adds nothing", len(M.load_records(store)), 3)
 
+        print("ingest refuses a verdict whose run group / model fit no study")
+        bad = tmp / "bad.jsonl"
+        lab = json.loads(preds.with_suffix(".labels.json").read_text())
+        lab["i3"] = {**lab["i3"], "run_group": "not-registered"}
+        bad_preds = tmp / "bad_preds.jsonl"
+        bad_preds.write_text(preds.read_text())
+        bad_preds.with_suffix(".labels.json").write_text(json.dumps(lab))
+        m17.ingest(logs, bad_preds, RUN, MODEL, bad, allow_no_meta=False, ids=["i3"])
+        check("unregistered group refused", M.load_records(bad), [])
+        lab["i3"] = {**lab["i3"], "run_group": "rq1-sweep", "model": "openrouter:other/model@x"}
+        bad_preds.with_suffix(".labels.json").write_text(json.dumps(lab))
+        m17.ingest(logs, bad_preds, RUN, MODEL, bad, allow_no_meta=False, ids=["i3"])
+        check("wrong model for the study refused", M.load_records(bad), [])
+        check("stored verdicts carry study + model",
+              {(r["study"], r["agent_model"]) for r in recs},
+              {("rq1-nemotron", studies.NEMOTRON_FREE)})
+
         print("build_swt")
         published = [{"tool": "Demo", "model": "m", "metric": "S", "instances": ["i1", "i2"]}]
         res = M.build_swt(recs, published)
@@ -122,11 +140,26 @@ def main() -> None:
         check("cross L4", next(r for r in res["cross"] if r["level"] == "L4")["counts"], [1, 0, 1, 0])
         t = res["tools"][0]
         check("published", (t["theirs"]["num"], t["both"], t["only_ours"], t["only_theirs"]), (2, 1, 1, 1))
-        check("empty store", M.build_swt([], published), {"n": 0})
+        check("empty store", M.build_swt([], published)["n"], 0)
+
+        print("one study per view")
+        other = [{**r, "study": "test-agent-gpt-4o-mini-pilot",
+                  "swt": {**r["swt"], "success": False, "f2p": False},
+                  "timestamp": "2999-01-01T00:00:00"} for r in recs]
+        mixed = recs + other  # newer verdicts from another model on the same instances
+        check("default view untouched by another study", M.build_swt(mixed)["success"]["label"],
+              "2/3 = 0.67")
+        check("other study on its own", M.build_swt(mixed, study="test-agent-gpt-4o-mini-pilot")
+              ["success"]["label"], "0/3 = 0.00")
+        check("both studies listed", [x["name"] for x in M.build_swt(mixed)["studies"]],
+              ["rq1-nemotron", "test-agent-gpt-4o-mini-pilot"])
+        legacy = [{k: v for k, v in r.items() if k != "study"} for r in recs]
+        check("pre-registry verdicts placed by their run group", M.build_swt(legacy)["n"], 3)
 
         print("coverage delta, aggregated like the harness's report")
         def rec(iid, success, delta):
             return {"instance_id": iid, "kind": "tdbf_test_first", "repo": "demo/pkg",
+                    "study": "rq1-nemotron",
                     "ours": {"level": 4 if success else 3},
                     "swt": {"applied": True, "success": success, "f2p": success,
                             "coverage_delta_pred": delta}}
@@ -162,6 +195,9 @@ def main() -> None:
         webapp.LEADERBOARD_FILE = tmp / "board.jsonl"
         webapp.LEADERBOARD_FILE.write_text("\n".join(json.dumps(x) for x in board) + "\n")
         html = client.get("/swt").get_data(as_text=True)
+        store.write_text(store.read_text() + "".join(json.dumps(x) + "\n" for x in other))
+        page2 = client.get("/swt?study=test-agent-gpt-4o-mini-pilot").get_data(as_text=True)
+        check("study tabs", "nav-tabs" in page2 and "test-agent-gpt-4o-mini-pilot" in page2, True)
         check("leaderboard section", "SWT-bench Lite leaderboard" in html and "TDBF test-first (ours)" in html, True)
         check("coverage rows", "Δᶜ S" in html, True)
         webapp.SWT_FILE = tmp / "empty.jsonl"
