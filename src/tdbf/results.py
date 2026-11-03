@@ -56,14 +56,18 @@ def save_run(record: dict) -> None:
     _try_post(record)
 
 
-def load_best_brt(instance_id: str, *, min_level: int = 4) -> dict | None:
-    """Find the best logged Bug Reproduction Test for an instance.
+def load_best_brt(instance_id: str, *, run_groups: tuple[str, ...],
+                  models: tuple[str, ...] | None = None, min_level: int = 4) -> dict | None:
+    """The best logged Bug Reproduction Test for an instance, from the given run
+    groups only (and, if given, those models only).
 
-    Scans results.jsonl for runs of `instance_id` and returns the test_code of
-    the highest-scoring attempt that meets `min_level` (default L4 = validated).
-    Used by the Phase B fix agent to obtain the BRT it must make pass.
+    Used by the Phase B fix agent (script 05) to obtain the BRT it must make pass.
+    Until 2026-11-03 this searched every record of every model and run, so a fix
+    run could silently get a test another model wrote; the caller now names where
+    the test may come from (by default its own study, see script 05).
 
-    Returns {"test_code", "level", "model"} or None if no qualifying BRT exists.
+    Highest level wins, then the most recent record. Returns {"test_code",
+    "level", "model", "run_group", "timestamp"} or None.
     """
     if not RESULTS_FILE.exists():
         return None
@@ -79,13 +83,18 @@ def load_best_brt(instance_id: str, *, min_level: int = 4) -> dict | None:
                 continue
             if rec.get("instance_id") != instance_id:
                 continue
+            group = (rec.get("flags") or {}).get("run_group")
+            if group not in run_groups or (models and rec.get("model") not in models):
+                continue
             for att in rec.get("attempts", []):
-                level = att.get("level", 0)
+                level = att.get("level") or 0
                 code = att.get("test_code")
                 if not code or level < min_level:
                     continue
-                if best is None or level > best["level"]:
-                    best = {"test_code": code, "level": level, "model": rec.get("model", "")}
+                cand = {"test_code": code, "level": level, "model": rec.get("model", ""),
+                        "run_group": group, "timestamp": rec.get("timestamp", "")}
+                if best is None or (level, cand["timestamp"]) >= (best["level"], best["timestamp"]):
+                    best = cand
     return best
 
 

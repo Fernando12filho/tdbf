@@ -197,9 +197,14 @@ def test_orchestration_glue() -> None:
     # build_client/load_best_brt/save_run are called in the script; the container
     # + harness scoring now live in tdbf.agent.pipeline (patch there).
     mod.build_client = lambda spec, **kw: FakeFixClient()
-    mod.load_best_brt = lambda iid, min_level=4: {
-        "test_code": "def test_brt():\n    assert compute() == 5\n", "level": 4, "model": "anthropic:claude-sonnet-4-6",
-    }
+    lookups: list = []
+
+    def fake_lookup(iid, *, run_groups, models=None, min_level=4):
+        lookups.append((iid, run_groups, models))
+        return {"test_code": "def test_brt():\n    assert compute() == 5\n", "level": 4,
+                "model": "anthropic:claude-sonnet-4-6", "run_group": "gate-fix",
+                "timestamp": "2026-09-09T00:00:00"}
+    mod.load_best_brt = fake_lookup
     mod.save_run = lambda record: captured.setdefault("record", record)
     pipeline.ContainerSession = lambda instance, keep=False: FixFakeSession(instance.repo)
     pipeline.write_predictions = lambda records, path: Path(path)
@@ -215,13 +220,17 @@ def test_orchestration_glue() -> None:
         resolved = mod.run_one(
             inst, "anthropic:claude-sonnet-4-6",
             split="lite", max_iterations=8, max_total_tokens=300_000,
-            think=False, brt_override=None, keep_container=False, verbose=False,
-            transcript_dir=Path(td),
+            think=False, brt_override=None, brt_from=None, run_group="gate-fix",
+            keep_container=False, verbose=False, transcript_dir=Path(td),
         )
         assert resolved is True, resolved
+        # the test is looked up in the fix run's own study only (same model)
+        assert lookups == [("demo__pkg-1", ("gate-fix", "gate-fix-aborted"),
+                            ("anthropic:claude-sonnet-4-6",))], lookups
 
         rec = captured["record"]
         assert rec["mode"] == "fix_agent" and rec["resolved"] is True
+        assert rec["flags"]["brt_source"]["run_group"] == "gate-fix", rec["flags"]
         att = rec["attempts"][0]
         assert att["stop_cause"] == "submit", att["stop_cause"]
         assert att["num_tool_calls"] == 3

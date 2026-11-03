@@ -88,9 +88,34 @@ def test_save_run_guard() -> None:
             results.RESULTS_FILE, results._DEFAULT_RUN_GROUP = saved_file, saved_default
 
 
+def test_load_best_brt_stays_in_its_study() -> None:
+    def rec(model, group, level, ts):
+        return {"instance_id": "x__x-1", "model": model, "timestamp": ts,
+                "flags": {"run_group": group},
+                "attempts": [{"level": level, "test_code": f"# {model} {group}"}]}
+    with tempfile.TemporaryDirectory() as td:
+        saved = results.RESULTS_FILE
+        results.RESULTS_FILE = Path(td) / "results.jsonl"
+        try:
+            results.RESULTS_FILE.write_text("".join(json.dumps(r) + "\n" for r in [
+                rec(NEMOTRON_FREE, "rq1-sweep", 4, "2026-09-01"),
+                rec(GPT_4O_MINI, "tests-4omini", 4, "2026-11-04"),       # newer, other model
+                rec(NEMOTRON_FREE, "rq1-ext", 3, "2026-10-01"),          # same study, L3
+            ]))
+            s = studies.get("rq1-nemotron")
+            got = results.load_best_brt("x__x-1", run_groups=s.run_groups, models=s.models)
+            assert got["model"] == NEMOTRON_FREE and got["run_group"] == "rq1-sweep", got
+            other = results.load_best_brt("x__x-1", run_groups=("tests-4omini",))
+            assert other["model"] == GPT_4O_MINI, other
+            assert results.load_best_brt("x__x-1", run_groups=("nowhere",)) is None
+        finally:
+            results.RESULTS_FILE = saved
+
+
 def main() -> int:
     tests = [test_real_log_fits_the_registry, test_every_run_group_in_one_study,
-             test_check_write, test_records_of_refuses_a_foreign_model, test_save_run_guard]
+             test_check_write, test_records_of_refuses_a_foreign_model, test_save_run_guard,
+             test_load_best_brt_stays_in_its_study]
     for t in tests:
         t()
         print(f"  ok  {t.__name__}")
