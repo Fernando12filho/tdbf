@@ -25,18 +25,19 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from tdbf import metrics as M  # noqa: E402
+from tdbf.studies import NEMOTRON_FREE as EXP_MODEL  # noqa: E402
 
 
 def _unit(iid, group, *, arm_a=None, arm_b=None, calls=10, day="2026-09-21"):
     return {"instance_id": iid, "repo": "demo/pkg", "mode": "sweep_unit",
-            "model": "openrouter:demo:free", "timestamp": f"{day}T00:00:00",
+            "model": EXP_MODEL, "timestamp": f"{day}T00:00:00",
             "flags": {"run_group": group, "max_iterations": 30,
                       "max_tokens_per_turn": 16000, "max_total_tokens": 1000000},
             "arm_a": arm_a, "arm_b": arm_b, "calls": calls}
 
 
 def _fix(iid, group, arm, *, resolved, stop="submit", f2p=(), p2p=(), applied=True):
-    return {"instance_id": iid, "repo": "demo/pkg", "mode": "fix_agent",
+    return {"instance_id": iid, "repo": "demo/pkg", "mode": "fix_agent", "model": EXP_MODEL,
             "timestamp": "2026-09-22T00:00:00", "resolved": resolved,
             "flags": {"run_group": group, "arm": arm}, "best_attempt": 1,
             "attempts": [{"attempt": 1, "resolved": resolved, "stop_cause": stop,
@@ -46,7 +47,7 @@ def _fix(iid, group, arm, *, resolved, stop="submit", f2p=(), p2p=(), applied=Tr
 
 def _test(iid, *, level, gated):
     return {"instance_id": iid, "repo": "demo/pkg", "mode": "agent_deployable",
-            "timestamp": "2026-09-21T00:00:00", "best_level": level,
+            "model": EXP_MODEL, "timestamp": "2026-09-21T00:00:00", "best_level": level,
             "gate_accepted": gated, "flags": {"run_group": "rq1-sweep"}}
 
 

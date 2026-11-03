@@ -289,7 +289,12 @@ def main() -> int:
         "--force", action="store_true",
         help="Re-run instances already in results.jsonl (useful for comparing models)",
     )
+    ap.add_argument("--run-group", default=None,
+                    help="tags every record; must be registered in src/tdbf/studies.py")
     args = ap.parse_args()
+    # refuse an unregistered/frozen run group or a wrong model BEFORE any call
+    from tdbf.results import use_run_group
+    use_run_group(args.run_group, build_client(args.model).name)
 
     client = build_client(args.model)
     if args.think and isinstance(client, OllamaClient):

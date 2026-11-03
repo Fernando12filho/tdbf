@@ -297,6 +297,10 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="print the plan; no Docker, no calls")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
+    # refuse an unregistered/frozen run group or a wrong model BEFORE any pull or call
+    from tdbf.models.llm import build_client
+    from tdbf.results import use_run_group
+    use_run_group(args.run_group, build_client(args.model).name)
 
     sample_path = ROOT / args.sample
     sample = json.loads(sample_path.read_text())

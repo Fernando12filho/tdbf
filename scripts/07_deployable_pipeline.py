@@ -338,6 +338,9 @@ def main() -> int:
                     help="Do not remove agent containers after the run (debugging).")
     ap.add_argument("-v", "--verbose", action="store_true", help="Stream each agent's tool trace.")
     args = ap.parse_args()
+    # refuse an unregistered/frozen run group or a wrong model BEFORE any call
+    from tdbf.results import use_run_group
+    use_run_group(args.run_group, build_client(args.model).name)
 
     store = InstanceStore(args.split)
     if args.id:

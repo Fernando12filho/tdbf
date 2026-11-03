@@ -15,6 +15,21 @@ from pathlib import Path
 RESULTS_FILE = Path("results.jsonl")
 _WEBAPP_URL = os.environ.get("TDBF_WEBAPP_URL", "http://localhost:5000")
 
+# Set by use_run_group() for scripts that build their flags without one.
+_DEFAULT_RUN_GROUP: str | None = None
+
+
+def use_run_group(run_group: str | None, model: str) -> None:
+    """Check `run_group` against the study registry BEFORE any model call, and
+    tag every record this process saves with it (when its flags carry none).
+
+    Scripts call this right after building their client, so a run that would be
+    refused at save time is refused before it spends anything."""
+    global _DEFAULT_RUN_GROUP
+    from .studies import check_write
+    check_write(run_group, model)
+    _DEFAULT_RUN_GROUP = run_group
+
 
 def save_run(record: dict) -> None:
     """Write record to results.jsonl and try to POST it to the webapp.
@@ -22,8 +37,17 @@ def save_run(record: dict) -> None:
     record should contain at minimum:
         instance_id, repo, model, split, flags (dict),
         best_level (int), best_attempt (int), attempts (list of dicts)
+
+    Refused (StudyError, nothing written) unless its run group is registered in
+    `tdbf.studies`, the group's study is open, and the record's model is the
+    study's: see studies.check_write.
     """
-    record = {**record, "timestamp": datetime.now(timezone.utc).isoformat()}
+    from .studies import check_write
+    flags = dict(record.get("flags") or {})
+    if not flags.get("run_group") and _DEFAULT_RUN_GROUP:
+        flags["run_group"] = _DEFAULT_RUN_GROUP
+    check_write(flags.get("run_group"), record.get("model"))
+    record = {**record, "flags": flags, "timestamp": datetime.now(timezone.utc).isoformat()}
 
     RESULTS_FILE.parent.mkdir(parents=True, exist_ok=True)
     with RESULTS_FILE.open("a") as f:

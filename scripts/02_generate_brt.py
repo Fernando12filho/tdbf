@@ -71,7 +71,12 @@ def main() -> int:
         help="Max repair turns when a test errors at runtime (feeds the traceback "
              "back to the model). Default 0 (off).",
     )
+    ap.add_argument("--run-group", default=None,
+                    help="tags every record; must be registered in src/tdbf/studies.py")
     args = ap.parse_args()
+    # refuse an unregistered/frozen run group or a wrong model BEFORE any call
+    from tdbf.results import use_run_group
+    use_run_group(args.run_group, build_client(args.model).name)
 
     # --- Load instance ---
     store = InstanceStore(args.split)

@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from agent_tools_smoke import FakeSession  # noqa: E402
 
-from tdbf import metrics  # noqa: E402
+from tdbf import metrics, studies  # noqa: E402
 from tdbf.agent import pipeline  # noqa: E402
 from tdbf.agent.tools import EditFileTool  # noqa: E402
 from tdbf.data.instances import SWEBenchInstance  # noqa: E402
@@ -136,7 +136,7 @@ def _load_07():
 def check_env_exclusion() -> None:
     def unit(iid, group, key, resolved):
         return {"instance_id": iid, "repo": "demo/pkg", "mode": "sweep_unit",
-                "model": "m", "timestamp": "2026-10-05T00:00:00",
+                "model": studies.NEMOTRON_FREE, "timestamp": "2026-10-05T00:00:00",
                 "flags": {"run_group": group}, key: {"resolved": resolved}, "calls": 1}
 
     recs = []
@@ -153,20 +153,20 @@ def check_env_exclusion() -> None:
     # Extension: one AB unit per instance in rq1-ext pools with the base sample's
     # one-arm units, and each arm's calls come from its own records, not the
     # unit's combined total.
-    ab = {"instance_id": "e__e-1", "repo": "demo/pkg", "mode": "sweep_unit", "model": "m",
+    ab = {"instance_id": "e__e-1", "repo": "demo/pkg", "mode": "sweep_unit", "model": studies.NEMOTRON_FREE,
           "timestamp": "2026-10-06T00:00:00", "calls": 70,
           "flags": {"run_group": "rq1-ext", "arms": "AB", "pair_id": "p1"},
           "arm_a": {"resolved": False}, "arm_b": {"resolved": True}}
     arm_recs = [
-        {"instance_id": "e__e-1", "mode": "agent_deployable", "timestamp": "2026-10-06",
+        {"instance_id": "e__e-1", "mode": "agent_deployable", "model": studies.NEMOTRON_FREE, "timestamp": "2026-10-06",
          "gate_accepted": True, "best_level": 4,
          "flags": {"run_group": "rq1-ext", "arm": "deployable", "pair_id": "p1",
                    "served_by": {"m|P": 20}}},
-        {"instance_id": "e__e-1", "mode": "fix_agent", "timestamp": "2026-10-06",
+        {"instance_id": "e__e-1", "mode": "fix_agent", "model": studies.NEMOTRON_FREE, "timestamp": "2026-10-06",
          "resolved": True, "attempts": [{"stop_cause": "submit"}],
          "flags": {"run_group": "rq1-ext", "arm": "deployable", "pair_id": "p1",
                    "served_by": {"m|P": 25}}},
-        {"instance_id": "e__e-1", "mode": "fix_agent", "timestamp": "2026-10-06",
+        {"instance_id": "e__e-1", "mode": "fix_agent", "model": studies.NEMOTRON_FREE, "timestamp": "2026-10-06",
          "resolved": False, "attempts": [{"stop_cause": "submit_forced"}],
          "flags": {"run_group": "rq1-ext", "arm": "reactive", "pair_id": "p1",
                    "served_by": {"m|P": 25}}},

@@ -525,6 +525,9 @@ def main() -> int:
                     help="tee all output here (default: runs/sweep/<run-group>/sweep.log)")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
+    # refuse an unregistered/frozen run group or a wrong model BEFORE any call
+    from tdbf.results import use_run_group
+    use_run_group(args.run_group, build_client(args.model).name)
 
     per_turn, total = default_budgets(args.model)
     cfg = Config(

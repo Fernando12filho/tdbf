@@ -25,6 +25,7 @@ import json
 from pathlib import Path
 
 from .pricing import cost_usd
+from . import studies as _studies
 
 
 # ── loading & record helpers ────────────────────────────────────────────────
@@ -375,6 +376,15 @@ EXPERIMENT_ARMS_ORIGINAL = (
     ("reactive", ("rq1-armA", "rq1-ext", "rq1-ext-v2"), "reactive"),
 )
 EXPERIMENT_RUN_GROUPS = frozenset(g for _, gs, _ in EXPERIMENT_ARMS for g in gs)
+EXPERIMENT_STUDY = "rq1-nemotron"  # tdbf.studies: the run groups and the one model
+if EXPERIMENT_RUN_GROUPS != set(_studies.get(EXPERIMENT_STUDY).run_groups):
+    raise RuntimeError("EXPERIMENT_ARMS and studies.rq1-nemotron name different run groups")
+
+
+def _experiment_records(records: list[dict]) -> list[dict]:
+    """Only the experiment study's records; a record in its run groups made by
+    another model raises (studies.StudyError) instead of joining the pairing."""
+    return _studies.records_of(EXPERIMENT_STUDY, records)
 _UNIT_SIDE = {"test-first": "arm_b", "reactive": "arm_a"}
 
 
@@ -465,6 +475,7 @@ def _experiment_units(records: list[dict], arms_def=EXPERIMENT_ARMS
                       ) -> tuple[dict[str, dict[str, dict]], dict[str, dict]]:
     """Each arm's chosen unit per instance, and the test-first Phase A record
     from the same run group as that instance's test-first unit."""
+    records = _experiment_records(records)
     units = {
         label: _preferred([r for r in records if label in unit_arms(r, arms_def)], groups)
         for label, groups, _ in arms_def
@@ -496,6 +507,7 @@ def build_results(records: list[dict], *, sample_ids: list[str] | None = None,
     report what was left out and why. `arms_def` picks the arm definition
     (EXPERIMENT_ARMS_ORIGINAL = without the Django substitution).
     """
+    records = _experiment_records(records)
     units, tests = _experiment_units(records, arms_def)
     fixes = {
         label: _same_group([r for r in records if r.get("mode") == "fix_agent"
@@ -684,14 +696,27 @@ def _swt_coverage(rows: list[dict]) -> dict:
             "num": total, "den": len(countable)}
 
 
+def swt_study(rec: dict) -> str | None:
+    """The study a stored SWT verdict belongs to. Verdicts stored before the
+    registry carry no `study` field; their source run group decides."""
+    if rec.get("study"):
+        return rec["study"]
+    s = _studies.of_group((rec.get("source") or {}).get("run_group"))
+    return s.name if s else None
+
+
 def build_swt(records: list[dict], published: list[dict] | None = None,
-              leaderboard: list[dict] | None = None) -> dict:
+              leaderboard: list[dict] | None = None,
+              study: str = EXPERIMENT_STUDY) -> dict:
     """Numbers for the /swt page. The latest stored record per instance counts.
 
     `leaderboard` is SWT-bench's own Lite leaderboard (published_swt_leaderboard.jsonl):
     aggregate S and coverage delta on all 276 instances. Our row is added for
     reference, on our N, and marked as ours."""
-    latest = _latest([r for r in records if r.get("kind") == "tdbf_test_first"])
+    verdicts = [r for r in records if r.get("kind") == "tdbf_test_first"]
+    available = collections.Counter(swt_study(r) for r in verdicts)
+    # one study per view: two models' verdicts on one instance never overwrite each other
+    latest = _latest([r for r in verdicts if swt_study(r) == study])
     rows = []
     for iid, r in sorted(latest.items()):
         level = (r.get("ours") or {}).get("level")
@@ -708,8 +733,15 @@ def build_swt(records: list[dict], published: list[dict] | None = None,
             "evidence": r.get("evidence"),
         })
     n = len(rows)
+    studies_meta = []
+    for name in sorted(available, key=lambda x: (x != EXPERIMENT_STUDY, str(x))):
+        st = _studies.of_name(name)
+        studies_meta.append({
+            "name": name, "n": len(_latest([r for r in verdicts if swt_study(r) == name])),
+            "description": st.description if st else "not in the study registry",
+            "models": list(st.models) if st else []})
     if not n:
-        return {"n": 0}
+        return {"n": 0, "study": study, "studies": studies_meta}
     count = collections.Counter(x["verdict"] for x in rows)
     m = [latest[x["instance_id"]].get("swt") or {} for x in rows]
     cov = [x["coverage_delta"] for x in rows if x["coverage_delta"] is not None]
@@ -749,7 +781,8 @@ def build_swt(records: list[dict], published: list[dict] | None = None,
     if leaderboard:
         board = [dict(b, ours=False) for b in leaderboard]
         board.append({
-            "tool": "TDBF test-first (ours)", "model": "nemotron-3-super-120b-a12b",
+            "tool": "TDBF test-first (ours)",
+            "model": ", ".join(short_model(m) for m in _studies.get(study).models),
             "success_pct": round(100 * count["S"] / n, 1),
             "coverage_delta_pct": (round(100 * coverage["all"]["value"], 1)
                                    if coverage["all"]["value"] is not None else None),
@@ -760,6 +793,8 @@ def build_swt(records: list[dict], published: list[dict] | None = None,
 
     return {
         "n": n,
+        "study": study,
+        "studies": studies_meta,
         "run_ids": sorted({x["run_id"] for x in rows if x["run_id"]}),
         "applied": rate(sum(bool(x.get("applied")) for x in m), n),
         "success": rate(count["S"], n),
