@@ -61,6 +61,7 @@ STUDIES: tuple[Study, ...] = (
     Study(
         name="test-agent-gpt-4o-mini", purpose="experiment",
         run_groups=("tests-4omini",), models=(GPT_4O_MINI,), frozen=False,
+        samples=("sample_tests_swt114_frozen.json",),
         description="Test agent only (Phase A) on GPT-4o-mini 2024-07-18, Issue2Test's "
                     "model, on the instances of rq1-nemotron that are in SWT-bench Lite. "
                     "Scored by the SWT-bench harness."),
