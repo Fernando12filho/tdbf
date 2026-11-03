@@ -14,6 +14,10 @@ logs/
 
 # Harness summary JSONs (run_harness moves them to logs/harness_reports/; this is a safety net)
 *.json
+# the frozen samples and their environment records define the experiment's N:
+# keep them versioned (untracked from 902cc61 to 2026-11-03)
+!sample_*_frozen.json
+!sample_*_env.json
 
 # Secrets
 .env
