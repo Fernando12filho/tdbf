@@ -1,6 +1,6 @@
 {
   "sample": "tdbf-tests-swt-lite-overlap-n114",
-  "written_utc": "2026-11-04T06:54:15+00:00",
+  "written_utc": "2026-11-04T13:41:34+00:00",
   "counts": {
     "valid": 114
   },
@@ -939,8 +939,9 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-21379:latest @ sweb.eval.x86_64.sympy__sympy-21379@sha256:5a10d273b1b5ae6e4d70c0242dc9c9ecb2e111945e6aa8093b7d1e4160b4dc3b",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T12:02:52+00:00"
     },
     "sympy__sympy-22840": {
       "state": "valid",
@@ -956,7 +957,7 @@
       "gold_resolved": true,
       "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-24213:latest @ sweb.eval.x86_64.sympy__sympy-24213@sha256:a458bae7d95f469fa8e438da0a39a2d168e93f70239155dbd833934948f2b296",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
-      "pulled_utc": "2026-11-04T06:54:15+00:00"
+      "pulled_utc": "2026-11-04T13:41:34+00:00"
     }
   }
 }
