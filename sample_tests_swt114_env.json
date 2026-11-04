@@ -1,6 +1,6 @@
 {
   "sample": "tdbf-tests-swt-lite-overlap-n114",
-  "written_utc": "2026-11-04T00:38:45+00:00",
+  "written_utc": "2026-11-04T06:54:15+00:00",
   "counts": {
     "valid": 114
   },
@@ -231,20 +231,20 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-13710:latest @ sweb.eval.x86_64.django__django-13710@sha256:c6a3b9a997b2ff929be10ee355bf28a4ab22de943ab2aa47fe2bb83750c39388",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "django__django-13757": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-13757:latest @ sweb.eval.x86_64.django__django-13757@sha256:dd528b63c859179d98439027610c5c741dba0085c7dc2a9e79bd899afbe7ebef",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "django__django-13768": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.django_1776_django-13768:latest @ sweb.eval.x86_64.django__django-13768@sha256:e7b3a277b6b46b1a4dfb8410fec12781defbd678d00114ebc9553c068de5182b",
-      "pulled_utc": "2026-10-12T03:20:47+00:00",
+      "pulled_utc": "2026-11-04T02:15:13+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-12T03:21:32+00:00",
@@ -253,7 +253,7 @@
     "django__django-14017": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.django_1776_django-14017:latest @ sweb.eval.x86_64.django__django-14017@sha256:ab40fe86d24dbe0296a4ea9a82969b0c86824274242b208764d2aee227ce9ee6",
-      "pulled_utc": "2026-10-12T03:25:12+00:00",
+      "pulled_utc": "2026-11-04T02:15:57+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-12T03:25:49+00:00",
@@ -263,13 +263,13 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-14238:latest @ sweb.eval.x86_64.django__django-14238@sha256:ce30418a2b0599fa84ce4541450586010fab2d23a5da4cfe70770f304d289780",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "django__django-14534": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.django_1776_django-14534:latest @ sweb.eval.x86_64.django__django-14534@sha256:a82af598c0a980d8dc6b6a81f6893074c4610d83d8cbf7cb97482c81d0c16913",
-      "pulled_utc": "2026-10-12T03:40:46+00:00",
+      "pulled_utc": "2026-11-04T02:20:41+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-12T03:41:19+00:00",
@@ -278,7 +278,7 @@
     "django__django-14667": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.django_1776_django-14667:latest @ sweb.eval.x86_64.django__django-14667@sha256:0f5936871cfbdb05a2ffc9bdacd9623d3e68f203c9be28afeab8c094277eb1a7",
-      "pulled_utc": "2026-10-12T03:47:58+00:00",
+      "pulled_utc": "2026-11-04T02:23:48+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-12T03:48:34+00:00",
@@ -287,7 +287,7 @@
     "django__django-14672": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.django_1776_django-14672:latest @ sweb.eval.x86_64.django__django-14672@sha256:6900fe10a2c481ffb016364ed17041f8f51af554b9ee0f9ac3340e97434362c6",
-      "pulled_utc": "2026-10-12T04:21:47+00:00",
+      "pulled_utc": "2026-11-04T02:24:40+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-12T04:22:21+00:00",
@@ -297,20 +297,20 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-14915:latest @ sweb.eval.x86_64.django__django-14915@sha256:a677be35326049cb42933368d879f3ecfe408c4da1fb8842b70b556e22245b6b",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "django__django-15061": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-15061:latest @ sweb.eval.x86_64.django__django-15061@sha256:71a0e13503f11d5940103dc14b4e8e8ddb033c58736e1e88c1876e62ebb78bb1",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "django__django-15202": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.django_1776_django-15202:latest @ sweb.eval.x86_64.django__django-15202@sha256:e34780f574d53ae81a47dd998185e18f6eb64bf474081335d7cf13dcf70b98bf",
-      "pulled_utc": "2026-10-12T04:29:41+00:00",
+      "pulled_utc": "2026-11-04T02:30:43+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-12T04:30:17+00:00",
@@ -320,20 +320,20 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-15213:latest @ sweb.eval.x86_64.django__django-15213@sha256:8bf6324c2a1d9a40b9cc62571948e2b86f366d30b95f76e96e7f8aac51b1cf70",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "django__django-15320": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-15320:latest @ sweb.eval.x86_64.django__django-15320@sha256:dc4760a6acfa699a65ed39eaa297c86d24560e467548a5ef3c54a79469ab2429",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "django__django-15347": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.django_1776_django-15347:latest @ sweb.eval.x86_64.django__django-15347@sha256:c90ab7fcf5ac73b92a57c5385514f6997ccf8cb3baf938b820421b11092a7eb2",
-      "pulled_utc": "2026-10-12T05:02:05+00:00",
+      "pulled_utc": "2026-11-04T02:40:14+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-12T05:02:38+00:00",
@@ -343,27 +343,27 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-15388:latest @ sweb.eval.x86_64.django__django-15388@sha256:0ff89a14849f2b8a614c2f3ad17b398ef49af83cda88cc650f5cbf642ca7105e",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "django__django-15400": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-15400:latest @ sweb.eval.x86_64.django__django-15400@sha256:e91a8c4d0fe261a474724be9453c6ea2a81b582f643aba6c180cfacfb3ce26f6",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "django__django-15781": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-15781:latest @ sweb.eval.x86_64.django__django-15781@sha256:dda7183344f3efdc83278acb901f30bb7c0d6be1ef8e87b60dd938d027b7a716",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "django__django-15789": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.django_1776_django-15789:latest @ sweb.eval.x86_64.django__django-15789@sha256:e08d90536d0f391eac2c2afdbe5280ae12bebd00f04140c415b0378886c2ae5b",
-      "pulled_utc": "2026-10-12T05:06:34+00:00",
+      "pulled_utc": "2026-11-04T02:48:08+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-12T05:07:08+00:00",
@@ -373,27 +373,27 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-15790:latest @ sweb.eval.x86_64.django__django-15790@sha256:fc3c1db326d79f4643817c54940effcc4345a441a6d4bcf1850ebb87bb82d348",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "django__django-15819": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-15819:latest @ sweb.eval.x86_64.django__django-15819@sha256:0aaa6f14f9f5c42778366d83b85b1736641ef32c26c1d132ec3d848f6233891c",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "django__django-15851": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-15851:latest @ sweb.eval.x86_64.django__django-15851@sha256:aa80884e053cf1a238df7c4ceec43e4e07929547f658278bd3c3154f0ef8bc90",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "django__django-16041": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.django_1776_django-16041:latest @ sweb.eval.x86_64.django__django-16041@sha256:02bf0d9ff07608b9aea501380f294e5330ae6ffec2bc2c611503654bfa0fa7a0",
-      "pulled_utc": "2026-10-12T05:12:12+00:00",
+      "pulled_utc": "2026-11-04T02:56:47+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-12T05:12:46+00:00",
@@ -402,7 +402,7 @@
     "django__django-16046": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.django_1776_django-16046:latest @ sweb.eval.x86_64.django__django-16046@sha256:8ee2baa8d203c23b3d0c1cb984a37aaacf1b850aac0ef011db5e4b0eccc09991",
-      "pulled_utc": "2026-10-12T05:22:35+00:00",
+      "pulled_utc": "2026-11-04T02:59:15+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-12T05:23:08+00:00",
@@ -411,7 +411,7 @@
     "django__django-16229": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.django_1776_django-16229:latest @ sweb.eval.x86_64.django__django-16229@sha256:9883b126e9ea6b24aeb30e04893fc0588edee83e88392637b811db109eab0547",
-      "pulled_utc": "2026-10-12T05:30:28+00:00",
+      "pulled_utc": "2026-11-04T03:00:06+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-12T05:31:02+00:00",
@@ -421,13 +421,13 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-16408:latest @ sweb.eval.x86_64.django__django-16408@sha256:2cc46ad9d9d190aadb8b4b7616c2cc4b71bc202c864ce8c7e8655f9eb9771557",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "django__django-16527": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.django_1776_django-16527:latest @ sweb.eval.x86_64.django__django-16527@sha256:53bc8d6c86cf2387eeea115aa16f98840c22911c5e24eaa42a061ebeccd19331",
-      "pulled_utc": "2026-10-12T05:56:50+00:00",
+      "pulled_utc": "2026-11-04T03:06:49+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-12T05:57:24+00:00",
@@ -437,13 +437,13 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-17087:latest @ sweb.eval.x86_64.django__django-17087@sha256:fef77b052bf6729f7b6326b3b485b8a63ac1dc39b6e1c7040242aa2d3b2dc656",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "matplotlib__matplotlib-23314": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-23314:latest @ sweb.eval.x86_64.matplotlib__matplotlib-23314@sha256:f88a00b6cfc878eb62965e836134dd9425b0188bfa2b8154d439bda001ed604c",
-      "pulled_utc": "2026-10-16T23:28:23+00:00",
+      "pulled_utc": "2026-11-04T03:14:12+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-07T19:15:12+00:00",
@@ -452,7 +452,7 @@
     "matplotlib__matplotlib-23476": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-23476:latest @ sweb.eval.x86_64.matplotlib__matplotlib-23476@sha256:10230151c40fbb30c572497c0d2cc6bebead75042568f9223c3266043e6fc249",
-      "pulled_utc": "2026-10-16T23:56:23+00:00",
+      "pulled_utc": "2026-11-04T03:19:20+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-07T19:25:37+00:00",
@@ -462,13 +462,14 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "docker.io/swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-23913:latest @ sha256:120ede7d6c997ba6c5ed2f0dba1f2d541d429bf0c6541962b08da51d0d412665",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-23913:latest @ sweb.eval.x86_64.matplotlib__matplotlib-23913@sha256:120ede7d6c997ba6c5ed2f0dba1f2d541d429bf0c6541962b08da51d0d412665",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T03:21:59+00:00"
     },
     "matplotlib__matplotlib-23964": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-23964:latest @ sweb.eval.x86_64.matplotlib__matplotlib-23964@sha256:1268aa88cfc19ec17849e353b12a69189e20820e1937cac82b5773fb227b80f2",
-      "pulled_utc": "2026-10-17T01:09:34+00:00",
+      "pulled_utc": "2026-11-04T03:25:41+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-07T19:53:03+00:00",
@@ -477,7 +478,7 @@
     "matplotlib__matplotlib-23987": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-23987:latest @ sweb.eval.x86_64.matplotlib__matplotlib-23987@sha256:a0f064917dac3bcb3a9e34d4e7e2a0eaf5b5b6cfe91fc9048a6a5de06dd7aa5f",
-      "pulled_utc": "2026-10-17T01:33:01+00:00",
+      "pulled_utc": "2026-11-04T03:31:08+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-07T22:14:12+00:00",
@@ -486,7 +487,7 @@
     "matplotlib__matplotlib-24265": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-24265:latest @ sweb.eval.x86_64.matplotlib__matplotlib-24265@sha256:a8bf2e42811e4fc7ab9a837f2178640ac83b18fd0eaaf7ed9aea8d3362769057",
-      "pulled_utc": "2026-10-17T02:08:07+00:00",
+      "pulled_utc": "2026-11-04T03:35:53+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-07T22:29:34+00:00",
@@ -496,20 +497,22 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "docker.io/swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-24334:latest @ sha256:d794a9d8b1b33630cb7828ec0ed585fe4ea7cf3bea294fe6668f9eb0b8f4a6b2",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-24334:latest @ sweb.eval.x86_64.matplotlib__matplotlib-24334@sha256:d794a9d8b1b33630cb7828ec0ed585fe4ea7cf3bea294fe6668f9eb0b8f4a6b2",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T03:38:43+00:00"
     },
     "matplotlib__matplotlib-24970": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "docker.io/swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-24970:latest @ sha256:c5d99048ceeb6b0c3157dde39bb122174e494b557fb7dd3c6d4bd8dba70a1bfa",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-24970:latest @ sweb.eval.x86_64.matplotlib__matplotlib-24970@sha256:c5d99048ceeb6b0c3157dde39bb122174e494b557fb7dd3c6d4bd8dba70a1bfa",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T03:42:17+00:00"
     },
     "matplotlib__matplotlib-25079": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-25079:latest @ sweb.eval.x86_64.matplotlib__matplotlib-25079@sha256:2d73277bb5ab5305b3eca34585792467231e394cc1c3557bfe81a852fe45d731",
-      "pulled_utc": "2026-10-17T02:27:00+00:00",
+      "pulled_utc": "2026-11-04T03:46:39+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-07T22:43:58+00:00",
@@ -518,7 +521,7 @@
     "matplotlib__matplotlib-25311": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.matplotlib_1776_matplotlib-25311:latest @ sweb.eval.x86_64.matplotlib__matplotlib-25311@sha256:3e08e93c4788b52c21ed959dc401e62e5dd6d95f52b92a389018a36b8f1e3142",
-      "pulled_utc": "2026-10-17T04:00:57+00:00",
+      "pulled_utc": "2026-11-04T03:58:05+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-07T23:12:47+00:00",
@@ -527,7 +530,7 @@
     "mwaskom__seaborn-3190": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.mwaskom_1776_seaborn-3190:latest @ sweb.eval.x86_64.mwaskom__seaborn-3190@sha256:5ce876a52439385a2638f21617febf25a333c24b0db555cb9e37230b4db2cdcc",
-      "pulled_utc": "2026-10-17T04:52:32+00:00",
+      "pulled_utc": "2026-11-04T04:00:20+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-17T04:53:00+00:00",
@@ -537,20 +540,22 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.mwaskom_1776_seaborn-3407:latest @ sweb.eval.x86_64.mwaskom__seaborn-3407@sha256:bd81f082cba400f12fc48d9e93a8a9c1a5323fa84caa57ebb7469f3fe1ffa8d1",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T04:04:15+00:00"
     },
     "pallets__flask-5063": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.pallets_1776_flask-5063:latest @ sweb.eval.x86_64.pallets__flask-5063@sha256:05369549db34553599f6f96d65ee9c75173c02d9285d283422f6b6e49f0b8df2",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T04:06:38+00:00"
     },
     "pydata__xarray-3364": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.pydata_1776_xarray-3364:latest @ sweb.eval.x86_64.pydata__xarray-3364@sha256:8591047f512d8d26b4d0e121d2d04eb6b95fa6ad41e13d92fe64f5ef66244c27",
-      "pulled_utc": "2026-10-17T06:43:15+00:00",
+      "pulled_utc": "2026-11-04T04:08:24+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-17T06:43:46+00:00",
@@ -559,7 +564,7 @@
     "pydata__xarray-4094": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.pydata_1776_xarray-4094:latest @ sweb.eval.x86_64.pydata__xarray-4094@sha256:6bcd1fe581af0796691ac3527b940d43e5e1bfd6539adeecebb12f3e4b25dc2c",
-      "pulled_utc": "2026-10-18T03:07:18+00:00",
+      "pulled_utc": "2026-11-04T04:12:21+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-17T08:11:45+00:00",
@@ -569,13 +574,14 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.pydata_1776_xarray-5131:latest @ sweb.eval.x86_64.pydata__xarray-5131@sha256:7b6dd2169e0c110950f3dd3e7a76ebc35e1f2d9afc83aaef53766785dfb1234d",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T04:14:25+00:00"
     },
     "pylint-dev__pylint-7080": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-7080:latest @ sweb.eval.x86_64.pylint-dev__pylint-7080@sha256:3389f0d1319ca611d04a209fc30990c131e0bae9acfeb2163938c75ad23479fe",
-      "pulled_utc": "2026-10-18T04:31:30+00:00",
+      "pulled_utc": "2026-11-04T04:15:59+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-18T04:32:14+00:00",
@@ -585,14 +591,15 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "docker.io/swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-7114:latest @ sha256:6bf0ee60d9e1bb2772f3287f54df0875884ec8aa1e24e6fad14beec46aad70b0",
+      "image": "swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-7114:latest @ sweb.eval.x86_64.pylint-dev__pylint-7114@sha256:6bf0ee60d9e1bb2772f3287f54df0875884ec8aa1e24e6fad14beec46aad70b0",
       "checked_utc": "2026-09-17T15:17:55+00:00",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T04:17:23+00:00"
     },
     "pylint-dev__pylint-7228": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.pylint-dev_1776_pylint-7228:latest @ sweb.eval.x86_64.pylint-dev__pylint-7228@sha256:b3a905a9b866c0155cfd5af9ba55e19f1884b69eaf5b09ab4d82c1cce8b46088",
-      "pulled_utc": "2026-10-18T06:19:25+00:00",
+      "pulled_utc": "2026-11-04T04:19:09+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-18T06:19:57+00:00",
@@ -601,7 +608,7 @@
     "pytest-dev__pytest-5221": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5221:latest @ sweb.eval.x86_64.pytest-dev__pytest-5221@sha256:547472f1933751a67623599dae697188232c9712a46ab66fb69330f88b911e5a",
-      "pulled_utc": "2026-10-18T08:28:07+00:00",
+      "pulled_utc": "2026-11-04T04:22:02+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-18T08:28:40+00:00",
@@ -611,13 +618,14 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5227:latest @ sweb.eval.x86_64.pytest-dev__pytest-5227@sha256:c91459f86ed261ab81871b086d7ca2d9fe16abd2ddf374bf172edd5d991fd28b",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T04:24:06+00:00"
     },
     "pytest-dev__pytest-5413": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5413:latest @ sweb.eval.x86_64.pytest-dev__pytest-5413@sha256:75700210c9eb925d1abde2cb95b7dfffc2c409376ae434854375bacaa193864f",
-      "pulled_utc": "2026-10-18T08:49:16+00:00",
+      "pulled_utc": "2026-11-04T04:24:43+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-18T08:49:45+00:00",
@@ -626,7 +634,7 @@
     "pytest-dev__pytest-5495": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5495:latest @ sweb.eval.x86_64.pytest-dev__pytest-5495@sha256:86b356cf05ac9a623ba8943849e25ce2d0bcebc506753b1361595e5ad488a9b3",
-      "pulled_utc": "2026-10-18T09:08:53+00:00",
+      "pulled_utc": "2026-11-04T04:25:06+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-18T09:09:25+00:00",
@@ -635,7 +643,7 @@
     "pytest-dev__pytest-5692": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-5692:latest @ sweb.eval.x86_64.pytest-dev__pytest-5692@sha256:5b0e6b914a49855cc4e4de597800c95e40c7991fb76313862a7b2b4ca6ec9a00",
-      "pulled_utc": "2026-10-18T09:45:50+00:00",
+      "pulled_utc": "2026-11-04T04:25:44+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-18T09:46:20+00:00",
@@ -645,20 +653,22 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-7432:latest @ sweb.eval.x86_64.pytest-dev__pytest-7432@sha256:5ec7065f9477542610ea5137247539d8f1c9762112803b0690d5ccb2e64d2f07",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T04:26:45+00:00"
     },
     "pytest-dev__pytest-8906": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.pytest-dev_1776_pytest-8906:latest @ sweb.eval.x86_64.pytest-dev__pytest-8906@sha256:53dd43167ba7e232e1964e8be0d5bc72652f2dddffe4d7741ea7b531a46e5ef1",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T04:33:45+00:00"
     },
     "scikit-learn__scikit-learn-10297": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-10297:latest @ sweb.eval.x86_64.scikit-learn__scikit-learn-10297@sha256:58b80e9100f9d107291b5ea37c76583ed4851d8e18ec07aef197f1803a290986",
-      "pulled_utc": "2026-10-18T09:59:23+00:00",
+      "pulled_utc": "2026-11-04T04:37:44+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-18T09:59:51+00:00",
@@ -677,20 +687,22 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-12471:latest @ sweb.eval.x86_64.scikit-learn__scikit-learn-12471@sha256:57ac1dbdfb6e37c3ab6f8ec5d4a5374369f0b32dc4ffe895e49141e0a7901f5c",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T04:44:40+00:00"
     },
     "scikit-learn__scikit-learn-13496": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-13496:latest @ sweb.eval.x86_64.scikit-learn__scikit-learn-13496@sha256:adee9f4911a853e64f9ae4ebd7b1bf32615cbf52c3210873e9a752fb5fb975e6",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T04:47:47+00:00"
     },
     "scikit-learn__scikit-learn-13584": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-13584:latest @ sweb.eval.x86_64.scikit-learn__scikit-learn-13584@sha256:5ca83e8c588bfede26f650da0d725c7093d3e57105586522f9d2829e30117b8c",
-      "pulled_utc": "2026-10-19T03:18:17+00:00",
+      "pulled_utc": "2026-11-04T04:48:27+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-18T11:04:10+00:00",
@@ -699,7 +711,7 @@
     "scikit-learn__scikit-learn-14087": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-14087:latest @ sweb.eval.x86_64.scikit-learn__scikit-learn-14087@sha256:b0e9f68baa5df7a97e08f89cfc3c185597b640fff66b9b7dce4664ea884251ea",
-      "pulled_utc": "2026-10-19T03:54:13+00:00",
+      "pulled_utc": "2026-11-04T04:52:03+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-19T03:54:58+00:00",
@@ -709,13 +721,14 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-14894:latest @ sweb.eval.x86_64.scikit-learn__scikit-learn-14894@sha256:3b94dd629c4719b4983860c1e488c2fe8b6550f5e825c23d08c8888862810d2b",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T04:55:12+00:00"
     },
     "scikit-learn__scikit-learn-15512": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-15512:latest @ sweb.eval.x86_64.scikit-learn__scikit-learn-15512@sha256:b2854e68b923a7e27d3776a4041f8a861c1b5004f0c4bd3aa06dd0d4c40d8d0c",
-      "pulled_utc": "2026-10-19T23:59:03+00:00",
+      "pulled_utc": "2026-11-04T04:58:55+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-19T23:59:36+00:00",
@@ -724,7 +737,7 @@
     "scikit-learn__scikit-learn-15535": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-15535:latest @ sweb.eval.x86_64.scikit-learn__scikit-learn-15535@sha256:65cf79c7c9e89c316c11acdda5f276285fb67970f0ff865e1e783f801eec7e53",
-      "pulled_utc": "2026-10-20T01:10:58+00:00",
+      "pulled_utc": "2026-11-04T04:59:37+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-20T01:11:29+00:00",
@@ -734,27 +747,30 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "docker.io/swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-25500:latest @ sha256:df7a2e1ab0044c940c73e9ceb13d28da43ed4a6f2c76135e10e66d1e670e8591",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-25500:latest @ sweb.eval.x86_64.scikit-learn__scikit-learn-25500@sha256:df7a2e1ab0044c940c73e9ceb13d28da43ed4a6f2c76135e10e66d1e670e8591",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T05:03:57+00:00"
     },
     "scikit-learn__scikit-learn-25638": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "docker.io/swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-25638:latest @ sha256:c3ebacdb13d733bbe46f2f852fa60a17931910ae4338b461dd863e38293b82f0",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.scikit-learn_1776_scikit-learn-25638:latest @ sweb.eval.x86_64.scikit-learn__scikit-learn-25638@sha256:c3ebacdb13d733bbe46f2f852fa60a17931910ae4338b461dd863e38293b82f0",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T05:08:25+00:00"
     },
     "sphinx-doc__sphinx-10325": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10325:latest @ sweb.eval.x86_64.sphinx-doc__sphinx-10325@sha256:32e0fe0fa8f3c0b48fc50cee82b94da766d5f876b94a4468143c06628fdd77c7",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T05:12:59+00:00"
     },
     "sphinx-doc__sphinx-8506": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8506:latest @ sweb.eval.x86_64.sphinx-doc__sphinx-8506@sha256:63dfc9e06aecd26d6b76eb4bda169638e26976d4318fb1baf20d6977dc6e1def",
-      "pulled_utc": "2026-10-20T02:02:04+00:00",
+      "pulled_utc": "2026-11-04T05:15:17+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-20T02:02:35+00:00",
@@ -763,7 +779,7 @@
     "sphinx-doc__sphinx-8595": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8595:latest @ sweb.eval.x86_64.sphinx-doc__sphinx-8595@sha256:d24f9894d781546578028592ad7630cb40973b69af4705582b5e274afc573628",
-      "pulled_utc": "2026-10-20T02:38:01+00:00",
+      "pulled_utc": "2026-11-04T05:17:45+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-20T02:38:32+00:00",
@@ -772,7 +788,7 @@
     "sphinx-doc__sphinx-8713": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8713:latest @ sweb.eval.x86_64.sphinx-doc__sphinx-8713@sha256:7ba9df7ec272f679584db9aede948951ff220b69c55076f0ca54e2777cd80f8e",
-      "pulled_utc": "2026-10-20T03:00:36+00:00",
+      "pulled_utc": "2026-11-04T05:22:05+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-20T03:01:06+00:00",
@@ -781,7 +797,7 @@
     "sphinx-doc__sphinx-8721": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8721:latest @ sweb.eval.x86_64.sphinx-doc__sphinx-8721@sha256:8f02afdb324767a2e56b7940569ea822cfa58c3c1f0ef9a910162d21cf52c3f5",
-      "pulled_utc": "2026-10-20T03:19:25+00:00",
+      "pulled_utc": "2026-11-04T05:22:38+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-20T03:19:55+00:00",
@@ -791,13 +807,14 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-12171:latest @ sweb.eval.x86_64.sympy__sympy-12171@sha256:4e20c984fd96241e91cfd507845bb53aac38b2b9cdf4c5a00f8c25ae94e2a2e3",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T05:24:39+00:00"
     },
     "sympy__sympy-12236": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-12236:latest @ sweb.eval.x86_64.sympy__sympy-12236@sha256:d767f3ac506efa1e75534b2e16cd6faae0b8b0184d9cf86fe8e3e09ad8609482",
-      "pulled_utc": "2026-10-20T04:05:33+00:00",
+      "pulled_utc": "2026-11-04T05:25:25+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-20T04:06:21+00:00",
@@ -807,22 +824,25 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-13043:latest @ sweb.eval.x86_64.sympy__sympy-13043@sha256:1a43ce8aba21d1a05164e5ea83759963e3ce896a54ebb3db77988eaeaf51d9a3",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T05:26:36+00:00"
     },
     "sympy__sympy-13480": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-13480:latest @ sweb.eval.x86_64.sympy__sympy-13480@sha256:98270682f9052def68c8c42f78fb6ce6573f2dc7b8cb7fe741139a0543b30e21",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T05:28:19+00:00"
     },
     "sympy__sympy-13647": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-13647:latest @ sweb.eval.x86_64.sympy__sympy-13647@sha256:dfa0b51faf18208c3b9fdb505eafc2db866fed25c158d211617d23606c3539fe",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T06:30:07+00:00"
     },
     "sympy__sympy-14396": {
       "state": "valid",
@@ -836,7 +856,7 @@
     "sympy__sympy-14774": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-14774:latest @ sweb.eval.x86_64.sympy__sympy-14774@sha256:1c3e7e826b3d32c7f2dc155470ace96063278ed78af91b9f0c8268824053779e",
-      "pulled_utc": "2026-10-20T06:39:44+00:00",
+      "pulled_utc": "2026-11-04T06:32:38+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-20T06:40:21+00:00",
@@ -845,7 +865,7 @@
     "sympy__sympy-14817": {
       "state": "valid",
       "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-14817:latest @ sweb.eval.x86_64.sympy__sympy-14817@sha256:5bd1a67d6f489b2dc4d55720fccef8fe9cafbfdfbce7fc55ad138afa27b8a9de",
-      "pulled_utc": "2026-10-20T06:53:35+00:00",
+      "pulled_utc": "2026-11-04T06:33:14+00:00",
       "reason": null,
       "gold_resolved": true,
       "checked_utc": "2026-10-20T06:54:12+00:00",
@@ -855,57 +875,65 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-16281:latest @ sweb.eval.x86_64.sympy__sympy-16281@sha256:14d08bac387bf3925f71e4292087142f1f540481413ec82531a4da92fb99faed",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T06:34:38+00:00"
     },
     "sympy__sympy-16988": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-16988:latest @ sweb.eval.x86_64.sympy__sympy-16988@sha256:7f1d58f4177d0a0eebaceb69a8bfb901e7961da3d83cd3913cb9ed8f69dd4509",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T06:35:30+00:00"
     },
     "sympy__sympy-17139": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-17139:latest @ sweb.eval.x86_64.sympy__sympy-17139@sha256:9a8111742e0548816d920a27ba259ebde7647f4e46e7522c61647990dd35713c",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T06:38:07+00:00"
     },
     "sympy__sympy-18057": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-18057:latest @ sweb.eval.x86_64.sympy__sympy-18057@sha256:a56d5da6faf39f1529ea4acb09a37aaaad1798d9a1298e3ae5ead6d7b8b58cad",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T06:39:43+00:00"
     },
     "sympy__sympy-18621": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-18621:latest @ sweb.eval.x86_64.sympy__sympy-18621@sha256:6ceb7424d50163dbea48b63200bb124317e530dd314cb29e1d98d8cafdc1b411",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T06:42:03+00:00"
     },
     "sympy__sympy-18835": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-18835:latest @ sweb.eval.x86_64.sympy__sympy-18835@sha256:33a6cf4afdb3257f284e3ca39cfa6ddaef96a3c5ae1e3b9e54e267c9f08d06d9",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T06:44:55+00:00"
     },
     "sympy__sympy-20049": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-20049:latest @ sweb.eval.x86_64.sympy__sympy-20049@sha256:61abec126653930f705ca9d1fddb1ed7b7ac338a15af1d8377de7ef584aa1284",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T06:50:00+00:00"
     },
     "sympy__sympy-20590": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "docker.io/swebench/sweb.eval.x86_64.sympy_1776_sympy-20590:latest @ sha256:3a282752833ce34730ee0621e22033501c993f45742775ca57f04c9ff27178a0",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-20590:latest @ sweb.eval.x86_64.sympy__sympy-20590@sha256:3a282752833ce34730ee0621e22033501c993f45742775ca57f04c9ff27178a0",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T06:53:03+00:00"
     },
     "sympy__sympy-21379": {
       "state": "valid",
@@ -918,15 +946,17 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-22840:latest @ sweb.eval.x86_64.sympy__sympy-22840@sha256:d1f49043c4927485fa02a3ddb2d37963def4b9d53bea9bafd2eeca17eaa7293f",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T06:53:41+00:00"
     },
     "sympy__sympy-24213": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
-      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
+      "image": "swebench/sweb.eval.x86_64.sympy_1776_sympy-24213:latest @ sweb.eval.x86_64.sympy__sympy-24213@sha256:a458bae7d95f469fa8e438da0a39a2d168e93f70239155dbd833934948f2b296",
+      "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00",
+      "pulled_utc": "2026-11-04T06:54:15+00:00"
     }
   }
 }
