@@ -1,6 +1,6 @@
 {
   "sample": "tdbf-tests-swt-lite-overlap-n114",
-  "written_utc": "2026-11-03T22:41:22+00:00",
+  "written_utc": "2026-11-04T00:38:45+00:00",
   "counts": {
     "valid": 114
   },
@@ -27,7 +27,7 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-11620:latest @ sweb.eval.x86_64.django__django-11620@sha256:6c99f08e757436b33640c2a68bfa4572aad8dcdfe78adf77905dc7e25945aa47",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "django__django-11742": {
@@ -52,7 +52,7 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-11964:latest @ sweb.eval.x86_64.django__django-11964@sha256:098474801410af7303f0814d0d8557791ca2f55e455e5db766c3b3d0a9826df2",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "django__django-11999": {
@@ -104,7 +104,7 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-12308:latest @ sweb.eval.x86_64.django__django-12308@sha256:6250d2a608d52b82cd4eb03eb33082bb9927397c01876025499430b782cce9a6",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "django__django-12453": {
@@ -120,7 +120,7 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-12470:latest @ sweb.eval.x86_64.django__django-12470@sha256:6bcd06ce3f41aba5572391bb23e74cd84dabefce4deaa90c28211501bb9e759c",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "django__django-12708": {
@@ -154,14 +154,14 @@
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-12915:latest @ sweb.eval.x86_64.django__django-12915@sha256:cb8a11360b096bcd0ca966751371b7d83479127afcdd69bc4522456a9ce97451",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "django__django-12983": {
       "state": "valid",
       "reason": null,
       "gold_resolved": true,
-      "image": "built locally with the SWE-bench harness",
+      "image": "swebench/sweb.eval.x86_64.django_1776_django-12983:latest @ sweb.eval.x86_64.django__django-12983@sha256:f89a493dc687475e9f309b2bcb838ea6722faef9878f49b9ee6dfdd3eaa19c80",
       "copied_from_rq1_env_utc": "2026-11-03T22:41:22+00:00"
     },
     "django__django-13028": {
