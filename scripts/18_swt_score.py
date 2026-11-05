@@ -83,6 +83,15 @@ def harness(predictions: str, instance_id: str, run_id: str, workers: int) -> in
                "--cache_level", "instance", "--clean", "False"]).returncode
 
 
+def prediction_model_name(predictions: Path) -> str:
+    """The model_name_or_path of a predictions file (one model per file)."""
+    names = {json.loads(line)["model_name_or_path"]
+             for line in predictions.read_text().splitlines() if line.strip()}
+    if len(names) != 1:
+        raise SystemExit(f"{predictions}: expected one model_name_or_path, found {sorted(names)}")
+    return names.pop()
+
+
 def ingest(args, instance_id: str) -> None:
     """Store one finished instance in the tdbf repo. Ingest re-checks the patch
     hash and the report's freshness and never stores a verdict twice, so calling
@@ -93,7 +102,10 @@ def ingest(args, instance_id: str) -> None:
     rc = sh([args.ingest_python, str(script), "ingest",
              "--logs", str(Path("run_instance_swt_logs").resolve()),
              "--predictions", str(args.predictions.resolve()),
-             "--run-id", args.run_id, "--ids", instance_id]).returncode
+             "--run-id", args.run_id, "--ids", instance_id,
+             # 17's default model name is nemotron's; another model's reports live
+             # under its own name, and ingest would find "no report" for all of them
+             "--model-name", prediction_model_name(args.predictions)]).returncode
     if rc != 0:
         print(f"    ingest of {instance_id} failed (exit {rc}); run 17 ingest by hand later", flush=True)
 
