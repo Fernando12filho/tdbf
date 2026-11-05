@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -120,11 +121,23 @@ class ContainerSession:
         cmd = ["docker", "exec"]
         for key, value in (env or {}).items():
             cmd += ["-e", f"{key}={value}"]
-        cmd += [self.container, "bash", "-c", script]
+        # The deadline is enforced INSIDE the container: coreutils `timeout` runs the
+        # command in its own process group and SIGKILLs the whole group. Killing only
+        # the host-side `docker exec` left the command running in the container — a
+        # test that launched sympy's full suite piled up 17 copies in one session
+        # (sympy-21379, 2026-11-04). The host timeout stays as a backstop.
+        cmd += [self.container, "timeout", "-s", "KILL", str(timeout), "bash", "-c", script]
+        start = time.monotonic()
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 15)
         except subprocess.TimeoutExpired:
             return ExecResult(returncode=124, output=f"timeout after {timeout}s")
+        if proc.returncode == 137 and time.monotonic() - start >= timeout - 1:
+            # killed by the in-container deadline: same result as before, keeping
+            # whatever the command printed before it was killed
+            partial = (proc.stdout + proc.stderr).rstrip()
+            return ExecResult(returncode=124,
+                              output=(partial + "\n" if partial else "") + f"timeout after {timeout}s")
         return ExecResult(returncode=proc.returncode, output=proc.stdout + proc.stderr)
 
     def write_file(self, path: str, content: str) -> None:
