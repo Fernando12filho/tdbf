@@ -76,7 +76,10 @@ def test_non_django_unchanged() -> None:
         spec = brt_run_spec(repo, code)
         rel = brt_test_path(repo)
         assert spec.files == {rel: inject_setup_preamble(repo, code)}, spec.files
-        assert spec.command == f"python -m pytest {rel} -x --tb=short -q"
+        # sympy alone adds one option: pytest must not collect the `test()` that
+        # `from sympy import *` brings in (it runs sympy's whole suite)
+        extra = " -o python_functions=test_*" if repo == "sympy/sympy" else ""
+        assert spec.command == f"python -m pytest {rel} -x --tb=short -q{extra}", spec.command
         assert spec.needs_pytest
         assert brt_env_hint(repo) == repo_test_hint(repo)
         assert pipeline.brt_system_prompt(repo) is pipeline.BRT_SYSTEM_PROMPT

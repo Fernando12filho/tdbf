@@ -241,6 +241,14 @@ class BrtRunSpec:
     needs_pytest: bool
 
 
+# Extra pytest options per repo. sympy: `from sympy import *` brings sympy's own
+# `test()` (the whole-suite runner) into the BRT module, and pytest's default
+# python_functions="test" collects it, so the BRT ran sympy's full suite and
+# timed out (stored: nemotron sympy-21379 and gpt-4o-mini sympy-13480, both L2).
+# "test_*" still collects every test_<name> function.
+_PYTEST_EXTRA = {"sympy/sympy": " -o python_functions=test_*"}
+
+
 def brt_run_spec(repo: str, code: str, *, test_name: str = "test_brt") -> BrtRunSpec:
     if native_brt(repo):
         module = brt_module(code) or DJANGO_BRT_APP
@@ -252,7 +260,7 @@ def brt_run_spec(repo: str, code: str, *, test_name: str = "test_brt") -> BrtRun
     rel = brt_test_path(repo)
     return BrtRunSpec(
         {rel: inject_setup_preamble(repo, code)},
-        f"python -m pytest {rel} -x --tb=short -q",
+        f"python -m pytest {rel} -x --tb=short -q{_PYTEST_EXTRA.get(repo, '')}",
         needs_pytest=True,
     )
 
