@@ -66,3 +66,12 @@ thesis/
 thesisproposal/
 *.md
 !README.md
+
+# Study folders are versioned in full: the committed and tagged protocol is the
+# pre-registration record, like the frozen samples above.
+!studies/**/*.md
+!studies/**/*.json
+
+# Third-party datasets the user downloads by hand; never committed. Data derived
+# from them goes in the study folder, with the source's licence and attribution.
+external/
