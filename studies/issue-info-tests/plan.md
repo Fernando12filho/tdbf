@@ -4,6 +4,71 @@
 is frozen by committing the agreed version and tagging it `issue-info-tests-protocol`.
 No new result may be produced before that tag. The open decisions are in Section 10.
 
+## Amendment 2 (2026-11-11, end of day; supersedes the order of work below)
+
+**Done.** Every one of the 114 bugs has information-type labels (prompt v3, GPT-5-mini).
+On the 36 bugs with human labels from the Bug Reports paper, v3 agrees with the humans at
+least as well as the humans agree with each other (expected behaviour kappa 0.76 vs 0.67,
+location 0.78 vs 0.43; `results/agreement_v3.txt`). Still open: a person spot-checks about
+15 of the 78 LLM-only labels.
+
+**Framing.** We try to improve the test agent. The same runs measure what the agent
+depends on (removal) and whether the improvement makes it more robust when information is
+missing. The interaction is the link between the two paths.
+
+**Phase 1. Develop the improved agent on development bugs, never on the 114.**
+- Development bugs: about 30 SWE-bench Lite bugs outside the 114, drawn with a fixed seed.
+  Our runner labels any test there (L0–L4), since the real fix is available offline.
+- Candidates, from our own data and the papers read on 2026-11-10:
+  1. Grounding step before the test: the agent investigates and states the expected value
+     with its source (issue, documentation, existing test, observed), or marks it unknown.
+     Targets wrong-reason tests (L3). DPIAgent found a pasted summary hurt, so the agent
+     must build and check it itself.
+  2. Retry feedback: replace "it passed, make it fail" with diagnostic feedback and carry
+     the findings into the retry. In stored gpt-4o-mini runs, 17 of 20 tests that went from
+     passing to failing after feedback ended L3.
+  3. Step cap 30 → 60, optionally with a budget reminder. Runs that hit the cap rarely
+     produced a valid test.
+  4. A prompt rule: assert only expected values that have a source.
+- One change at a time on the development bugs; keep what helps; freeze the improved agent
+  with a git tag before Phase 2. Development results are reported as development.
+
+**Phase 2. Main runs on the 114 bugs: nemotron-3-super (paid), 5 repeats per condition.**
+
+| Condition | Agent | Issue text | Bugs |
+|---|---|---|---|
+| C1 | unchanged (baseline) | original | 114 |
+| C2 | improved | original | 114 |
+| C3 | unchanged | expected behaviour removed | bugs that contain it |
+| C4 | improved | expected behaviour removed | bugs that contain it |
+| C5 | unchanged | location removed | bugs that contain it |
+| C6 | improved | location removed | bugs that contain it |
+
+C1 is step C. C3–C6 need the advisor's approval. gpt-4o-mini is optional, later.
+Before C1: the batch runner reuses each bug's Docker image across all repeats and
+conditions instead of downloading it per pass.
+Estimate (list prices, past token use): about $15 for C1, about $70 for C1–C6, and roughly
+100 hours of machine time for C1–C6 at the last measured 2 minutes per bug-run.
+
+**Phase 3. Comparisons, fixed before the runs.**
+- Outcome per bug and condition: share of the 5 runs that produce a valid test (L4); also
+  the L3 share, SWT-bench success, cost and steps.
+- Noise (C1): mean and standard deviation of the valid-test rate across the 5 repeats.
+- Improvement: C2 vs C1, paired by bug.
+- Information: C3 vs C1 and C5 vs C1, paired by bug, on the bugs that contain that type.
+- Robustness: does the improvement help more when information is missing
+  ((C4 − C3) vs (C2 − C1))? Mixed logistic model
+  `L4 ~ agent * removal + (1 | bug)`, effects in percentage points with 95% intervals
+  from resampling bugs, Holm correction within each family, smallest effect of interest
+  10 points.
+- Repositories. Django is 53 of the 114 bugs; most other repositories have under 12.
+  (a) every model includes the repository (fixed effect, with Django vs the rest as the
+  pre-registered split); (b) each comparison is also reported for Django and for the rest
+  separately; (c) per-repository numbers are descriptive only, with no tests, because the
+  samples are too small; (d) patterns across repositories are described for the labels
+  (which information each repository's issues tend to contain).
+- Link to fixing (stored data, exploratory): wrong tests and the reactive fixer's failures.
+
 ## Amendment 1 (2026-11-11, before any new run)
 
 The study is now framed as part of improving the test agent: the same runs serve as an
