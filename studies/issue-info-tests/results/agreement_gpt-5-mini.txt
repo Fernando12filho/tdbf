@@ -1,0 +1,31 @@
+LLM records 108 (errors 0), spans placed 1413, not verbatim/unknown 3, cost $0.833
+
+Presence per issue: Cohen's kappa (raw agreement), n = 36
+category                               human A vs B  LLM run1 vs human  LLM run1 vs run2  human/LLM present
+BUG_AFFECTED_AREA:FILE                  0.65 (0.97)       -0.05 (0.50)       0.89 (0.94)        3/17      
+BUG_AFFECTED_AREA:FUNCTION              0.01 (0.72)        0.05 (0.28)       0.80 (0.94)        5/31      
+BUG_AFFECTED_AREA:GENERIC               0.14 (0.75)        0.06 (0.33)       0.13 (0.81)        9/33      
+BUG_AFFECTED_AREA:LINE                  1.00 (1.00)        0.02 (0.42)       0.57 (0.78)        3/22      
+BUG_CURRENT_WORKAROUND                  0.37 (0.92)        0.54 (0.89)       1.00 (1.00)        4/6       
+BUG_ENVIRONMENT                         0.94 (0.97)        0.75 (0.89)       0.64 (0.86)       22/26      
+BUG_EXPECTED_BEHAVIOUR                  0.67 (0.83)        0.56 (0.81)       0.77 (0.92)       22/27      
+BUG_OBSERVED_BEHAVIOUR                  0.36 (0.92)        0.00 (0.94)       n/a  (1.00)       34/36      
+BUG_REFERENCE                          -0.07 (0.86)        0.03 (0.25)       0.01 (0.64)        2/29      
+BUG_REPRODUCTION_STEPS                  0.62 (0.92)        0.64 (0.94)       0.84 (0.97)       33/33      
+BUG_SUGGESTED_FIX:CODE                  0.79 (0.97)        0.79 (0.97)       0.79 (0.97)        2/3       
+BUG_SUGGESTED_FIX:NATURAL_LANGUAGE      0.70 (0.89)        0.70 (0.86)       0.88 (0.94)       10/15      
+BUG_SUMMARY                             n/a  (1.00)        n/a  (1.00)       n/a  (1.00)       36/36      
+[macro] location                        0.43 (0.72)        0.05 (0.50)       0.00 (0.97)       17/35      
+[macro] suggestion                      0.80 (0.92)        0.76 (0.89)       0.94 (0.97)       11/15      
+[macro] behavioural_context             0.30 (0.89)       -0.03 (0.94)       0.65 (0.97)       35/35      
+[macro] expected_behaviour              0.67 (0.83)        0.56 (0.81)       0.77 (0.92)       22/27      
+[macro] observed_behaviour              0.36 (0.92)        0.00 (0.94)       n/a  (1.00)       34/36      
+[macro] reproduction_steps              0.62 (0.92)        0.64 (0.94)       0.84 (0.97)       33/33      
+
+character agreement, LLM run 1 vs human final: 0.733
+
+character agreement, LLM run 2 vs human final: 0.713
+
+character agreement, LLM run 3 vs human final: 0.724
+character agreement, LLM run 1 vs run 2: 0.811
+(paper, human A vs human B on all 441 issues: 78.6% of characters, presence kappa 0.57)
