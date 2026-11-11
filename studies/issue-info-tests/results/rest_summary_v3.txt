@@ -1,0 +1,11 @@
+records 234 (expected 234), errors 1, cost $1.310
+  error: ('sympy__sympy-14774', 3, "Expecting ',' delimiter: line 1 column 593 (char 592)")
+
+type                    present (run 1)  kappa r1-r2   r1-r3   r2-r3
+expected_behaviour            50/78             0.70    0.62    0.60
+location                      18/78             0.78    0.68    0.61
+suggestion                    35/78             0.95    0.87    0.87
+reproduction_steps            53/78             0.88    0.82    0.82
+observed_behaviour            77/78            -0.01    0.66    0.66
+environment                   27/78             0.86    0.86    0.89
+reference                      3/78             0.37    0.55    0.51
