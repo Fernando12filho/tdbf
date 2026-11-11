@@ -97,7 +97,9 @@ def parse_spans(content: str) -> list[dict]:
     m = re.search(r"\{.*\}", content, re.S)
     if not m:
         raise ValueError("no JSON object in the reply")
-    return json.loads(m.group(0)).get("spans", [])
+    # strict=False: models sometimes copy a raw tab or newline from the issue into a
+    # JSON string; that is still a verbatim span (seen on django-13807, dev round v2).
+    return json.loads(m.group(0), strict=False).get("spans", [])
 
 
 def locate(text: str, span: str, used: set[tuple[int, int]]) -> tuple[int, int] | None:
@@ -126,8 +128,12 @@ def main() -> int:
     ap.add_argument("--model", default="openai/gpt-5-mini")
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--prompt", help="prompt template file with {labels} and {text}; default = built-in v1")
     a = ap.parse_args()
 
+    import hashlib
+    template = Path(a.prompt).read_text() if a.prompt else PROMPT
+    prompt_sha = hashlib.sha256(template.encode()).hexdigest()[:12]
     labels = [l for l in json.loads(Path(a.labels).read_text()) if l["name"].startswith("BUG_")]
     names = {l["name"] for l in labels}
     label_text = "\n".join(f"- {l['name']}: {l['description']}" for l in labels)
@@ -146,10 +152,10 @@ def main() -> int:
         for run in range(1, a.runs + 1):
             if (iid, run) in done:
                 continue
-            resp = call(key, a.model, PROMPT.format(labels=label_text, text=text))
+            resp = call(key, a.model, template.format(labels=label_text, text=text))
             content = resp["choices"][0]["message"].get("content") or ""
             usage = resp.get("usage") or {}
-            rec = {"instance_id": iid, "run": run, "model": a.model,
+            rec = {"instance_id": iid, "run": run, "model": a.model, "prompt_sha": prompt_sha,
                    "served_model": resp.get("model"), "provider": resp.get("provider"),
                    "usage": usage, "spans": [], "unmatched": [], "error": None}
             try:

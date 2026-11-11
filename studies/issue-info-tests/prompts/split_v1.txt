@@ -1,0 +1,12 @@
+You annotate a GitHub bug report. Mark the parts of the text that convey each type of information below. Copy every span VERBATIM from the report: exact characters, including code, punctuation and line breaks. Do not paraphrase, summarise or fix typos. A span can be a whole sentence, part of a sentence, or a code block. Leave text that conveys none of these types unmarked (greetings, frustration, template headings). The same text may be marked with more than one type only when it clearly conveys both.
+
+Information types:
+{labels}
+
+Return only JSON, no commentary, in this form:
+{{"spans": [{{"label": "<one of the type names above>", "text": "<verbatim span>"}}]}}
+
+Bug report:
+<<<REPORT
+{text}
+REPORT>>>

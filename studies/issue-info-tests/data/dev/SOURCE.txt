@@ -1,0 +1,6 @@
+human_spans.jsonl and human_presence_by_annotator.jsonl are derived from the replication
+package of V. L. Bruno, A. Giagnorio, D. Bifolco, L. Wienges, M. Di Penta, G. Bavota,
+'Writing Bug Reports for Software Repair Agents: What Information Matters Most?',
+arXiv:2607.09553, Zenodo doi:10.5281/zenodo.21035233, licensed CC-BY-4.0.
+Only the rows for the bugs listed in overlap_ids.txt are kept; offsets refer to the
+texts in overlap_texts.jsonl (their cleaned SWE-bench Verified problem statements).

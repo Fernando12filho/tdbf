@@ -22,6 +22,11 @@ def main() -> int:
     ap.add_argument("--package", required=True)
     ap.add_argument("--sample", required=True)
     ap.add_argument("--out-dir", required=True)
+    ap.add_argument("--select", choices=("overlap", "dev"), default="overlap",
+                    help="overlap: our bugs they labelled (the evaluation set); dev: a random sample "
+                         "of their OTHER bug reports, for developing the labelling prompt")
+    ap.add_argument("--n", type=int, default=40, help="dev sample size")
+    ap.add_argument("--seed", type=int, default=20261111, help="dev sample seed")
     a = ap.parse_args()
     pkg, out = Path(a.package), Path(a.out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -30,7 +35,12 @@ def main() -> int:
     ours = {i if isinstance(i, str) else i["instance_id"] for i in s["instances"]}
     bug_reports = {json.loads(l)["instance_id"] for l in (pkg / "inter_annotator_agreement_labels.jsonl").read_text().splitlines() if l}
     clean = {r["instance_id"]: r for r in map(json.loads, (pkg / "data/clean-dataset/clean_dataset.jsonl").read_text().splitlines()) if r}
-    ids = sorted(i for i in ours if i in bug_reports)
+    if a.select == "overlap":
+        ids = sorted(i for i in ours if i in bug_reports)
+    else:
+        import random
+        pool = sorted(bug_reports - ours)
+        ids = sorted(random.Random(a.seed).sample(pool, a.n))
 
     (out / "overlap_ids.txt").write_text("\n".join(ids) + "\n")
     with (out / "overlap_texts.jsonl").open("w") as f:
@@ -54,7 +64,11 @@ def main() -> int:
         "arXiv:2607.09553, Zenodo doi:10.5281/zenodo.21035233, licensed CC-BY-4.0.\n"
         "Only the rows for the bugs listed in overlap_ids.txt are kept; offsets refer to the\n"
         "texts in overlap_texts.jsonl (their cleaned SWE-bench Verified problem statements).\n")
-    print(f"{len(ids)} bugs; not bug reports in their study: {sorted(ours & set(clean) - set(ids))}")
+    if a.select == "dev":
+        assert not set(ids) & ours, "dev sample must not contain evaluation bugs"
+        print(f"{len(ids)} dev bugs (seed {a.seed}) from {len(bug_reports - ours)} labelled bug reports outside our sample")
+    else:
+        print(f"{len(ids)} bugs; not bug reports in their study: {sorted(ours & set(clean) - set(ids))}")
     return 0
 
 

@@ -1,0 +1,35 @@
+You annotate a GitHub bug report. Mark the parts of the text that convey each type of information below. Copy every span VERBATIM from the report: exact characters, including code, punctuation and line breaks. Do not paraphrase, summarise or fix typos. A span can be a whole sentence, part of a sentence, or a code block. Leave text that conveys none of these types unmarked (greetings, frustration, template headings, discussion that adds nothing). Mark the same text with two types only when it clearly conveys both.
+
+Information types:
+{labels}
+
+Rules that decide the hard cases. Follow them strictly; when in doubt, leave text unmarked.
+
+THE TITLE. The first line of the report is its title. Mark it as BUG_SUMMARY and nothing else, even when it says what should happen or names a function.
+
+BUG_AFFECTED_AREA (LINE, FUNCTION, FILE, GENERIC) needs an explicit CAUSAL claim by the reporter about the project's code: the reporter says which code is responsible for the bug. Typical wording: "this is because", "this is caused by", "the problem is in", "the culprit is", "root cause", "I traced it to", "X does not handle Y so ...", "looking at the source code, X ...", or a link to a source line or file presented as the place where the defect is.
+- Naming a function, class, module, option or component is NOT enough. "X produces wrong results", "X fails when ...", "calling X raises ..." describe the failure: that is BUG_OBSERVED_BEHAVIOUR or BUG_SUMMARY, not an affected area.
+- Names in reproduction code, in a traceback, or in a description of what the user did are never affected areas. A traceback is BUG_OBSERVED_BEHAVIOUR.
+- A link to the project's own tests or to where the user's own code lives is not an affected area.
+- Use LINE for a specific line or line link, FUNCTION for a named function or method identified as the cause, FILE for a named file or module identified as the cause, GENERIC when the reporter identifies the cause without naming code ("the table name is not quoted properly", "a hardcoded cut-off point in the internal logic").
+- Most bug reports contain NO affected area. Mark one only when you can point to the causal claim.
+
+BUG_EXPECTED_BEHAVIOUR marks text in the body that tells what the CORRECT outcome is: what should happen or be returned, what the reporter expected, or how it behaved when it worked ("I expected", "Expected behavior: ...", "it should return ...", "instead it should ...", "in version N it printed Z").
+- Saying that something is wrong, broken, missing or surprising is NOT expected behaviour.
+- Requests for new behaviour or design proposals ("allow X", "X should be supported", "add an option to ...") are NOT expected behaviour. A proposed change to the code is BUG_SUGGESTED_FIX.
+- Code inside the reproduction steps, including assertions, is BUG_REPRODUCTION_STEPS. Mark code as expected behaviour only when the reporter presents it separately as the correct result (for example under an "Expected" heading, or as "this should print: ...").
+- A heading such as "Expected behavior" alone is not a span; mark the content under it.
+
+BUG_REFERENCE marks ONLY explicit pointers to something outside the report: links (URLs), issue or pull-request numbers (#1234, "ticket 8060"), commits, Stack Overflow questions, documentation pages. A link given as the location of the defect is BUG_AFFECTED_AREA instead. A code name in prose is not a reference.
+
+BUG_REPRODUCTION_STEPS marks the code or steps that trigger the bug, without the error output itself.
+
+BUG_OBSERVED_BEHAVIOUR marks the wrong outcome: error messages, tracebacks, wrong output, or a description of what goes wrong.
+
+Return only JSON, no commentary, in this form:
+{{"spans": [{{"label": "<one of the type names above>", "text": "<verbatim span>"}}]}}
+
+Bug report:
+<<<REPORT
+{text}
+REPORT>>>
