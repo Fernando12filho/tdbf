@@ -206,15 +206,18 @@ budget, finish tool, gate, and where a failure goes. Budgets sum to 30.
 
 ### Budgets
 
-| Phase | Turns | Skipped when |
+Superseded by decision D3 (§10a): 100 turns per attempt. The phase budgets above (2/8/6/3/8)
+were drafted for 30 turns.
+
+| Phase | Turns (D3) | Skipped when |
 |---|---|---|
-| Understand | 2 | never |
-| Reproduce | 8 | preflight already matched the symptom (then 1 turn) |
-| Pin expected | 6 | all expected values verified from the issue |
-| Locate | 3 | Django module given and valid, or one obvious candidate |
-| Write | 8 | never |
-| Reserve for sent-back phases | 3 | — |
-| **Total** | **30** | |
+| Understand | 3 | never |
+| Reproduce | 25 | preflight already matched the symptom (then 1 turn) |
+| Pin expected | 20 | all expected values verified from the issue |
+| Locate | 8 | Django module given and valid, or one obvious candidate |
+| Write | 30 | never |
+| Reserve for sent-back phases | 14 | — |
+| **Total** | **100** | |
 
 Turns saved by skipped phases go to the reserve. A phase can be visited at most twice
 (`MAX_VISITS`); after that the run degrades (§5).
@@ -377,17 +380,70 @@ About 30 SWE-bench Lite bugs outside the 114, fixed seed, one run each first; me
 cost per valid test, turns, flags and flag precision. The best variant is frozen with a git tag and
 becomes the "improved agent" of Phase 2.
 
-## 10. Decisions still open
+## 10. Decisions (2026-11-12)
 
-| # | Decision | Proposal |
+| # | Decision | Status |
 |---|---|---|
-| D1 | Strict, soft or both in Phase 1 | Both (cheap on 30 bugs) |
-| D2 | Unverified expected values in the test | Omit the assertion and flag the test; keep the value as a comment |
-| D3 | Total budget | 30 turns, as today |
-| D4 | Official SWE-bench test command for every repository | Yes; keep today's pytest path as fallback |
-| D5 | Symptom matcher: deterministic only, or with a cheap model check for `partial` | Deterministic only in the first version |
-| D6 | Retrieved examples from repository history | Later variant, not in the first version |
-| D7 | Model | nemotron-3-super (paid) for Phase 1; gpt-4o-mini optional |
+| D1 | Strict and soft versions both tested in development | **Decided: both** |
+| D2 | Unverified expected values | **Decided: omit the assertion, keep the value as a `# UNVERIFIED:` comment, flag the test** |
+| D3 | Turn budget | **Decided: 100 per attempt, for every agent in Phase 2 including the baseline**, so the comparison stays fair (see §10a) |
+| D4 | Official SWE-bench test command for every repository | **Decided: yes**, today's pytest path as fallback |
+| D5 | Symptom matcher | Deterministic only in the first version |
+| D6 | Retrieved examples from repository history | Later variant |
+| D7 | Model | nemotron-3-super (paid); gpt-4o-mini optional |
+| D8 | Memory | **Decided: working memory within a run (the handoff record); no memory across bugs in the main study** (see §10b) |
+| D9 | Development procedure | **Decided: rounds of 10 random development bugs** (see §10c) |
+
+### 10a. Budget of 100 turns
+
+Published agents use much larger limits than our 30: the Bug Reports paper 75 steps, RealSWE 100,
+Validation Evidence 200, Confident and Wrong 250; Google's BRT agent 25. SWE-agent and
+mini-SWE-agent are limited by a per-run cost and/or step limit set in their configuration; Claude
+Code and Pi have no step limit. With 100, the phase budgets become:
+
+| Phase | Turns |
+|---|---|
+| Understand | 3 |
+| Reproduce | 25 |
+| Pin expected | 20 |
+| Locate | 8 |
+| Write | 30 |
+| Reserve for sent-back phases | 14 |
+
+The baseline agent in Phase 2 also runs with 100 (its `max_iterations`), otherwise a gain could
+come from the larger budget rather than the procedure. Runs that finish early cost the same as
+before; only runs that used to hit the cap (43 of 171 nemotron runs) get longer. A token ceiling per
+run stays as a safety limit.
+
+### 10b. Memory
+
+- **Within a run:** the handoff record *is* the agent's working memory: claims, evidence,
+  unknowns, the reproduction and the test home survive between phases and through send-backs,
+  while transcripts do not. This is what makes step-level retries cheap.
+- **Across bugs:** not in the main study. Memory built up while running the evaluation bugs would
+  make results depend on the order of the bugs, make repeats differ for a non-random reason, and
+  let one evaluation bug inform another. Published examples exist (PMCoder's episodic memory,
+  +5.0 points; experience-reuse agents such as ExpeRepair and Live-SWE-agent).
+- **Allowed variant:** a fixed note per repository (how to run its tests, its test layout, known
+  setup pitfalls) written from development bugs only, frozen with the agent, and the same for every
+  evaluation run. It must be gold-free: nothing from fixes or hidden tests.
+
+### 10c. Development rounds
+
+1. Development pool: SWE-bench Lite bugs **outside the 114**, with a valid environment (preflight),
+   preferably also in SWT-bench Lite so they can be scored the same way.
+2. Each round draws **10 new bugs** at random with a recorded seed, without replacement.
+3. Each round runs the current procedure agent (strict, and soft when relevant) **and the baseline
+   agent** on the same 10, one run each.
+4. Review: per bug, the phase history, gates, flags, L0–L4 label and cost. Write down what failed
+   and why, change the agent, record the change in `design/changelog.md` with the commit.
+5. Earlier rounds' bugs are re-run when a change could affect them (regression check).
+6. **Stopping rule, fixed now:** stop when, over all development bugs so far (at least 30), the
+   procedure agent has more valid tests than the baseline, no more wrong-reason tests, and cost per
+   valid test no worse than 1.5× the baseline's; **or after 6 rounds**, whichever comes first. Ten
+   bugs are too few to decide on numbers alone; round-level decisions are about failure patterns,
+   the stopping decision uses all rounds together.
+7. The final version is frozen with the tag `procedure-v1` and only then runs on the 114.
 
 ## 11. Implementation map (current code → change)
 
