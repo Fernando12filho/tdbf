@@ -27,12 +27,28 @@ Rules for the build:
 - Ask before any paid run. Commit messages: lowercase `area:` prefix, no co-author trailer.
 
 ## Model
-`openai/gpt-5-mini` for every agent (decision D7 in the design). First check, with one cheap call,
-that our OpenRouter client (`src/tdbf/models/llm.py`) works with a reasoning model and tool calls.
+`openai/gpt-5-mini` for every agent (decision D7 in the design). Checked 2026-11-12 with one
+two-turn tool call ($0.0002): the client works unchanged. Spec string
+`openrouter:openai/gpt-5-mini@openai` (paid ids need a pinned provider); no temperature is sent;
+reasoning tokens are inside `completion_tokens` and `billed_usd` records the real cost.
+`max_tokens=4096` includes reasoning tokens: log `finish_reason=length` in the new agent.
+
+## Done (2026-11-12)
+- Preflight built, no model call: `src/tdbf/agent/preflight.py` and
+  `src/tdbf/harness/official.py` (official SWE-bench command per repo/version, with
+  `eval_commands`; astropy `--tb=no` -> `--tb=short`; pytest fallback). Offline tests:
+  `scripts/procedure_preflight_smoke.py`. Live runner: `scripts/procedure_preflight_live.py`.
+  Baseline files untouched; baseline smoke tests pass.
+- Development round 1 drawn (`scripts/draw_dev_round.py`, seed 20261112, pool = SWT-bench
+  Lite minus the 114 = 162 bugs) -> `data/dev/round1.json`; images pulled (amd64).
+- Preflight live on round 1 plus a sphinx and an astropy runner check: all 12 valid with the
+  official command (`results/preflight_dev_round1.md`). A live mechanics check also ran on
+  3 of the 114 (no model, no agent decisions; results not kept in the study).
+- Images: `docker pull --platform linux/amd64 swebench/sweb.eval.x86_64.<id with __ -> _1776_>`
+  then tag as `sweb.eval.x86_64.<id>:latest` (what ContainerSession looks for).
 
 ## Next steps
-1. Implement the preflight (environment, official SWE-bench test command, issue snippet runs,
-   location candidates) with offline smoke tests.
+1. ~~Preflight~~ (done, see above).
 2. Implement the controller and phases (strict), then the soft variant.
 3. Development round 1: 10 random development bugs, procedure agent and baseline, review.
 4. Repeat rounds until the stopping rule in design §10c.
