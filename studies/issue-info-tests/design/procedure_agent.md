@@ -206,18 +206,18 @@ budget, finish tool, gate, and where a failure goes. Budgets sum to 30.
 
 ### Budgets
 
-Superseded by decision D3 (§10a): 100 turns per attempt. The phase budgets above (2/8/6/3/8)
+Superseded by decision D3 (§10a): 50 turns per attempt. The phase budgets above (2/8/6/3/8)
 were drafted for 30 turns.
 
 | Phase | Turns (D3) | Skipped when |
 |---|---|---|
-| Understand | 3 | never |
-| Reproduce | 25 | preflight already matched the symptom (then 1 turn) |
-| Pin expected | 20 | all expected values verified from the issue |
-| Locate | 8 | Django module given and valid, or one obvious candidate |
-| Write | 30 | never |
-| Reserve for sent-back phases | 14 | — |
-| **Total** | **100** | |
+| Understand | 2 | never |
+| Reproduce | 12 | preflight already matched the symptom (then 1 turn) |
+| Pin expected | 10 | all expected values verified from the issue |
+| Locate | 4 | Django module given and valid, or one obvious candidate |
+| Write | 15 | never |
+| Reserve for sent-back phases | 7 | — |
+| **Total** | **50** | |
 
 Turns saved by skipped phases go to the reserve. A phase can be visited at most twice
 (`MAX_VISITS`); after that the run degrades (§5).
@@ -386,7 +386,7 @@ becomes the "improved agent" of Phase 2.
 |---|---|---|
 | D1 | Strict and soft versions both tested in development | **Decided: both** |
 | D2 | Unverified expected values | **Decided: omit the assertion, keep the value as a `# UNVERIFIED:` comment, flag the test** |
-| D3 | Turn budget | **Decided: 100 per attempt, for every agent in Phase 2 including the baseline**, so the comparison stays fair (see §10a) |
+| D3 | Turn budget | **Decided: 50 per attempt** (changed from 100 on 2026-11-12), **for every agent in Phase 2 including the baseline**, so the comparison stays fair (see §10a) |
 | D4 | Official SWE-bench test command for every repository | **Decided: yes**, today's pytest path as fallback |
 | D5 | Symptom matcher | Deterministic only in the first version |
 | D6 | Retrieved examples from repository history | Later variant |
@@ -394,23 +394,24 @@ becomes the "improved agent" of Phase 2.
 | D8 | Memory | **Decided: working memory within a run (the handoff record); no memory across bugs in the main study** (see §10b) |
 | D9 | Development procedure | **Decided: rounds of 10 random development bugs** (see §10c) |
 
-### 10a. Budget of 100 turns
+### 10a. Budget of 50 turns
 
-Published agents use much larger limits than our 30: the Bug Reports paper 75 steps, RealSWE 100,
+Published agents use larger limits than our 30: the Bug Reports paper 75 steps, RealSWE 100,
 Validation Evidence 200, Confident and Wrong 250; Google's BRT agent 25. SWE-agent and
 mini-SWE-agent are limited by a per-run cost and/or step limit set in their configuration; Claude
-Code and Pi have no step limit. With 100, the phase budgets become:
+Code and Pi have no step limit. We use 50 (first set to 100, reduced to 50 on 2026-11-12). Phase
+budgets:
 
 | Phase | Turns |
 |---|---|
-| Understand | 3 |
-| Reproduce | 25 |
-| Pin expected | 20 |
-| Locate | 8 |
-| Write | 30 |
-| Reserve for sent-back phases | 14 |
+| Understand | 2 |
+| Reproduce | 12 |
+| Pin expected | 10 |
+| Locate | 4 |
+| Write | 15 |
+| Reserve for sent-back phases | 7 |
 
-The baseline agent in Phase 2 also runs with 100 (its `max_iterations`), otherwise a gain could
+The baseline agent in Phase 2 also runs with 50 (its `max_iterations`), otherwise a gain could
 come from the larger budget rather than the procedure. Runs that finish early cost the same as
 before; only runs that used to hit the cap (43 of 171 nemotron runs) get longer. A token ceiling per
 run stays as a safety limit.
