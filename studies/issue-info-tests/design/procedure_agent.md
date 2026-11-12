@@ -390,7 +390,7 @@ becomes the "improved agent" of Phase 2.
 | D4 | Official SWE-bench test command for every repository | **Decided: yes**, today's pytest path as fallback |
 | D5 | Symptom matcher | Deterministic only in the first version |
 | D6 | Retrieved examples from repository history | Later variant |
-| D7 | Model | nemotron-3-super (paid); gpt-4o-mini optional |
+| D7 | Model | **Decided 2026-11-12: `openai/gpt-5-mini` for development and main runs, for every agent (baseline included)**: the backbone most closely related papers use (CoHarden, ReProAgent, DPIAgent, TrajSpec, Bug Reports paper), so our numbers sit next to theirs. Price on OpenRouter: $0.25 / $2.00 per million input / output tokens, $0.025 cached input. Estimated $0.08–0.15 per bug-run at 50 turns (from our stored token use; caching lowers it). Development round of 10 bugs × 3 agents: about $2.5–4.5. Phase 2 (C1–C6, 5 repeats, removal only on bugs that contain the information): about 2,200 bug-runs, roughly $180–330, against about $70 with nemotron. Before the first round: a smoke run checks that our OpenRouter client handles a reasoning model with tool calls (no temperature, reasoning tokens counted) |
 | D8 | Memory | **Decided: working memory within a run (the handoff record); no memory across bugs in the main study** (see §10b) |
 | D9 | Development procedure | **Decided: rounds of 10 random development bugs** (see §10c) |
 

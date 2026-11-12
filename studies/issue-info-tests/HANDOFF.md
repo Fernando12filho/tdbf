@@ -26,6 +26,10 @@ Rules for the build:
 - Downloads from the internet are done by the user; ask for a drop folder under `external/`.
 - Ask before any paid run. Commit messages: lowercase `area:` prefix, no co-author trailer.
 
+## Model
+`openai/gpt-5-mini` for every agent (decision D7 in the design). First check, with one cheap call,
+that our OpenRouter client (`src/tdbf/models/llm.py`) works with a reasoning model and tool calls.
+
 ## Next steps
 1. Implement the preflight (environment, official SWE-bench test command, issue snippet runs,
    location candidates) with offline smoke tests.
