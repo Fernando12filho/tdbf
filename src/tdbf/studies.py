@@ -30,6 +30,7 @@ from dataclasses import dataclass
 
 NEMOTRON_FREE = "openrouter:nvidia/nemotron-3-super-120b-a12b:free"
 GPT_4O_MINI = "openrouter:openai/gpt-4o-mini-2024-07-18@openai"
+GPT_5_MINI = "openrouter:openai/gpt-5-mini@openai"
 
 PURPOSES = ("experiment", "pilot", "development")
 
@@ -81,6 +82,15 @@ STUDIES: tuple[Study, ...] = (
         models=("anthropic:claude-sonnet-4-6",), frozen=True,
         description="Sonnet re-run of the 14-instance development set after the gate "
                     "fix (2026-09-09)."),
+    Study(
+        name="procedure-dev", purpose="development",
+        run_groups=("proc-dev-r1-strict", "proc-dev-r1-soft", "proc-dev-r1-baseline"),
+        models=(GPT_5_MINI,), frozen=False,
+        samples=("studies/issue-info-tests/data/dev/round1.json",),
+        description="Phase 1 of the issue-information study: developing the procedure agent "
+                    "on SWT-bench Lite bugs outside the 114 (design/procedure_agent.md §10c). "
+                    "Round 1: strict and soft procedure agent and the unchanged baseline, "
+                    "50 turns per attempt, gpt-5-mini. Development results, reported as such."),
     Study(
         name="dev-legacy", purpose="development",
         run_groups=(None,),

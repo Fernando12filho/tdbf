@@ -910,16 +910,22 @@ def session_context(repo: str, earlier: list[str]) -> tuple[str, str] | None:
     return " + ".join(labels), "".join(parts)
 
 
-def run_snippet(session: ContainerSession, repo: str, script: str) -> tuple[int, str]:
+def run_snippet(session: ContainerSession, repo: str, script: str,
+                module: str = "brt_app") -> tuple[int, str]:
     """Run issue code on the buggy checkout: Django through the same probe
-    `run_python` uses (runtests.py, contrib apps, test database); other repos as a
-    plain script from a scratch directory, so files it writes stay out of /testbed."""
+    `run_python` uses (runtests.py, contrib apps, test database; `module` is the
+    test package whose models are available); other repos as a plain script from a
+    scratch directory, so files it writes stay out of /testbed."""
     if repo == DJANGO:
         session.write_file("/tmp/tdbf_probe.py", script)
         result, res = run_brt_in_session(
-            session, set_brt_module(RunPythonTool._DJANGO_PROBE, "brt_app"),
+            session, set_brt_module(RunPythonTool._DJANGO_PROBE, module),
             test_name="test_tdbf_probe", timeout=SNIPPET_TIMEOUT)
-        session.exec("rm -rf /testbed/tests/brt_app", activate=False)
+        if module == "brt_app":
+            session.exec("rm -rf /testbed/tests/brt_app", activate=False)
+        else:
+            session.exec('rm -f "/testbed/tests/$M/test_tdbf_probe.py"', activate=False,
+                         env={"M": module.replace(".", "/")})
         rc = 0 if result.outcome == "pass" else 1
         return rc, clean_brt_output(repo, res.output)
     session.write_file("/tmp/tdbf_snip/snippet.py", script)

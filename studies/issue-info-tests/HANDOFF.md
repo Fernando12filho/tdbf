@@ -47,8 +47,15 @@ reasoning tokens are inside `completion_tokens` and `billed_usd` records the rea
 - Images: `docker pull --platform linux/amd64 swebench/sweb.eval.x86_64.<id with __ -> _1776_>`
   then tag as `sweb.eval.x86_64.<id>:latest` (what ContainerSession looks for).
 
+- Controller and phases built (strict and soft): `src/tdbf/agent/procedure*.py`; build
+  decisions B1–B12 in `design/changelog.md`. Batch runner `scripts/procedure_brt.py
+  --agent strict|soft|baseline` (cost cap `--max-usd`, resume by run group, offline label).
+  Run groups `proc-dev-r1-{strict,soft,baseline}` registered (study `procedure-dev`).
+  Offline smoke tests pass; live scripted check (no model) gives L4 on sympy-20212 and
+  django-15498. **No model run yet.**
+
 ## Next steps
 1. ~~Preflight~~ (done, see above).
-2. Implement the controller and phases (strict), then the soft variant.
+2. ~~Controller and phases, strict and soft~~ (done, see above).
 3. Development round 1: 10 random development bugs, procedure agent and baseline, review.
 4. Repeat rounds until the stopping rule in design §10c.
