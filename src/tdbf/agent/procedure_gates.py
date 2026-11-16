@@ -31,9 +31,16 @@ class GateResult:
 # Quotes                                                                       #
 # --------------------------------------------------------------------------- #
 
+# v3 (C12): zero-width characters (Trac-imported issues carry U+200B) and control
+# characters, which the model echoes in place of them (`\x00`, `\x0b`). Removed from
+# both sides of a quote check; they carry no text.
+_INVISIBLE = re.compile(r"[\u200b-\u200d\u2060\ufeff\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
 def _flat(text: str) -> str:
-    """Whitespace-collapsed text without markdown backticks or quote styling."""
-    t = normalise(text or "").replace("`", "")
+    """Whitespace-collapsed text without markdown backticks, quote styling or
+    invisible characters."""
+    t = _INVISIBLE.sub("", normalise(text or "")).replace("`", "")
     t = t.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
     return re.sub(r"\s+", " ", t).strip()
 

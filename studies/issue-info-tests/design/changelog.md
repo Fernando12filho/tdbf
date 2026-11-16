@@ -92,3 +92,22 @@ a snippet's own NameError) was accepted as the bug.
 round 2's first Understand answers through the v2 checks (no model): the 3 label-carrying quotes
 now verify, django-10924's NameError claim is refused as noise, the status-line quotes and the
 13971 misquote are still refused.
+
+## v3 — frozen as `procedure-v1` (2026-11-16)
+
+After round 3 (strict v2, 5/10 L4; review in `results/dev_round3_strict.md`) the architecture is
+frozen. The valid rate stayed at 5/10 through v0, v1 and v2 while turns and cost moved; the
+remaining failures are mostly in the bugs themselves (expected behaviour wrong in the issue,
+dependency missing from the image, output never stated), which the study measures rather than
+tunes away. Decision with the user: no more behaviour changes; only bugs in the checks are fixed.
+
+| # | Change | Where | Why |
+|---|---|---|---|
+| C12 | The quote check removes zero-width characters (U+200B–U+200D, U+2060, U+FEFF) and control characters from both sides | `procedure_gates._flat` | A bug in a check: Trac-imported issues contain U+200B, the model echoes it as `\x00`/`\x0b`, and correct quotes failed (django-11039, -11905). Django is 53 of the 114 |
+
+Not applied (proposed in the round-3 review, dropped at the freeze): C13 (Write read budget 2),
+C14 (move the Django test home on an app_label error).
+
+**Frozen version.** Tag `procedure-v1` = this commit. Strict and soft modes as of v3; the baseline
+(`pipeline.run_brt_phase`) unchanged. Runs from here on (the baseline and soft comparison on the 30
+development bugs, then Phase 2) use this tag.

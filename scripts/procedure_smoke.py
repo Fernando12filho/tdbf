@@ -497,6 +497,15 @@ def test_v2_preflight() -> None:
           f"C10: NameError claim from preflight sent back, then accepted ({[x['cause'] for x in g]})")
 
 
+def test_v3_invisible() -> None:
+    """C12: zero-width spaces in the issue, control characters in the model's quote."""
+    issue = "The executor adds BEGIN/COMMIT \u200bif the migration is atomic.\nUsing values is \u200bundocumented."
+    check(G.quote_in(issue, "adds BEGIN/COMMIT \x00if the migration is atomic")
+          and G.quote_in(issue, "Using values is \x0bundocumented.")
+          and G.quote_in(issue, "Using values is undocumented."), "C12: invisible characters ignored")
+    check(not G.quote_in(issue, "Using values is documented."), "C12: a different quote still fails")
+
+
 def test_v1_defaults() -> None:
     """C6 + C8."""
     import inspect
@@ -513,7 +522,7 @@ def main() -> int:
     for t in (test_gates, test_happy_path, test_understand_retry, test_send_backs, test_pin_and_d2,
               test_budget, test_soft, test_v1_preflight_quotes, test_v1_pin_skip,
               test_v1_write_tools_and_read_budget, test_v1_preflight_render, test_v1_defaults,
-              test_v2_preflight):
+              test_v2_preflight, test_v3_invisible):
         print(f"--- {t.__name__}")
         t()
     print(f"\n{len(FAILS)} failure(s)")
