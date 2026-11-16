@@ -85,14 +85,15 @@ STUDIES: tuple[Study, ...] = (
     Study(
         name="procedure-dev", purpose="development",
         run_groups=("proc-dev-r1-strict", "proc-dev-r1-soft", "proc-dev-r1-baseline",
-                    "proc-dev-r2-strict"),
+                    "proc-dev-r2-strict", "proc-dev-r3-strict"),
         models=(GPT_5_MINI,), frozen=False,
         samples=("studies/issue-info-tests/data/dev/round1.json",
-                 "studies/issue-info-tests/data/dev/round2.json"),
+                 "studies/issue-info-tests/data/dev/round2.json",
+                 "studies/issue-info-tests/data/dev/round3.json"),
         description="Phase 1 of the issue-information study: developing the procedure agent "
                     "on SWT-bench Lite bugs outside the 114 (design/procedure_agent.md §10c). "
                     "Round 1: strict and soft procedure agent and the unchanged baseline, "
-                    "50 turns per attempt, gpt-5-mini. Round 2: strict agent v1 (C1-C8). "
+                    "50 turns per attempt, gpt-5-mini. Round 2: strict agent v1 (C1-C8). Round 3: strict v2 (C9-C11). "
                     "Development results, reported as such."),
     Study(
         name="dev-legacy", purpose="development",
