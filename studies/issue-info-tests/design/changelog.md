@@ -68,3 +68,27 @@ output quoted as issue text. Changes C1–C8 from that review, all applied:
 **Checks.** `procedure_smoke.py` gains `test_v1_*` (C1–C8; the send-back test now expects C5's
 in-phase refusal instead of an `unmapped_assertion` send-back); all offline smoke suites pass.
 No model run yet with v1.
+
+## v2 — after development round 2 (2026-11-15)
+
+Round 2 (strict v1, 10 bugs, 5 L4; review in `results/dev_round2_strict.md`): Understand's quote
+check failed on how the preflight block was shown, and preflight noise (an environment warning,
+a snippet's own NameError) was accepted as the bug.
+
+| # | Change | Where | Targets (round-2 pattern) |
+|---|---|---|---|
+| C9 | No preflight block when nothing ran (one line: no preflight output, quote only the issue). The block's own lines are `[bracketed]` labels, and labels (v1 and v2 styles) are stripped from a quote before it is checked; the shown code counts as well as the shown output | `procedure_prompts.render_preflight`, `strip_pf_labels`, `shown_code`; `Procedure.p_understand` | 1 |
+| C10 | An observed claim found only in preflight's output that names an authoring error (NameError, ImportError, ModuleNotFoundError, SyntaxError, IndentationError, TabError) or only warnings is refused (gate cause `preflight_noise`, own feedback) — unless the issue names the same exception or warning | `procedure.preflight_noise` | 2 |
+| C11 | Import-time `DeprecationWarning` lines from `/testbed/...` (and the source line printed under each) are left out of what the model is shown and of the quote check; preflight's record keeps them | `procedure_prompts.drop_import_warnings` | 2 |
+
+**Decisions**
+
+| # | What | Why |
+|---|---|---|
+| B18 | C10's exception: a name the issue itself mentions is never noise | An issue can be about a NameError or a warning; then preflight showing it is a reproduction |
+| B19 | A preflight-sourced claim stores its quote with the labels stripped | The quote in the record is then text that exists in the output |
+
+**Checks.** `procedure_smoke.py` gains `test_v2_preflight`; all offline smoke suites pass. Replay of
+round 2's first Understand answers through the v2 checks (no model): the 3 label-carrying quotes
+now verify, django-10924's NameError claim is refused as noise, the status-line quotes and the
+13971 misquote are still refused.

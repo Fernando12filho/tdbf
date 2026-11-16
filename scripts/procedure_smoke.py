@@ -453,10 +453,48 @@ def test_v1_preflight_render() -> None:
           "C7: NameError-only inline expression left out")
     pf = {"snippets": [{"kind": "inline", "ran": True, "text": "f(x)",
                         "output": "f(x) -> raised NameError: name 'f' is not defined"}]}
-    check("no code from the issue could be run" in render_preflight(pf), "C7: all-NameError inline run dropped")
+    from tdbf.agent.procedure_prompts import NO_PREFLIGHT
+    check(render_preflight(pf) == NO_PREFLIGHT, "C7: all-NameError inline run dropped")
     pf = {"snippets": [{"kind": "code", "ran": True, "text": "f(x)", "script": "f(x)",
                         "output": "NameError: name 'f' is not defined"}]}
     check("NameError" in render_preflight(pf), "C7: fenced code blocks unchanged")
+
+
+def test_v2_preflight() -> None:
+    """C9-C11 (round 2 review)."""
+    from tdbf.agent.procedure_prompts import (NO_PREFLIGHT, PF_HEAD, drop_import_warnings,
+                                              render_preflight, strip_pf_labels)
+    check(render_preflight({"snippets": []}) == NO_PREFLIGHT and "PREFLIGHT OUTPUT" not in NO_PREFLIGHT,
+          "C9: no preflight block when nothing ran")
+    pf = {"snippets": [{"kind": "code", "ran": True, "text": "print(f(2))", "script": "print(f(2))",
+                        "output": "4"}]}
+    out = render_preflight(pf)
+    check(out.startswith(PF_HEAD) and "[preflight: it printed]" in out and "---" not in out,
+          "C9: block lines are bracketed labels")
+    check(strip_pf_labels("[preflight: it printed]\nMatrix([\n[4, 6]])") == "Matrix([\n[4, 6]])"
+          and strip_pf_labels("--- printed:\n0") == "0", "C9: labels (v1 and v2) stripped from a quote")
+    w = ("/testbed/sympy/core/basic.py:3: DeprecationWarning: Using or importing the ABCs from "
+         "'collections' is deprecated\n  from collections import Mapping\nresult: 7")
+    check(drop_import_warnings(w) == "result: 7", "C11: import-time DeprecationWarning and its line dropped")
+    check(drop_import_warnings("x.py:3: DeprecationWarning: y\nz") == "x.py:3: DeprecationWarning: y\nz",
+          "C11: warnings not from /testbed kept")
+    check(PR.preflight_noise({"value": "raises NameError", "quote": "NameError: name 'models' is not defined"}, "issue")
+          and PR.preflight_noise({"value": "DeprecationWarning", "quote": "DeprecationWarning: x"}, "issue")
+          and not PR.preflight_noise({"value": "raises KeyError", "quote": "KeyError: 'a'"}, "issue")
+          and not PR.preflight_noise({"value": "NameError", "quote": "NameError: x"}, "it raises NameError"),
+          "C10: authoring errors / warnings rejected unless the issue names them")
+    # the controller: a preflight-only claim of a NameError is refused with its own message
+    und = [[("finish_understand", {
+        "observed": [{"value": "raises NameError", "quote": "NameError: name 'q' is not defined",
+                      "source": "preflight_run"}],
+        "expected": UNDERSTAND_OK[0][0][1]["expected"], "unknowns": []})]]
+    res, _ = run_proc({"finish_understand": [und, UNDERSTAND_OK],
+                       "finish_write": [[[("finish_write", {"code": GOOD, "assertion_map": [
+                           {"line": 5, "evidence_id": "E1"}]})]]]},
+                      snippet="NameError: name 'q' is not defined")
+    g = [x for x in res.record["gates"] if x["phase"] == "understand"]
+    check(g[0]["cause"] == "preflight_noise" and g[1]["cause"] == "ok",
+          f"C10: NameError claim from preflight sent back, then accepted ({[x['cause'] for x in g]})")
 
 
 def test_v1_defaults() -> None:
@@ -474,7 +512,8 @@ def test_v1_defaults() -> None:
 def main() -> int:
     for t in (test_gates, test_happy_path, test_understand_retry, test_send_backs, test_pin_and_d2,
               test_budget, test_soft, test_v1_preflight_quotes, test_v1_pin_skip,
-              test_v1_write_tools_and_read_budget, test_v1_preflight_render, test_v1_defaults):
+              test_v1_write_tools_and_read_budget, test_v1_preflight_render, test_v1_defaults,
+              test_v2_preflight):
         print(f"--- {t.__name__}")
         t()
     print(f"\n{len(FAILS)} failure(s)")

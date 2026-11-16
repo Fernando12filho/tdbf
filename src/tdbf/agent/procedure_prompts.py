@@ -166,13 +166,47 @@ def render_candidates(cands: list[dict], n: int = 5) -> str:
 
 
 _INLINE_NAMEERROR = re.compile(r" -> raised NameError: ")
+# v2 (C11): a warning the environment emits while importing the repository
+# (`/testbed/sympy/core/basic.py:3: DeprecationWarning: Using or importing the ABCs ...`)
+# followed by its indented source line.
+_IMPORT_WARNING = re.compile(r"^\S*/testbed/\S+:\d+: DeprecationWarning: ")
+
+NO_PREFLIGHT = ("(No preflight output: no code from this issue could be run as is. Quote only the "
+                "issue.)")
+PF_HEAD = ("PREFLIGHT OUTPUT (not part of the issue: the controller ran the issue's code on the buggy "
+           "checkout and this is what it printed). Lines in [square brackets] are labels, not output.")
+PF_END = "[end of preflight output]"
+# Labels of the preflight block (v2) and of v1's block; stripped from a quote before it is checked.
+_PF_LABEL = re.compile(r"^\s*(?:\[(?:preflight[^\]]*|end of preflight output)\]|-{3} [^\n]*:"
+                       r"|={10,}[^\n]*|PREFLIGHT OUTPUT[^\n]*)\s*$", re.MULTILINE)
+
+
+def drop_import_warnings(out: str) -> str:
+    """Remove import-time DeprecationWarnings and the source line printed under each (C11)."""
+    lines, keep, skip_next = (out or "").splitlines(), [], False
+    for ln in lines:
+        if skip_next:
+            skip_next = False
+            if ln.startswith((" ", "\t")):
+                continue
+        if _IMPORT_WARNING.search(ln):
+            skip_next = True
+            continue
+        keep.append(ln)
+    return "\n".join(keep)
+
+
+def strip_pf_labels(quote: str) -> str:
+    """A quote copied from the preflight block, without the block's labels (C9)."""
+    return _PF_LABEL.sub("", quote or "").strip()
 
 
 def shown_snippets(pf: dict) -> list[dict]:
-    """The preflight runs the model is shown, with their output as shown (v1, C7):
-    inline expressions that only raised NameError (prose like `f(x)` that is not
-    code of this repository) are left out, and an inline run with nothing else left
-    is dropped. Quotes from the preflight block are checked against these outputs."""
+    """The preflight runs the model is shown, with their output as shown.
+    v1 (C7): inline expressions that only raised NameError (prose like `f(x)` that is
+    not code of this repository) are left out, and an inline run with nothing else
+    left is dropped. v2 (C11): import-time DeprecationWarnings are left out. Quotes
+    from the preflight block are checked against these outputs and code."""
     shown = []
     for s in pf.get("snippets", []):
         if not s.get("ran"):
@@ -185,24 +219,29 @@ def shown_snippets(pf: dict) -> list[dict]:
             if not exprs or not any(ln.strip() for ln in outs):
                 continue
             s = {**s, "text": "\n".join(exprs), "script": None, "output": "\n".join(outs)}
+        s = {**s, "output": drop_import_warnings(s.get("output") or "")}
         shown.append(s)
     return shown[:4]
 
 
+def shown_code(s: dict) -> str:
+    return (s.get("script") or s["text"]) if s.get("kind") != "inline" else s["text"]
+
+
 def render_preflight(pf: dict, limit: int = 1500) -> str:
-    """What preflight ran from the issue and what it printed, as a block labelled
-    as NOT issue text (v1, C1)."""
+    """What preflight ran from the issue and what it printed, as a block labelled as
+    NOT issue text (v1, C1). v2 (C9): no block at all when nothing ran, and the
+    block's own lines are bracketed labels."""
     ran = shown_snippets(pf)
     if not ran:
-        return "PREFLIGHT OUTPUT: no code from the issue could be run as is."
-    parts = ["PREFLIGHT OUTPUT (not part of the issue: the controller ran the issue's code on the "
-             "buggy checkout and this is what it printed)", "=" * 40]
+        return NO_PREFLIGHT
+    parts = [PF_HEAD]
     for s in ran:
         out = (s.get("output") or "(no output)")
         if len(out) > limit:
             out = out[:limit // 2] + "\n...\n" + out[-limit // 2:]
-        ctx = f" (with {s['context']})" if s.get("context") else ""
-        code = (s.get("script") or s["text"]) if s.get("kind") != "inline" else s["text"]
-        parts.append(f"--- {s['kind']} block{ctx}:\n{code[:1200]}\n--- printed:\n{out}")
-    parts.append("=" * 40 + " (end of preflight output)")
+        ctx = f", with {s['context']}" if s.get("context") else ""
+        parts.append(f"[preflight ran this {s['kind']} block{ctx}]\n{shown_code(s)[:1200]}\n"
+                     f"[preflight: it printed]\n{out}")
+    parts.append(PF_END)
     return "\n".join(parts)

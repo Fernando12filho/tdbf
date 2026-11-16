@@ -35,10 +35,11 @@ from ..harness.official import TestCommand
 from ..models.llm import LLMClient
 from .pipeline import billed_mark, phase_cost, serialise_messages, step_summary, take_served
 from .preflight import DJANGO, Preflight, _keep, django_module, run_probe, run_preflight, run_snippet
-from .procedure_gates import GateResult, check_write, quote_in, symptom_match
+from .procedure_gates import AUTHORING_ERRORS, GateResult, check_write, quote_in, symptom_match
+from .procedure_gates import _EXC_NAME_RE
 from .procedure_prompts import (
     DJANGO_RUN_HINT, LOCATE, PIN, REPRODUCE, SENT_BACK, SOFT_SYSTEM, SOFT_TASK, STYLE, SYSTEM,
-    UNDERSTAND, WRITE, bullet, render_candidates, render_preflight, shown_snippets,
+    UNDERSTAND, WRITE, bullet, render_candidates, render_preflight, shown_code, shown_snippets, strip_pf_labels,
 )
 from .procedure_tools import (
     MAX_UNKNOWNS, ProcRunPython, ProcRunTest, ReadBudget, RunLog, TestHome, budgeted, finish_locate,
@@ -141,6 +142,22 @@ class ProcedureResult:
     cache_read_tokens: int
     turns_used: int
     stop_cause: str
+
+
+def preflight_noise(claim: dict, issue: str) -> bool:
+    """v2 (C10): an observed claim taken from preflight's output that names an
+    authoring error of the snippet (NameError, ImportError, ...) or only warnings,
+    none of which the issue itself names. Such output shows the snippet failed (or
+    the environment complained), not how the code under test behaves. When the issue
+    names the same exception or warning, it may be the bug, and the claim stands."""
+    text = f"{claim.get('value') or ''} {claim.get('quote') or ''}"
+    names = {m.group(1).split(".")[-1] for m in _EXC_NAME_RE.finditer(text)}
+    names -= {n for n in names if n in (issue or "")}
+    if not names:
+        return False
+    if names & AUTHORING_ERRORS:
+        return True
+    return all(n.endswith("Warning") for n in names)
 
 
 def phase_budgets(total: int) -> tuple[dict[str, int], int]:
@@ -351,19 +368,27 @@ class Procedure:
         # v1 (C1): an observed quote may come from the preflight output the model was
         # shown (as shown: C7 filtering applied). It is checked against the source it
         # names, and accepted from the other one too (both are deterministic text).
-        pre_out = "\n".join(sn.get("output") or "" for sn in shown_snippets(self.pfj))
-        claims, unknowns, bad = [], [], []
+        # v2 (C9): the block's labels are stripped from the quote, and the shown code
+        # counts as well as the shown output (nothing counts when nothing ran).
+        shown = shown_snippets(self.pfj)
+        pre_out = "\n".join((sn.get("output") or "") + "\n" + shown_code(sn) for sn in shown)
+        claims, unknowns, bad, noise = [], [], [], []
         for k, c in enumerate(args.get("observed") or [], 1):
             if not isinstance(c, dict):
                 continue
             q = str(c.get("quote") or "")
-            in_issue, in_pre = quote_in(issue, q), bool(pre_out) and quote_in(pre_out, q)
+            q_pre = strip_pf_labels(q)
+            in_issue, in_pre = quote_in(issue, q), bool(shown) and quote_in(pre_out, q_pre)
             named = "preflight_run" if c.get("source") == "preflight_run" else "issue"
             src = named if (in_issue if named == "issue" else in_pre) else (
                 "issue" if in_issue else "preflight_run")
             ok = in_issue or in_pre
-            claims.append(Claim(f"O{k}", "observed", str(c.get("value") or ""), q, src, verified=ok))
-            if not ok:
+            if ok and src == "preflight_run" and not in_issue and preflight_noise(c, issue):
+                noise.append(q[:120])   # v2 (C10)
+                ok = False
+            claims.append(Claim(f"O{k}", "observed", str(c.get("value") or ""),
+                                q_pre if src == "preflight_run" else q, src, verified=ok))
+            if not ok and q[:120] not in noise:
                 bad.append(q[:120])
         n_e = 0
         for c in args.get("expected") or []:
@@ -391,17 +416,26 @@ class Procedure:
             self.unknowns.append(Unknown("U1", "What is the correct behaviour the test should assert?",
                                          "the issue states no expected behaviour", origin="none_stated"))
         # Gate (design §3.2): every quote is in the issue and at least one observed claim.
-        passed = bool(args) and n_obs >= 1 and not bad
+        passed = bool(args) and n_obs >= 1 and not bad and not noise
         cause = ("ok" if passed else "no_finish" if not args else
-                 "quote_missing" if bad else "no_observed_claim")
+                 "quote_missing" if bad else "preflight_noise" if noise else "no_observed_claim")
+        parts = []
+        if bad:
+            parts.append("These quotes are not in the issue or the preflight output (copy them "
+                         "verbatim, without the [bracketed] labels):\n" + bullet(bad))
+        if noise:
+            parts.append("These preflight lines are not the bug: an error of the issue's snippet "
+                         "itself (a missing import or name, a syntax error) or only a warning. "
+                         "Observe the behaviour the issue reports instead:\n" + bullet(noise))
         msg = ("" if passed else "You did not call finish_understand." if not args else
-               "These quotes are not in the issue (copy them verbatim):\n" + bullet(bad) if bad else
+               "\n".join(parts) if parts else
                "Report at least one observed behaviour, with a verbatim quote from the issue.")
         self._gate(GateResult("understand", passed, cause, msg,
                               {"observed_verified": n_obs, "expected_verified": n_e,
                                "observed_from_preflight": sum(1 for c in claims if c.verified
                                                               and c.source == "preflight_run"),
-                               "unknowns": len(self.unknowns), "quotes_not_found": bad}))
+                               "unknowns": len(self.unknowns), "quotes_not_found": bad,
+                               "preflight_noise": noise}))
         if not passed and visit < MAX_VISITS["understand"]:
             self.feedback["understand"] = msg
             return "understand"
