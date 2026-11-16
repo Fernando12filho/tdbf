@@ -22,6 +22,8 @@ AGENTS = ("baseline", "strict", "soft")
 
 def load(rounds: list[int]) -> dict[tuple[str, str], dict]:
     groups = {f"proc-dev-r{r}-{a}": a for r in rounds for a in AGENTS}
+    # the comparison runs on all development bugs at once (one group per agent)
+    groups.update({f"proc-dev-{a}": a for a in ("baseline", "soft")})
     out: dict[tuple[str, str], dict] = {}
     for line in (ROOT / "results.jsonl").read_text().splitlines():
         try:
