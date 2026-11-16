@@ -119,7 +119,8 @@ def main() -> int:
     ap.add_argument("--split", default="lite")
     ap.add_argument("--total-turns", type=int, default=50, help="turns per attempt (D3: 50)")
     ap.add_argument("--max-tokens", type=int, default=1_000_000, help="token safety ceiling per run")
-    ap.add_argument("--max-tokens-per-turn", type=int, default=4096)
+    ap.add_argument("--max-tokens-per-turn", type=int, default=8192,
+                    help="output cap per model turn, reasoning included (v1, C8: 8192 for every agent)")
     ap.add_argument("--max-usd", type=float, default=6.0, help="stop the batch once billed cost reaches this")
     ap.add_argument("--no-label", action="store_true", help="skip the offline gold label")
     ap.add_argument("--dry-run", action="store_true")

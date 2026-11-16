@@ -286,8 +286,10 @@ def test_send_backs() -> None:
         "finish_understand": [UNDERSTAND_OK],
         "finish_write": [
             [[("finish_write", {"code": PASSING, "assertion_map": [{"line": 5, "evidence_id": "E1"}]})]],
-            [[("finish_write", {"code": UNMAPPED, "assertion_map": [{"line": 5, "evidence_id": "E1"}]})]],
-            [[("finish_write", {"code": GOOD, "assertion_map": [{"line": 5, "evidence_id": "E1"}]})]],
+            # v1 (C5): finish_write refuses the incomplete map; fixed in the same visit
+            [[("finish_write", {"code": UNMAPPED, "assertion_map": [{"line": 5, "evidence_id": "E1"}]})],
+             [("finish_write", {"code": UNMAPPED, "assertion_map": [{"line": 5, "evidence_id": "E1"},
+                                                                    {"line": 6, "evidence_id": "E1"}]})]],
         ],
         "finish_reproduce": [[[("run_python", {"code": "print(0**-oo)"})],
                               [("finish_reproduce", {"run_id": "r1", "output_summary": "0"})]]],
@@ -295,8 +297,11 @@ def test_send_backs() -> None:
     causes = [(g["phase"], g["cause"]) for g in res.record["gates"]]
     check(("write", "passed_on_buggy") in causes and ("reproduce", "matched") in causes,
           "passed on buggy -> back to reproduce, which matched")
-    check(("write", "unmapped_assertion") in causes, "unmapped assertion -> stays in write")
-    check(res.record["outcome"] == "test" and res.record["visits"]["write"] == 3, "accepted on the 3rd write visit")
+    msgs = json.dumps(res.transcript["phases"])
+    check(("write", "unmapped_assertion") not in causes and "not in assertion_map" in msgs,
+          "C5: unmapped assertion refused by finish_write, no send-back")
+    check(res.record["outcome"] == "test" and res.record["visits"]["write"] == 2,
+          f"accepted on the 2nd write visit ({res.record['visits']['write']})")
     check(res.turns_used <= 50, "within 50 turns")
 
 
@@ -361,9 +366,115 @@ def test_soft() -> None:
     check(s["outcome"] == "test" and res.turns_used == 3 and not s["gates"], "soft: no gates, test kept")
 
 
+# --------------------------------------------------------------------------- #
+# v1 changes (round 1 review, C1-C8)                                           #
+# --------------------------------------------------------------------------- #
+
+def test_v1_preflight_quotes() -> None:
+    """C1: observed claims may quote the preflight output; expected claims may not."""
+    und = [[("finish_understand", {
+        "observed": [{"value": "`0`", "quote": "0**-oo -> 0", "source": "preflight_run"}],
+        "expected": [{"value": "`zoo`", "quote": "it should return `ComplexInfinity`, aka `zoo`"}],
+        "unknowns": []})]]
+    res, client = run_proc({
+        "finish_understand": [und],
+        "finish_write": [[[("finish_write", {"code": GOOD, "assertion_map": [{"line": 5, "evidence_id": "E1"}]})]]],
+    })
+    g = next(x for x in res.record["gates"] if x["phase"] == "understand")
+    check(g["passed"] and g["details"]["observed_from_preflight"] == 1, "C1: preflight quote verified")
+    check(res.record["claims"][0]["source"] == "preflight_run", "C1: claim records source preflight_run")
+    check("symptom_from_preflight_claim" in res.record["flags"] and res.record["repro"]["source"] == "preflight",
+          f"C1: match only via a preflight-sourced claim is accepted and flagged ({res.record['flags']})")
+    task = res.transcript["phases"][0]["task"]
+    check("PREFLIGHT OUTPUT (not part of the issue" in task, "C1: preflight shown as a labelled block")
+    bad = [[("finish_understand", {
+        "observed": [{"value": "`0`", "quote": "evaluate `0**-oo` produces `0`.", "source": "issue"}],
+        "expected": [{"value": "`0`", "quote": "0**-oo -> 0"}], "unknowns": []})]]
+    res, _ = run_proc({"finish_understand": [bad, bad]})
+    g = next(x for x in res.record["gates"] if x["phase"] == "understand")
+    check(g["cause"] == "quote_missing", "C1: an expected quote from the preflight output is rejected")
+    many = [[("finish_understand", {"observed": UNDERSTAND_OK[0][0][1]["observed"], "expected": [],
+                                    "unknowns": [{"question": f"q{i}"} for i in range(5)]})]]
+    res, _ = run_proc({"finish_understand": [many]})
+    msgs = json.dumps(res.transcript["phases"][0]["messages"])
+    check("At most 3 unknowns" in msgs, "C1: more than 3 unknowns refused by finish_understand")
+
+
+def test_v1_pin_skip() -> None:
+    """C2: a verified expected claim and no unverified one -> Pin skipped; listed
+    test-design questions become open questions, not # UNVERIFIED values."""
+    und = [[("finish_understand", {
+        "observed": UNDERSTAND_OK[0][0][1]["observed"], "expected": UNDERSTAND_OK[0][0][1]["expected"],
+        "unknowns": [{"question": "equality or identity?"}]})]]
+    res, _ = run_proc({
+        "finish_understand": [und],
+        "finish_write": [[[("finish_write", {"code": GOOD, "assertion_map": [{"line": 5, "evidence_id": "E1"}]})]]],
+    })
+    s = res.record
+    pin = next(g for g in s["gates"] if g["phase"] == "pin_expected")
+    check(pin["cause"] == "skipped" and s["visits"]["pin_expected"] == 0, "C2: pin skipped")
+    check(not s["unknowns"] and len(s["open_questions"]) == 1 and "unknown_expected" not in s["flags"]
+          and "UNVERIFIED" not in res.test_code, "C2: the question is kept as an open question only")
+    # an expected quote not in the issue keeps Pin
+    und2 = [[("finish_understand", {
+        "observed": UNDERSTAND_OK[0][0][1]["observed"],
+        "expected": [UNDERSTAND_OK[0][0][1]["expected"][0],
+                     {"value": "`nan`", "quote": "it must be nan"}], "unknowns": []})]]
+    res, _ = run_proc({"finish_understand": [und2, und2]})
+    check(res.record["visits"]["pin_expected"] >= 1, "C2: an unverified expected claim still runs Pin")
+
+
+def test_v1_write_tools_and_read_budget() -> None:
+    """C3 + C4: Write offers read_file and run_test only; a 5th read in a row is
+    refused until a run; reads work again after it."""
+    reads = [[("read_file", {"path": "sympy/core/power.py"})]] * 5
+    res, client = run_proc({
+        "finish_understand": [UNDERSTAND_OK],
+        "finish_write": [reads + [[("run_test", {"code": GOOD})], [("read_file", {"path": "x"})],
+                                  [("finish_write", {"code": GOOD, "assertion_map": [{"line": 5, "evidence_id": "E1"}]})]]],
+    }, files={"sympy/core/power.py": "x"})
+    write_tools = set(client.seen_tools[-1])
+    check(write_tools == {"read_file", "run_test", "finish_write"}, f"C4: write tools {sorted(write_tools)}")
+    check(res.record["read_refusals"] == {"write": 1}, f"C3: one read refused ({res.record['read_refusals']})")
+    msgs = json.dumps(res.transcript["phases"][-1]["messages"])
+    check(msgs.count("Read limit:") == 1, "C3: refusal told to the model once; reading works after run_test")
+    check(res.record["outcome"] == "test", "C3: run still finishes")
+    b = PT.ReadBudget("run_python")
+    check(b.limit == 4, "C3: limit is 4")
+
+
+def test_v1_preflight_render() -> None:
+    """C7: inline expressions that only raised NameError are not shown."""
+    from tdbf.agent.procedure_prompts import render_preflight
+    pf = {"snippets": [{"kind": "inline", "ran": True, "text": "f(x)\n0**-oo",
+                        "output": "f(x) -> raised NameError: name 'f' is not defined\n0**-oo -> 0"}]}
+    out = render_preflight(pf)
+    check("0**-oo -> 0" in out and "NameError" not in out and "f(x)" not in out,
+          "C7: NameError-only inline expression left out")
+    pf = {"snippets": [{"kind": "inline", "ran": True, "text": "f(x)",
+                        "output": "f(x) -> raised NameError: name 'f' is not defined"}]}
+    check("no code from the issue could be run" in render_preflight(pf), "C7: all-NameError inline run dropped")
+    pf = {"snippets": [{"kind": "code", "ran": True, "text": "f(x)", "script": "f(x)",
+                        "output": "NameError: name 'f' is not defined"}]}
+    check("NameError" in render_preflight(pf), "C7: fenced code blocks unchanged")
+
+
+def test_v1_defaults() -> None:
+    """C6 + C8."""
+    import inspect
+    from tdbf.agent.procedure_prompts import DJANGO_RUN_HINT, PIN, REPRODUCE
+    check(inspect.signature(PR.Procedure).parameters["max_tokens_per_turn"].default == 8192,
+          "C8: 8192 output tokens per turn")
+    src = (Path(__file__).parent / "procedure_brt.py").read_text()
+    check("default=8192" in src, "C8: batch runner default 8192 (baseline included)")
+    check("{django_hint}" in REPRODUCE and "{django_hint}" in PIN and "settings.configure()" in DJANGO_RUN_HINT,
+          "C6: Django hint in reproduce (and pin)")
+
+
 def main() -> int:
     for t in (test_gates, test_happy_path, test_understand_retry, test_send_backs, test_pin_and_d2,
-              test_budget, test_soft):
+              test_budget, test_soft, test_v1_preflight_quotes, test_v1_pin_skip,
+              test_v1_write_tools_and_read_budget, test_v1_preflight_render, test_v1_defaults):
         print(f"--- {t.__name__}")
         t()
     print(f"\n{len(FAILS)} failure(s)")

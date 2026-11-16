@@ -37,3 +37,34 @@ listed here.
 soft) and `procedure_preflight_smoke.py`, 0 failures. Live, scripted client (no model):
 sympy-20212 strict and soft, django-15498 strict, all L4 under the offline label through the
 official runner.
+
+## v1 — after development round 1 (2026-11-15)
+
+Round 1 (strict v0, 10 bugs, 5 L4; review in `results/dev_round1_strict.md`) showed the turns
+going to reading instead of running code, Pin running on test-design questions, and preflight
+output quoted as issue text. Changes C1–C8 from that review, all applied:
+
+| # | Change | Where | Targets (round-1 pattern) |
+|---|---|---|---|
+| C1 | Understand sees the preflight output as a separate block labelled "not part of the issue". An observed claim names its `source` (`issue` or `preflight_run`) and its quote is checked against that text; expected claims must still quote the issue. At most 3 unknowns, only missing expected values (`finish_understand` refuses more) | `procedure_prompts.UNDERSTAND`, `render_preflight`; `procedure_tools.finish_understand`; `Procedure.p_understand` | 3, 4 |
+| C2 | Pin skip rule as in design §3.4: skipped when ≥ 1 expected claim is verified and none is unverified. Unknowns the model listed besides are kept as `open_questions` in the record, not as `# UNVERIFIED:` values. An assertion without evidence still reaches Pin through the Write gate | `Procedure._after_reproduce`; `Unknown.origin` | 3 |
+| C3 | Read budget in Reproduce and Write: after 4 `read_file`/`grep`/`glob` calls in a row without running code, the read tools refuse ("run your script/test now") until `run_python`/`run_test` runs. Refusals counted per phase in `read_refusals` | `procedure_tools.ReadBudget`, `budgeted` | 1, 2 |
+| C4 | Write tools: `read_file`, `run_test`, `finish_write` (grep/glob dropped). Supersedes B5 | `Procedure.p_write` | 2 |
+| C5 | `finish_write` checks the assertion map itself (every assertion statement mapped, every id exists) and refuses with the missing lines, so the model fixes it in the same visit; the Write gate's own check stays as a backstop | `procedure_tools.assertion_map_problem`, `finish_write(ids)` | 5 |
+| C6 | Django hint in the Reproduce prompt: run_python already runs under the test runner; no `settings.configure()`/`django.setup()`; models via `module` | `procedure_prompts.DJANGO_RUN_HINT` | 1 |
+| C7 | The preflight summary leaves out inline expressions whose only output was a NameError (prose such as `f(x)`); an inline run with nothing left is dropped. Fenced blocks unchanged; preflight's own record unchanged | `procedure_prompts.shown_snippets` | 4 |
+| C8 | `max_tokens_per_turn` 8192 for every agent: `Procedure` default and the `procedure_brt.py` default, which the baseline run also takes (baseline code unchanged; it is a run parameter) | `procedure.py`, `scripts/procedure_brt.py` | 6 |
+
+**Decisions taken while applying them**
+
+| # | What | Why |
+|---|---|---|
+| B13 | The Django hint also goes into Pin's prompt | Pin uses run_python the same way; same mistake possible |
+| B14 | Soft mode's single prompt gets the same wording (preflight quotes, ≤ 3 unknowns, run code early, Django hint), but no read budget and no `finish_*` checks | B12: soft = same instructions, nothing enforced |
+| B15 | The read budget is not applied in Pin or Locate | Round 1 showed no over-reading there; Locate's job is reading |
+| B16 | An observed quote is accepted from whichever text contains it, recording that one as its source | Both checks are deterministic; rejecting a correct quote for a wrong label would only cost a visit |
+| B17 | Reproduce's preflight skip matches issue-sourced observed claims first; if only a preflight-sourced claim matches, the skip is taken and flagged `symptom_from_preflight_claim` | A claim quoted from preflight output matches that output by construction; the flag keeps those cases countable |
+
+**Checks.** `procedure_smoke.py` gains `test_v1_*` (C1–C8; the send-back test now expects C5's
+in-phase refusal instead of an `unmapped_assertion` send-back); all offline smoke suites pass.
+No model run yet with v1.

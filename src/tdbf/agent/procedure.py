@@ -37,13 +37,15 @@ from .pipeline import billed_mark, phase_cost, serialise_messages, step_summary,
 from .preflight import DJANGO, Preflight, _keep, django_module, run_probe, run_preflight, run_snippet
 from .procedure_gates import GateResult, check_write, quote_in, symptom_match
 from .procedure_prompts import (
-    LOCATE, PIN, REPRODUCE, SENT_BACK, SOFT_SYSTEM, SOFT_TASK, STYLE, SYSTEM, UNDERSTAND, WRITE,
-    bullet, render_candidates, render_preflight,
+    DJANGO_RUN_HINT, LOCATE, PIN, REPRODUCE, SENT_BACK, SOFT_SYSTEM, SOFT_TASK, STYLE, SYSTEM,
+    UNDERSTAND, WRITE, bullet, render_candidates, render_preflight, shown_snippets,
 )
 from .procedure_tools import (
-    ProcRunPython, ProcRunTest, RunLog, TestHome, finish_locate, finish_pin, finish_reproduce,
-    finish_understand, finish_write, read_only_tools, run_test_at, submit_test_soft,
+    MAX_UNKNOWNS, ProcRunPython, ProcRunTest, ReadBudget, RunLog, TestHome, budgeted, finish_locate,
+    finish_pin, finish_reproduce, finish_understand, finish_write, read_only_tools, run_test_at,
+    submit_test_soft,
 )
+from .tools import ReadFileTool
 from .runtime import Agent, AgentResult
 from .session import ContainerSession
 
@@ -75,7 +77,7 @@ class Claim:
     kind: str                 # observed | expected
     value: str
     quote: str
-    source: str               # issue | docs | existing_test | observed_run | analogy
+    source: str               # issue | preflight_run | docs | existing_test | observed_run | analogy
     where: str | None = None
     verified: bool = False
 
@@ -87,6 +89,11 @@ class Unknown:
     why: str = ""
     tried_value: str | None = None   # a value proposed without verified evidence
     tried_source: str | None = None
+    # v1 (C2): expected_unverified (an expected quote not found in the issue), listed
+    # (named by Understand), none_stated (no expected value at all), write_gate (an
+    # assertion without evidence). Only the first keeps Pin from being skipped when
+    # at least one expected claim is verified.
+    origin: str = "listed"
 
 
 @dataclass
@@ -148,7 +155,7 @@ def phase_budgets(total: int) -> tuple[dict[str, int], int]:
 class Procedure:
     def __init__(self, inst: object, client: LLMClient, *, mode: str = "strict",
                  total_turns: int = TOTAL_TURNS, max_total_tokens: int = 1_000_000,
-                 max_tokens_per_turn: int = 4096, keep_container: bool = False,
+                 max_tokens_per_turn: int = 8192, keep_container: bool = False,
                  verbose: bool = False, session: ContainerSession | None = None) -> None:
         if mode not in ("strict", "soft"):
             raise ValueError(f"mode must be strict or soft, got {mode!r}")
@@ -169,6 +176,8 @@ class Procedure:
         self.flags: list[str] = []
         self.claims: list[Claim] = []
         self.unknowns: list[Unknown] = []
+        self.open_questions: list[dict] = []   # listed unknowns dropped by the Pin skip rule (C2)
+        self.read_refusals: dict[str, int] = {}  # read-budget refusals per phase (C3)
         self.repro: Repro | None = None
         self.repro_attempt: Repro | None = None
         self.home: TestHome | None = None
@@ -220,6 +229,13 @@ class Procedure:
 
     def _issue(self) -> str:
         return self.inst.problem_statement
+
+    def _django_hint(self) -> str:
+        return DJANGO_RUN_HINT if self.django else ""
+
+    def _count_refusals(self, phase: str, budget: ReadBudget) -> None:
+        if budget.refused:
+            self.read_refusals[phase] = self.read_refusals.get(phase, 0) + budget.refused
 
     def _run_agent(self, phase: str, system: str, task: str, tools: list, allowance: int
                    ) -> tuple[AgentResult | None, dict | None]:
@@ -326,21 +342,29 @@ class Procedure:
     def p_understand(self) -> str:
         visit = self.visits["understand"] + 1
         task = self._with_feedback("understand", UNDERSTAND.format(
-            issue=self._issue(), preflight=render_preflight(self.pfj)))
+            issue=self._issue(), preflight=render_preflight(self.pfj), max_unknowns=MAX_UNKNOWNS))
         tool = finish_understand()
         _, args = self._run_agent("understand", self._system(tool.name), task, [tool],
                                   self._allowance("understand", visit > 1))
         args = args or {}
         issue = self._issue()
+        # v1 (C1): an observed quote may come from the preflight output the model was
+        # shown (as shown: C7 filtering applied). It is checked against the source it
+        # names, and accepted from the other one too (both are deterministic text).
+        pre_out = "\n".join(sn.get("output") or "" for sn in shown_snippets(self.pfj))
         claims, unknowns, bad = [], [], []
         for k, c in enumerate(args.get("observed") or [], 1):
             if not isinstance(c, dict):
                 continue
-            ok = quote_in(issue, str(c.get("quote") or ""))
-            claims.append(Claim(f"O{k}", "observed", str(c.get("value") or ""), str(c.get("quote") or ""),
-                                "issue", verified=ok))
+            q = str(c.get("quote") or "")
+            in_issue, in_pre = quote_in(issue, q), bool(pre_out) and quote_in(pre_out, q)
+            named = "preflight_run" if c.get("source") == "preflight_run" else "issue"
+            src = named if (in_issue if named == "issue" else in_pre) else (
+                "issue" if in_issue else "preflight_run")
+            ok = in_issue or in_pre
+            claims.append(Claim(f"O{k}", "observed", str(c.get("value") or ""), q, src, verified=ok))
             if not ok:
-                bad.append(str(c.get("quote") or "")[:120])
+                bad.append(q[:120])
         n_e = 0
         for c in args.get("expected") or []:
             if not isinstance(c, dict):
@@ -354,8 +378,9 @@ class Procedure:
                 unknowns.append(Unknown(f"U{len(unknowns) + 1}",
                                         f"What is the correct expected behaviour: {c.get('value')}?",
                                         "its quote is not in the issue",
-                                        tried_value=str(c.get("value") or ""), tried_source="issue (quote not found)"))
-        for u in args.get("unknowns") or []:
+                                        tried_value=str(c.get("value") or ""), tried_source="issue (quote not found)",
+                                        origin="expected_unverified"))
+        for u in (args.get("unknowns") or [])[:MAX_UNKNOWNS]:
             if isinstance(u, dict) and u.get("question"):
                 unknowns.append(Unknown(f"U{len(unknowns) + 1}", str(u["question"]), str(u.get("why") or "")))
         n_obs = sum(1 for c in claims if c.kind == "observed" and c.verified)
@@ -364,7 +389,7 @@ class Procedure:
         if not any(c.kind == "expected" for c in self.claims) and not self.unknowns:
             # nothing stated and nothing listed: the test still needs an expected value
             self.unknowns.append(Unknown("U1", "What is the correct behaviour the test should assert?",
-                                         "the issue states no expected behaviour"))
+                                         "the issue states no expected behaviour", origin="none_stated"))
         # Gate (design §3.2): every quote is in the issue and at least one observed claim.
         passed = bool(args) and n_obs >= 1 and not bad
         cause = ("ok" if passed else "no_finish" if not args else
@@ -374,6 +399,8 @@ class Procedure:
                "Report at least one observed behaviour, with a verbatim quote from the issue.")
         self._gate(GateResult("understand", passed, cause, msg,
                               {"observed_verified": n_obs, "expected_verified": n_e,
+                               "observed_from_preflight": sum(1 for c in claims if c.verified
+                                                              and c.source == "preflight_run"),
                                "unknowns": len(self.unknowns), "quotes_not_found": bad}))
         if not passed and visit < MAX_VISITS["understand"]:
             self.feedback["understand"] = msg
@@ -383,19 +410,40 @@ class Procedure:
         return "reproduce"
 
     def _after_reproduce(self) -> str:
-        if self.unknowns and self.visits["pin_expected"] == 0:
-            return "pin_expected"
+        """Pin skip rule (design §3.4; v1, C2): skip Pin when at least one expected
+        claim is verified by an issue quote and none is unverified. Unknowns the model
+        listed besides (mostly test-design questions in round 1) do not trigger Pin;
+        they are kept in the record as open questions, not as `# UNVERIFIED:` values.
+        An assertion the test then makes without evidence still goes to Pin through
+        the Write gate (no_evidence)."""
         if self.visits["pin_expected"] == 0:
-            self._skip("pin_expected", "every expected value is verified by an issue quote")
+            n_exp = sum(1 for c in self.claims if c.kind == "expected" and c.verified)
+            unverified = [u for u in self.unknowns if u.origin == "expected_unverified"]
+            if n_exp >= 1 and not unverified:
+                if self.unknowns:
+                    self.open_questions += [asdict(u) for u in self.unknowns]
+                    self.unknowns = []
+                self._skip("pin_expected", "every expected claim is verified by an issue quote")
+            elif self.unknowns:
+                return "pin_expected"
+            else:
+                self._skip("pin_expected", "no unknowns")
         return "write" if self.home else "locate"
 
     def p_reproduce(self) -> str:
         observed = self._observed()
         if self.visits["reproduce"] == 0 and self.pf and not self.feedback.get("reproduce"):
+            from_issue = [{"value": c.value, "quote": c.quote} for c in self.claims
+                          if c.kind == "observed" and c.verified and c.source == "issue"]
             for s in self.pf.snippets:
                 if not s.ran:
                     continue
-                status, toks, why = symptom_match(observed, s.output or "")
+                status, toks, why = symptom_match(from_issue, s.output or "")
+                if status != "matched" and len(from_issue) < len(observed):
+                    # only a claim quoted from preflight's own output matched (C1): accepted, flagged
+                    status, toks, why = symptom_match(observed, s.output or "")
+                    if status == "matched":
+                        self._flag("symptom_from_preflight_claim")
                 if status == "matched":
                     self.repro = Repro(None, s.script or s.text, s.output or "", status, toks, why, "preflight")
                     self._skip("reproduce", f"preflight's run of the issue code matched: {why}")
@@ -405,11 +453,13 @@ class Procedure:
             observed=self._render_claims(("observed",)) if observed else
             "(no observed claim could be verified; reproduce what the issue describes)",
             preflight=render_preflight(self.pfj), code_candidates=render_candidates(self._cands("code")),
-            issue=self._issue()))
-        tools = read_only_tools(self.session) + [ProcRunPython(self.session, self.log),
-                                                 finish_reproduce(self.log)]
+            issue=self._issue(), django_hint=self._django_hint()))
+        budget = ReadBudget("run_python")
+        tools = budgeted(read_only_tools(self.session), ProcRunPython(self.session, self.log), budget) + [
+            finish_reproduce(self.log)]
         _, args = self._run_agent("reproduce", self._system("finish_reproduce"), task, tools,
                                   self._allowance("reproduce", visit > 1))
+        self._count_refusals("reproduce", budget)
         rid = str((args or {}).get("run_id") or "").strip()
         if not rid:
             g = self._gate(GateResult("reproduce", False, "not_reproduced",
@@ -443,7 +493,7 @@ class Procedure:
         visit = self.visits["pin_expected"] + 1
         task = self._with_feedback("pin_expected", PIN.format(
             unknowns=self._render_unknowns(), claims=self._render_claims(), repro=self._render_repro(),
-            code_candidates=render_candidates(self._cands("code"))))
+            code_candidates=render_candidates(self._cands("code")), django_hint=self._django_hint()))
         tools = read_only_tools(self.session) + [ProcRunPython(self.session, self.log), finish_pin()]
         _, args = self._run_agent("pin_expected", self._system("finish_pin"), task, tools,
                                   self._allowance("pin_expected", visit > 1))
@@ -539,10 +589,16 @@ class Procedure:
             unknowns=unknowns or "(none)", test_home=self.home.rel_path,
             style_notes=self.home.style_notes or "no notes", style=STYLE.get(self.cmd.framework, ""),
             issue=self._issue()))
-        tools = read_only_tools(self.session) + [
-            ProcRunTest(self.session, self.cmd, self.log, lambda _a: self.home), finish_write()]
+        # v1: read_file and run_test only (C4), behind the read budget (C3); finish_write
+        # checks the assertion map itself, so a missing line is fixed in this visit (C5).
+        budget = ReadBudget("run_test")
+        ids = {c.id for c in self.claims} | {u.id for u in self.unknowns}
+        tools = budgeted([ReadFileTool(self.session)],
+                         ProcRunTest(self.session, self.cmd, self.log, lambda _a: self.home), budget) + [
+            finish_write(ids)]
         _, args = self._run_agent("write", self._system("finish_write"), task, tools,
                                   self._allowance("write", visit > 1))
+        self._count_refusals("write", budget)
         if not args:
             self._gate(GateResult("write", False, "no_finish", "No test was submitted."))
             if self.log.tests:
@@ -576,7 +632,7 @@ class Procedure:
                 text = code.splitlines()[line - 1].strip() if line and line <= len(code.splitlines()) else ""
                 self.unknowns.append(Unknown(f"U{len(self.unknowns) + 1}",
                                              f"Is the value asserted at line {line} correct? `{text}`",
-                                             "asserted without verified evidence"))
+                                             "asserted without verified evidence", origin="write_gate"))
             self.feedback["pin_expected"] = SENT_BACK["no_evidence"].format(line=line) + prev
             self.feedback["write"] = g.message + prev
             self._say("write gate: no_evidence -> back to pin_expected")
@@ -630,6 +686,7 @@ class Procedure:
             submit_test_soft(self.django)]
         task = SOFT_TASK.format(
             django_arg=" and `module`" if self.django else "", style=STYLE.get(self.cmd.framework, ""),
+            max_unknowns=MAX_UNKNOWNS, django_hint=self._django_hint(),
             issue=self._issue(), preflight=render_preflight(self.pfj),
             code_candidates=render_candidates(self._cands("code")),
             test_candidates=render_candidates(self._cands("tests")))
@@ -723,6 +780,8 @@ class Procedure:
             "gates": self.gates,
             "claims": [asdict(c) for c in self.claims],
             "unknowns": [asdict(u) for u in self.unknowns],
+            "open_questions": self.open_questions,
+            "read_refusals": self.read_refusals,
             "repro": asdict(self.repro) if self.repro else None,
             "test_home": ({**asdict(self.home), "rel_path": self.home.rel_path} if self.home else None),
             "runner": self.pfj.get("env", {}).get("command"),

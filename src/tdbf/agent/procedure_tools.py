@@ -25,7 +25,7 @@ from typing import Callable
 from ..harness.official import TestCommand, parse_result
 from ..harness.runner import clean_brt_output
 from .preflight import DJANGO, _keep, run_snippet
-from .procedure_gates import failing_line
+from .procedure_gates import assertion_statements, failing_line
 from .session import ContainerSession
 from .tools import GlobTool, GrepTool, ReadFileTool
 from .types import Tool, ToolResult
@@ -180,6 +180,64 @@ def read_only_tools(session: ContainerSession) -> list[Tool]:
 
 
 # --------------------------------------------------------------------------- #
+# Read budget (v1, change C3)                                                  #
+# --------------------------------------------------------------------------- #
+
+READ_LIMIT = 4   # read_file/grep/glob calls allowed in a row before code must run
+
+
+class ReadBudget:
+    """Counts read-only calls since the last run of code in one phase visit. Past
+    `limit`, the read tools refuse (deterministically) until run_python/run_test runs."""
+
+    def __init__(self, run_tool: str, limit: int = READ_LIMIT) -> None:
+        self.run_tool, self.limit = run_tool, limit
+        self.since_run = 0
+        self.refused = 0
+
+    def wrap_read(self, tool: Tool) -> Tool:
+        return _ReadGuard(tool, self)
+
+    def wrap_run(self, tool: Tool) -> Tool:
+        return _RunReset(tool, self)
+
+
+class _ReadGuard(Tool):
+    def __init__(self, inner: Tool, budget: ReadBudget) -> None:
+        self.inner, self.budget = inner, budget
+        self.name, self.description = inner.name, inner.description
+        self.input_schema, self.terminal = inner.input_schema, inner.terminal
+
+    def execute(self, arguments: dict) -> ToolResult:
+        b = self.budget
+        if b.since_run >= b.limit:
+            b.refused += 1
+            return ToolResult(
+                f"Read limit: {b.limit} read_file/grep/glob calls in a row without running code. "
+                f"Run your script/test now with {b.run_tool}; reading works again after a run.",
+                is_error=True)
+        b.since_run += 1
+        return self.inner.execute(arguments)
+
+
+class _RunReset(Tool):
+    def __init__(self, inner: Tool, budget: ReadBudget) -> None:
+        self.inner, self.budget = inner, budget
+        self.name, self.description = inner.name, inner.description
+        self.input_schema, self.terminal = inner.input_schema, inner.terminal
+
+    def execute(self, arguments: dict) -> ToolResult:
+        res = self.inner.execute(arguments)
+        self.budget.since_run = 0
+        return res
+
+
+def budgeted(reads: list[Tool], run: Tool, budget: ReadBudget) -> list[Tool]:
+    """The read tools behind the read budget, and the run tool that resets it."""
+    return [budget.wrap_read(t) for t in reads] + [budget.wrap_run(run)]
+
+
+# --------------------------------------------------------------------------- #
 # finish_* schemas and shape checks                                            #
 # --------------------------------------------------------------------------- #
 
@@ -189,23 +247,36 @@ def _list_of(props: dict, required: list[str]) -> dict:
 
 _CLAIM = {"value": {"type": "string", "description": "The behaviour, concretely (a value, output or exception)."},
           "quote": {"type": "string", "description": "Verbatim text from the issue that shows it."}}
+_OBSERVED = {**_CLAIM,
+             "quote": {"type": "string",
+                       "description": "Verbatim text from the issue, or from the PREFLIGHT OUTPUT block."},
+             "source": {"type": "string", "enum": ["issue", "preflight_run"],
+                        "description": "Where the quote is: the issue text, or the preflight output."}}
+MAX_UNKNOWNS = 3
 
 
 def finish_understand() -> FinishTool:
     schema = {"type": "object", "properties": {
-        "observed": _list_of(_CLAIM, ["value", "quote"]),
+        "observed": _list_of(_OBSERVED, ["value", "quote", "source"]),
         "expected": _list_of(_CLAIM, ["value", "quote"]),
-        "unknowns": _list_of({"question": {"type": "string"}, "why": {"type": "string"}}, ["question"]),
+        "unknowns": {**_list_of({"question": {"type": "string"}, "why": {"type": "string"}}, ["question"]),
+                     "maxItems": MAX_UNKNOWNS,
+                     "description": f"Only expected values the test needs that the issue does not state "
+                                    f"(at most {MAX_UNKNOWNS}). Not questions about how to write the test."},
     }, "required": ["observed", "expected", "unknowns"]}
 
     def check(a: dict) -> str | None:
         for key in ("observed", "expected", "unknowns"):
             if not isinstance(a.get(key, []), list):
                 return f"'{key}' must be a list."
+        if len(a.get("unknowns") or []) > MAX_UNKNOWNS:
+            return (f"At most {MAX_UNKNOWNS} unknowns, and only for missing expected values. "
+                    "Keep the ones the test's assertion depends on.")
         return None
     return FinishTool("finish_understand",
-                      "Report the observed behaviour, the expected behaviour and the unknowns, "
-                      "each observed/expected item with a verbatim quote from the issue.", schema, check)
+                      "Report the observed behaviour (quoted from the issue or the preflight output), "
+                      "the expected behaviour (quoted from the issue) and the unknown expected values.",
+                      schema, check)
 
 
 def finish_reproduce(log: RunLog) -> FinishTool:
@@ -266,7 +337,35 @@ def _parses(code: str) -> str | None:
         return f"the code does not parse: {e}"
 
 
-def finish_write() -> FinishTool:
+def assertion_map_problem(code: str, amap: list, ids: set[str] | None) -> str | None:
+    """Every assertion statement has a map entry inside its line range, and (when
+    `ids` is given) every evidence id exists. None when the map is complete."""
+    mapped: dict[int, str] = {}
+    for item in amap:
+        if not isinstance(item, dict):
+            continue
+        try:
+            mapped[int(item.get("line"))] = str(item.get("evidence_id") or "").strip()
+        except (TypeError, ValueError):
+            continue
+    if ids is not None:
+        bad = sorted({e for e in mapped.values() if e and e not in ids})
+        if bad:
+            return (f"assertion_map names evidence ids that do not exist: {bad}. "
+                    f"Valid ids: {sorted(ids)}. Fix the map and call finish_write again.")
+    lines = code.splitlines()
+    missing = [(a, b) for a, b in assertion_statements(code)
+               if not any(a <= ln <= b for ln in mapped)]
+    if missing:
+        shown = "; ".join(f"line {a}: {lines[a - 1].strip()[:80]}" for a, _ in missing[:6])
+        return (f"These assertions are not in assertion_map: {shown}. Add an entry "
+                "{line, evidence_id} for each (the id of the verified evidence it checks), or remove "
+                "the assertion and keep its value as a `# UNVERIFIED:` comment. Then call finish_write "
+                "again.")
+    return None
+
+
+def finish_write(ids: set[str] | None = None) -> FinishTool:
     schema = {"type": "object", "properties": {
         "code": {"type": "string", "description": "The full test module."},
         "assertion_map": _list_of({"line": {"type": "integer"},
@@ -279,7 +378,7 @@ def finish_write() -> FinishTool:
             return "'code' is empty."
         if not isinstance(a.get("assertion_map"), list):
             return "'assertion_map' must be a list of {line, evidence_id}."
-        return _parses(code)
+        return _parses(code) or assertion_map_problem(code, a["assertion_map"], ids)
     return FinishTool("finish_write",
                       "Finish with the test code and, for each assertion line, the id of the evidence "
                       "it relies on.", schema, check)
