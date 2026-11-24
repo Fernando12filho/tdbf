@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from collections import Counter
 from dataclasses import dataclass, field
@@ -696,6 +697,8 @@ class OpenRouterClient(_OpenAIToolMixin):
         empty_backoff: float = 5.0,
         upstream_waits: tuple[float, ...] = (30.0, 60.0, 120.0, 240.0),
         provider: str | None = None,
+        hard_deadline: float | None = 300.0,
+        deadline_retries: int = 2,
     ) -> None:
         # Worst case for a dead endpoint is (max_retries + 1) x timeout, because
         # the SDK retries timeouts as well as 429/5xx. It was 6 x 300 s = 30 min
@@ -722,6 +725,12 @@ class OpenRouterClient(_OpenAIToolMixin):
         self._max_retries = max_retries
         self._empty_retries = empty_retries
         self._empty_backoff = empty_backoff
+        # Wall-clock cap per request. The SDK timeout is a READ timeout, and
+        # OpenRouter keeps a slow request alive by sending bytes, which reset it:
+        # a request hung for 25+ min in a scout thread on 2026-11-24. SIGALRM (the
+        # labelling scripts' fix) only works on the main thread; this works in any.
+        self._hard_deadline = hard_deadline
+        self._deadline_retries = deadline_retries
         # The SDK's own 429 back-off is seconds long; a throttled shared pool needs
         # minutes. These longer waits apply only to upstream throttles.
         self._upstream_waits = upstream_waits
@@ -782,13 +791,44 @@ class OpenRouterClient(_OpenAIToolMixin):
         Any other error — including a 429 from our own quota — is raised at once."""
         for wait in (*self._upstream_waits, None):
             try:
-                return create()
+                return self._with_deadline(create)
             except Exception as exc:  # noqa: BLE001 - classified below
                 if wait is None or not is_upstream_throttle(exc):
                     raise
                 print(f"  [openrouter] {self.model} throttled upstream (shared free "
                       f"pool); retrying in {wait:.0f}s", flush=True)
                 time.sleep(wait)
+
+    def _with_deadline(self, create):
+        """`create()` with a wall-clock deadline. A request still running at the
+        deadline is abandoned (its daemon thread is left to die with its socket) and
+        sent again, up to `deadline_retries` times; then TimeoutError."""
+        if not self._hard_deadline:
+            return create()
+        for attempt in range(self._deadline_retries + 1):
+            box: dict = {}
+
+            def target(box=box):
+                try:
+                    box["result"] = create()
+                except BaseException as exc:  # noqa: BLE001 - re-raised in the caller
+                    box["error"] = exc
+
+            worker = threading.Thread(target=target, daemon=True,
+                                      name=f"openrouter-call-{attempt}")
+            worker.start()
+            worker.join(self._hard_deadline)
+            if worker.is_alive():
+                print(f"  [openrouter] {self.model}: no reply after {self._hard_deadline:.0f}s "
+                      f"(attempt {attempt + 1}/{self._deadline_retries + 1}); abandoning the "
+                      "request" + ("" if attempt == self._deadline_retries else " and retrying"),
+                      flush=True)
+                continue
+            if "error" in box:
+                raise box["error"]
+            return box["result"]
+        raise TimeoutError(f"OpenRouter gave no reply for {self.model!r} within "
+                           f"{self._hard_deadline:.0f}s, {self._deadline_retries + 1} times")
 
     def _checked(self, create):
         """Call `create()`, retrying a 200 response that carries no choices."""

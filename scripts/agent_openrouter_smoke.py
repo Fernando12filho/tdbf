@@ -304,6 +304,39 @@ def test_billed_cost_is_what_a_phase_records() -> None:
     assert phase_cost(a, None, 1_000_000, 0) == 3.0
 
 
+def test_hung_request_hits_the_wall_clock_deadline() -> None:
+    """A request that never answers (keep-alive bytes defeat the SDK's read
+    timeout) is abandoned at the deadline, re-sent, then fails with TimeoutError;
+    a request that answers in time passes through unchanged."""
+    import threading
+    import time as _t
+    c = OpenRouterClient(MODEL, empty_backoff=0.0, upstream_waits=(),
+                         hard_deadline=0.2, deadline_retries=1)
+    calls = []
+    release = threading.Event()
+
+    def hung():
+        calls.append(1)
+        release.wait(5)  # far longer than the deadline
+        return "late"
+
+    t0 = _t.monotonic()
+    try:
+        c._call(hung)
+        raise AssertionError("a hung request must raise TimeoutError")
+    except TimeoutError:
+        pass
+    release.set()
+    assert len(calls) == 2, calls                 # first try + 1 retry
+    assert _t.monotonic() - t0 < 2.0              # bounded by the deadline, not the hang
+    assert c._call(lambda: "fast") == "fast"
+    try:  # an error inside the request still surfaces as itself
+        c._call(lambda: (_ for _ in ()).throw(ValueError("boom")))
+        raise AssertionError("errors must propagate")
+    except ValueError:
+        pass
+
+
 def main() -> int:
     tests = [
         test_paid_id_needs_a_pinned_provider,
@@ -320,6 +353,7 @@ def main() -> int:
         test_upstream_throttle_is_waited_out,
         test_upstream_throttle_gives_up_eventually,
         test_own_quota_429_is_not_retried,
+        test_hung_request_hits_the_wall_clock_deadline,
     ]
     for t in tests:
         t()
