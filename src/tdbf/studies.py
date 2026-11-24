@@ -78,7 +78,7 @@ STUDIES: tuple[Study, ...] = (
                     "on nemotron, before and around RQ1."),
     Study(
         name="scouts-dev", purpose="development",
-        run_groups=("scouts-dev-match", "scouts-dev-full"),
+        run_groups=("scouts-dev-match", "scouts-dev-full", "scouts-dev-full-s100"),
         models=(GPT_5_MINI,), frozen=False,
         samples=("studies/scouts/data/dev_bugs.json",),
         description="Scouts architecture for Phase A (agent/scouts): three scouts in "
@@ -89,7 +89,10 @@ STUDIES: tuple[Study, ...] = (
                     "unchanged BRT agent + gate 2 only; scouts-dev-full = scouts + "
                     "organizer + gate 2. Same model for every role (gpt-5-mini), 50 turns "
                     "per writer attempt, as the procedure study's baseline (21/30 L4), "
-                    "which is the reference. Development results, reported as such."),
+                    "which is the reference. scouts-dev-full stopped after 7 bugs with scouts "
+                    "capped at 20 turns (most hit the cap); scouts-dev-full-s100 re-runs "
+                    "the full arm on all 30 with scouts capped at 100 turns (user decision "
+                    "2026-11-24). Development results, reported as such."),
     Study(
         name="dev-sonnet-gate-fix", purpose="development",
         run_groups=("gate-fix", "gate-fix-aborted"),

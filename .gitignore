@@ -66,3 +66,7 @@ thesis/
 thesisproposal/
 *.md
 !README.md
+
+# Study folders are versioned: their plans and data are the pre-registration record.
+!studies/**/*.md
+!studies/**/*.json
