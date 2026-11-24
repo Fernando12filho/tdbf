@@ -31,9 +31,93 @@ from .session import ContainerSession
 from .tools import (
     breaker_agent_tools,
     critic_agent_tools,
+    match_agent_tools,
     reviewer_agent_tools,
     selector_agent_tools,
 )
+
+MATCH_SYSTEM_PROMPT = """You are a judge working on `{repo}`. Another agent wrote a Bug Reproduction \
+Test (BRT) for a GitHub issue, and the test already FAILS on the buggy code. Your job is to decide \
+whether it fails FOR THE REASON THE ISSUE DESCRIBES. You do not write or run anything: you read the \
+issue, the test and the test's output on the buggy code.
+
+Answer 'match' only if ALL three hold:
+1. SCENARIO: the test exercises the behaviour the issue is about (the same function, feature and kind \
+of input), not a neighbouring one.
+2. SYMPTOM: the failure in the output shows the wrong behaviour the issue reports (the value, message or \
+exception the issue says happens now), not an unrelated error.
+3. EXPECTATION: what the test asserts as correct is what the issue says should happen, stated in the \
+issue or directly implied by it. A value the test's author guessed or invented is a mismatch, even if \
+it looks plausible.
+
+If the issue reports an exception (a crash), a test that fails because the code under test raises that \
+exception, or asserts it is not raised, satisfies SYMPTOM. If the issue states no exact expected value, \
+EXPECTATION holds when the test asserts a property the issue says the correct behaviour must have.
+
+Finish by calling submit_match:
+- verdict='match' when all three hold;
+- verdict='mismatch' otherwise, with feedback naming the condition that failed and what the test \
+should assert instead, quoting the issue. Be strict about invented expected values, but do not ask for \
+changes the issue gives no basis for."""
+
+
+@dataclass
+class MatchCheck:
+    """The match judge's verdict on one gate-passing test, plus its run."""
+
+    verdict: str  # "match" | "mismatch"
+    feedback: str
+    agent: AgentResult
+
+    @property
+    def matched(self) -> bool:
+        return self.verdict == "match"
+
+
+def _parse_match(result: AgentResult) -> tuple[str, str]:
+    """(verdict, feedback) from submit_match. Fail-open to 'match': a judge that
+    returns no clean verdict never discards a test that passed the gate."""
+    if result.submission:
+        try:
+            data = json.loads(result.submission)
+            verdict = str(data.get("verdict", "")).strip().lower()
+            if verdict in ("match", "mismatch"):
+                return verdict, str(data.get("feedback", "")).strip()
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            pass
+    return "match", ""
+
+
+def run_match_judge(
+    inst: SWEBenchInstance,
+    client: LLMClient,
+    *,
+    test_code: str,
+    buggy_output: str,
+    max_iterations: int = 3,
+    max_total_tokens: int = 200_000,
+    max_tokens_per_turn: int = 4096,
+    verbose: bool = False,
+) -> MatchCheck:
+    """Judge whether a gate-passing test fails for the issue's reason (gold-free:
+    issue, test and BUGGY-tree output only; no environment tool)."""
+    system = MATCH_SYSTEM_PROMPT.format(repo=inst.repo)
+    ctx = inst.context_safe_dict()
+    out = buggy_output.strip()
+    if len(out) > 6000:
+        out = "...[earlier output clipped]\n" + out[-6000:]
+    task = (
+        f"GitHub issue for `{ctx['instance_id']}` ({ctx['repo']}):\n\n{ctx['problem_statement']}\n\n"
+        f"--- The test ---\n{test_code}\n\n"
+        f"--- Its output on the BUGGY code (it fails) ---\n{out or '(no output captured)'}\n\n"
+        "Decide whether it fails for the reason the issue describes, then call submit_match."
+    )
+    agent = Agent(client, match_agent_tools(), system, max_iterations=max_iterations,
+                  max_total_tokens=max_total_tokens, max_tokens_per_turn=max_tokens_per_turn,
+                  verbose=verbose)
+    result = agent.run(task)
+    verdict, feedback = _parse_match(result)
+    return MatchCheck(verdict, feedback, result)
 
 CRITIC_SYSTEM_PROMPT = """You are a meticulous test reviewer (a Critic) working on `{repo}` at the \
 buggy commit. Another agent wrote a candidate Bug Reproduction Test (BRT) that already FAILS on the \

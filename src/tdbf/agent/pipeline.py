@@ -26,6 +26,7 @@ from ..harness.runner import (
     ContainerResult,
     PredictionRecord,
     brt_env_hint,
+    clean_brt_output,
     brt_test_path,
     inject_setup_preamble,
     make_test_patch,
@@ -39,7 +40,8 @@ from ..harness.runner import (
 )
 from ..models.llm import LLMClient
 from ..validation.brt_levels import BRTClassification, classify
-from .roles import Break, Review, Selection, run_breaker, run_critic, run_reviewer, run_selector
+from .roles import (Break, Review, Selection, run_breaker, run_critic, run_match_judge,
+                    run_reviewer, run_selector)
 from .runtime import Agent, AgentResult
 from .session import ContainerSession
 from .tools import brt_agent_tools, fix_agent_tools, reactive_fix_agent_tools, run_brt_in_session
@@ -204,6 +206,9 @@ def brt_run_record(
     if phase.reviews:  # Phase C only — single-agent records stay byte-identical
         attempt["critic_rounds"] = len(phase.reviews)
         attempt["critic_verdicts"] = [rv.verdict for rv in phase.reviews]
+    if phase.match_checks:  # scouts architecture only — other records stay byte-identical
+        attempt["match_checks"] = phase.match_checks
+        attempt["match_cost_usd"] = phase.match_cost_usd
     rec = {
         "instance_id": inst.instance_id,
         "repo": inst.repo,
@@ -418,6 +423,10 @@ class BrtPhaseResult:
     # attempt, so without this every rejected attempt vanished from the records
     # and transcripts (387 of Arm B's 2,633 RQ1 calls). Empty when no retry ran.
     prior_attempts: list = None  # type: ignore[assignment]
+    # Scouts architecture: the match judge's verdicts, oldest first (empty when no
+    # match_client), and the judge's own cost (not in `cost_usd`, the writer's).
+    match_checks: list = None  # type: ignore[assignment]
+    match_cost_usd: float | None = None
 
     @property
     def level(self) -> int:
@@ -495,6 +504,30 @@ def _brt_retry_feedback(outcome_buggy, submission: str | None, failure_reason: s
             f"{why}\n\nTry again.")
 
 
+BRIEF_HEADER = (
+    "\n\n--- Test brief from the investigators ---\n"
+    "Three agents investigated this issue in this repository before you (how tests are written "
+    "and run here, where the bug lives, what the buggy code does now), and an organizer merged "
+    "their reports. Use it as a head start, but verify anything you rely on with your tools: it "
+    "may contain mistakes.\n\n"
+)
+
+
+def _match_retry_feedback(submission: str | None, buggy_output: str, feedback: str) -> str:
+    """Gold-free feedback when the match judge says the test does not fail for the
+    issue's reason. Built only from the issue-side judgement and the BUGGY run."""
+    prev = f"\n\nYour previous test:\n{submission}\n" if submission and submission.strip() else "\n"
+    out = buggy_output.strip()
+    if len(out) > 2500:
+        out = "...\n" + out[-2500:]
+    return (f"\n\n--- Your previous test failed on the buggy code, but NOT for the reason the "
+            f"issue describes ---{prev}\nIts output on the buggy code:\n{out}\n\n"
+            f"A reviewer who compared the failure with the issue says:\n{feedback}\n\n"
+            "Write a test whose failure shows the behaviour the issue reports and whose assertion "
+            "checks what the issue says is correct. Confirm with run_test that it still fails on "
+            "the buggy code, then call submit_test.\n\nTry again.")
+
+
 def run_brt_phase(
     inst: SWEBenchInstance,
     client: LLMClient,
@@ -511,8 +544,20 @@ def run_brt_phase(
     critic_client: LLMClient | None = None,
     critic_rounds: int = 0,
     critic_max_iterations: int = 8,
+    brief: str | None = None,
+    match_client: LLMClient | None = None,
+    match_retries: int = 0,
+    match_max_iterations: int = 3,
 ) -> BrtPhaseResult | None:
     """Run the BRT agent (gold-free) then score its test through the gold barrier.
+
+    Scouts architecture (both default off; off = byte-identical to before):
+    `brief` is the organizer's test brief, appended to the task. `match_client`
+    adds a second gold-free gate after the first: a judge decides whether the
+    gate-passing test fails FOR THE ISSUE'S REASON (roles.run_match_judge); on
+    'mismatch' the agent re-runs with the judge's feedback, up to `match_retries`
+    times. Gate failures keep their own `brt_retries` budget. If a retry ends on a
+    test that fails gate 1, the most recent gate-passing test is kept instead.
 
     `score_fixed=True` (default; used by 04/06) runs the test on BOTH the buggy and
     the gold-fixed tree and assigns an L0-L4 label. `score_fixed=False` (the
@@ -548,6 +593,11 @@ def run_brt_phase(
         f"GitHub issue for instance `{ctx['instance_id']}` "
         f"({ctx['repo']} @ {ctx['base_commit']}):\n\n{ctx['problem_statement']}"
     )
+    if brief is not None:
+        task += BRIEF_HEADER + brief.strip()
+    match_checks: list = []
+    match_bill0 = billed_mark(match_client) if match_client is not None else None
+    match_tok = [0, 0]
 
     # --- AGENT (gold-free): the model drives the tools on the buggy tree. ---
     try:
@@ -611,8 +661,14 @@ def run_brt_phase(
         # (byte-identical to the pre-retry behaviour).
         run_task = task
         prior: list = []
-        for attempt in range(brt_retries + 1):
-            label = "BRT agent" if attempt == 0 else f"BRT agent retry {attempt}/{brt_retries}"
+        gate_used = match_used = 0
+        last_good = None  # most recent gate-passing attempt (match mode fallback)
+        attempt = 0
+        while True:
+            label = "BRT agent" if attempt == 0 else (
+                f"BRT agent retry {attempt}/{brt_retries}" if match_client is None
+                else f"BRT agent retry {attempt} (gate {gate_used}/{brt_retries}, "
+                     f"match {match_used}/{match_retries})")
             print(f"Running {label} (max_iter={max_iterations}, max_tok={max_total_tokens}) ...")
             agent, result = _run_brt_agent(run_task)
             tot_in += result.total_input_tokens
@@ -622,9 +678,37 @@ def run_brt_phase(
             submission = result.submission
             test_code, test_patch, outcome_buggy = _score_on_buggy(submission)
             failure_reason_buggy = getattr(outcome_buggy, "failure_reason", None)
+            attempt += 1
             if outcome_buggy == "fail" and failure_reason_buggy != "runtime":
-                break  # reached its assertion and failed = candidate BRT (L3/L4)
-            if attempt < brt_retries:
+                # reached its assertion and failed = candidate BRT (L3/L4)
+                if match_client is None:
+                    break
+                last_good = (agent, result, submission, test_code, test_patch,
+                             outcome_buggy, failure_reason_buggy)
+                buggy_out = clean_brt_output(inst.repo, getattr(outcome_buggy, "output", "") or "")
+                print("Match judge: does the failure match the issue? ...")
+                check = run_match_judge(inst, match_client, test_code=submission,
+                                        buggy_output=buggy_out,
+                                        max_iterations=match_max_iterations,
+                                        max_total_tokens=max_total_tokens,
+                                        max_tokens_per_turn=max_tokens_per_turn, verbose=verbose)
+                match_tok[0] += check.agent.total_input_tokens
+                match_tok[1] += check.agent.total_output_tokens
+                match_checks.append({"attempt": attempt, "verdict": check.verdict,
+                                     "feedback": check.feedback,
+                                     "stop_cause": check.agent.stop_cause,
+                                     "input_tokens": check.agent.total_input_tokens,
+                                     "output_tokens": check.agent.total_output_tokens})
+                print(f"  verdict={check.verdict}"
+                      + (f": {check.feedback[:300]}" if check.feedback else ""))
+                if check.matched or match_used >= match_retries:
+                    break
+                match_used += 1
+                prior.append((result, submission, str(outcome_buggy), failure_reason_buggy))
+                run_task = task + _match_retry_feedback(submission, buggy_out, check.feedback)
+                continue
+            if gate_used < brt_retries:
+                gate_used += 1
                 prior.append((result, submission,
                               str(outcome_buggy) if outcome_buggy is not None else None,
                               failure_reason_buggy))
@@ -633,9 +717,22 @@ def run_brt_phase(
                        else "L2 (errors on buggy)" if outcome_buggy == "error"
                        else "L0 (no usable test)")
                 print(f"  BRT does not reproduce the bug — {bad}. "
-                      f"Retrying with feedback ({attempt + 1}/{brt_retries}).")
+                      f"Retrying with feedback ({gate_used}/{brt_retries}).")
                 run_task = task + _brt_retry_feedback(
                     outcome_buggy, submission, failure_reason_buggy, native=native)
+                continue
+            break
+        if last_good is not None and not (outcome_buggy == "fail"
+                                          and failure_reason_buggy != "runtime"):
+            # A match retry ended on a test that fails gate 1: keep the last one
+            # that passed it (the rejected attempt is already in `prior`).
+            print("  Last retry failed the gate; keeping the most recent gate-passing test.")
+            prior.append((result, submission,
+                          str(outcome_buggy) if outcome_buggy is not None else None,
+                          failure_reason_buggy))
+            (agent, result, submission, test_code, test_patch,
+             outcome_buggy, failure_reason_buggy) = last_good
+            prior = [p for p in prior if p[0] is not result]  # it is the final now
 
         # Phase C: Critic reviews the candidate BRT for specificity; on 'revise'
         # the worker re-runs with the feedback (bounded by critic_rounds). The
@@ -742,6 +839,9 @@ def run_brt_phase(
         total_output_tokens=tot_out,
         total_cache_write_tokens=tot_cw,
         total_cache_read_tokens=tot_cr,
+        match_checks=match_checks,
+        match_cost_usd=(phase_cost(match_client, match_bill0, match_tok[0], match_tok[1])
+                        if match_client is not None and match_checks else None),
     )
 
 

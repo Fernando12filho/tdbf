@@ -658,6 +658,66 @@ class SubmitReviewTool(Tool):
         return ToolResult(json.dumps({"verdict": verdict, "feedback": feedback}))
 
 
+class SubmitMatchTool(Tool):
+    """Terminal tool for the match judge: does the test's failure match the issue?"""
+
+    name = "submit_match"
+    description = (
+        "Submit your judgement and finish. `verdict` must be 'match' (the test fails for the "
+        "reason the issue describes and asserts the behaviour the issue says is correct) or "
+        "'mismatch'. When verdict='mismatch', `feedback` MUST say which condition failed and "
+        "what the test should assert instead, quoting the issue. Call once."
+    )
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "verdict": {"type": "string", "enum": ["match", "mismatch"],
+                        "description": "'match' or 'mismatch'."},
+            "feedback": {"type": "string",
+                         "description": "Reasoning; required, actionable guidance when 'mismatch'."},
+        },
+        "required": ["verdict"],
+    }
+    terminal = True
+
+    def execute(self, arguments: dict) -> ToolResult:
+        verdict = str(arguments.get("verdict", "")).strip().lower()
+        if verdict not in ("match", "mismatch"):
+            return ToolResult("submit_match requires verdict to be 'match' or 'mismatch'.",
+                              is_error=True)
+        feedback = str(arguments.get("feedback", "")).strip()
+        if verdict == "mismatch" and not feedback:
+            return ToolResult("verdict='mismatch' requires non-empty 'feedback' saying what "
+                              "to change.", is_error=True)
+        return ToolResult(json.dumps({"verdict": verdict, "feedback": feedback}))
+
+
+class SubmitReportTool(Tool):
+    """Terminal tool for a scout or the organizer: hand a written report on.
+
+    One class, several names (submit_template / submit_locations /
+    submit_reproduction / submit_brief), so each role has its own terminal tool
+    and its own allowlist entry. The artifact is the report text."""
+
+    terminal = True
+
+    def __init__(self, name: str, description: str, field: str = "report") -> None:
+        self.name = name
+        self.description = description
+        self.field = field
+        self.input_schema = {
+            "type": "object",
+            "properties": {field: {"type": "string", "description": "Your complete report."}},
+            "required": [field],
+        }
+
+    def execute(self, arguments: dict) -> ToolResult:
+        text = str(arguments.get(self.field, "")).strip()
+        if not text:
+            return ToolResult(f"{self.name} requires a non-empty '{self.field}'.", is_error=True)
+        return ToolResult(text)
+
+
 class SubmitSelectionTool(Tool):
     """Terminal tool for the Selector role: pick the best candidate BRT by index."""
 
@@ -762,6 +822,20 @@ _FIX_TOOL_NAMES = frozenset(
     {"read_file", "grep", "glob", "edit_file", "run_brt", "run_tests", "revert", "submit_fix"}
 )
 
+# Scouts (multi-agent Phase A): each investigates the BUGGY tree with the BRT
+# agent's own read/run tools and hands a written report on. run_test is the BRT
+# agent's buggy-only tool (the Template Generator uses it to check its template
+# passes). No source edit, no fixed-tree tool.
+_SCOUT_TOOL_NAMES = frozenset(
+    {"read_file", "grep", "glob", "run_python", "run_test",
+     "submit_template", "submit_locations", "submit_reproduction"}
+)
+
+# The organizer and the match judge reason over text they are given: no
+# environment tool at all, only their terminal tool.
+_ORGANIZER_TOOL_NAMES = frozenset({"submit_brief"})
+_MATCH_TOOL_NAMES = frozenset({"submit_match"})
+
 # The reactive baseline (RQ1 Arm A) is the fix agent WITHOUT run_brt — nothing
 # else. Deriving it from _FIX_TOOL_NAMES keeps the arms from drifting apart.
 _REACTIVE_FIX_TOOL_NAMES = _FIX_TOOL_NAMES - {"run_brt"}
@@ -817,6 +891,65 @@ def assert_breaker_gold_free(tools: list[Tool]) -> None:
     applies — no source edit, no test-write, and no tool that observes the gold
     patch or the held-out FAIL_TO_PASS / test_patch."""
     _assert_allowed(tools, _BREAKER_TOOL_NAMES)
+
+
+def assert_scout_gold_free(tools: list[Tool]) -> None:
+    """Guard a scout's tool surface: buggy-tree reads and runs plus its report."""
+    _assert_allowed(tools, _SCOUT_TOOL_NAMES)
+
+
+def assert_organizer_gold_free(tools: list[Tool]) -> None:
+    """Guard the organizer: no environment tool, only submit_brief."""
+    _assert_allowed(tools, _ORGANIZER_TOOL_NAMES)
+
+
+def assert_match_gold_free(tools: list[Tool]) -> None:
+    """Guard the match judge: no environment tool, only submit_match. It sees the
+    issue, the test and the test's BUGGY-tree output; never the fixed tree."""
+    _assert_allowed(tools, _MATCH_TOOL_NAMES)
+
+
+_SCOUT_REPORTS = {
+    "template": ("submit_template",
+                 "Submit your test template and finish: the template test module (which PASSED "
+                 "with run_test), how it is run, and the conventions a test writer must follow "
+                 "here. Call once."),
+    "localizer": ("submit_locations",
+                  "Submit your localization report and finish: the code locations responsible "
+                  "for the behaviour in the issue, the entry point a test should call, and the "
+                  "existing tests covering it. Call once."),
+    "reproducer": ("submit_reproduction",
+                   "Submit your reproduction report and finish: the script you ran, its observed "
+                   "output verbatim, and the expected behaviour as the issue states it. Call once."),
+}
+
+
+def scout_agent_tools(session: ContainerSession, role: str) -> list[Tool]:
+    """Gold-free toolset for one scout. Template Generator: the BRT agent's read
+    and run tools (run_test included, to check its template passes). Localizer and
+    Reproducer: the same minus run_test (they do not write tests)."""
+    name, desc = _SCOUT_REPORTS[role]
+    tools: list[Tool] = [ReadFileTool(session), GrepTool(session), GlobTool(session),
+                         RunPythonTool(session)]
+    if role == "template":
+        tools.append(RunTestTool(session, _BrtModuleState()))
+    tools.append(SubmitReportTool(name, desc))
+    assert_scout_gold_free(tools)
+    return tools
+
+
+def organizer_agent_tools() -> list[Tool]:
+    tools: list[Tool] = [SubmitReportTool(
+        "submit_brief",
+        "Submit the test brief for the test writer and finish. Call once.", field="brief")]
+    assert_organizer_gold_free(tools)
+    return tools
+
+
+def match_agent_tools() -> list[Tool]:
+    tools: list[Tool] = [SubmitMatchTool()]
+    assert_match_gold_free(tools)
+    return tools
 
 
 def brt_agent_tools(session: ContainerSession) -> list[Tool]:
