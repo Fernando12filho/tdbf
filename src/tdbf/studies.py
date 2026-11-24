@@ -30,6 +30,7 @@ from dataclasses import dataclass
 
 NEMOTRON_FREE = "openrouter:nvidia/nemotron-3-super-120b-a12b:free"
 GPT_4O_MINI = "openrouter:openai/gpt-4o-mini-2024-07-18@openai"
+GPT_5_MINI = "openrouter:openai/gpt-5-mini@openai"
 
 PURPOSES = ("experiment", "pilot", "development")
 
@@ -75,6 +76,20 @@ STUDIES: tuple[Study, ...] = (
         models=(NEMOTRON_FREE,), frozen=True,
         description="Capability probe, sweep validation and the Django-native BRT pilot "
                     "on nemotron, before and around RQ1."),
+    Study(
+        name="scouts-dev", purpose="development",
+        run_groups=("scouts-dev-match", "scouts-dev-full"),
+        models=(GPT_5_MINI,), frozen=False,
+        samples=("studies/scouts/data/dev_bugs.json",),
+        description="Scouts architecture for Phase A (agent/scouts): three scouts in "
+                    "parallel (Test Template Generator, Edit Localizer, Issue Reproducer), "
+                    "an Organizer, then the BRT agent with gate 2 (the failure must match "
+                    "the issue, judged gold-free, retried with feedback). Two arms on the 30 "
+                    "development bugs of the procedure study: scouts-dev-match = the "
+                    "unchanged BRT agent + gate 2 only; scouts-dev-full = scouts + "
+                    "organizer + gate 2. Same model for every role (gpt-5-mini), 50 turns "
+                    "per writer attempt, as the procedure study's baseline (21/30 L4), "
+                    "which is the reference. Development results, reported as such."),
     Study(
         name="dev-sonnet-gate-fix", purpose="development",
         run_groups=("gate-fix", "gate-fix-aborted"),
