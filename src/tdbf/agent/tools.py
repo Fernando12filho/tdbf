@@ -665,8 +665,14 @@ class MatchLoopState:
     (pipeline), so the tool layer never holds a model client. Codes are compared
     after strip(): the exact code a 'match' was given for is what may be submitted."""
 
-    def __init__(self, judge, *, max_mismatches: int = 3, max_refusals: int = 2) -> None:
+    def __init__(self, judge, *, max_mismatches: int = 3, max_refusals: int = 2,
+                 before_check=None, on_check=None) -> None:
         self.judge = judge
+        # Reactive blackboard hooks (None = no-op): before_check() runs before each
+        # check_test; on_check(info) gets {code, outcome, failure_reason, output,
+        # verdict, feedback} after it (verdict None when the judge was not consulted).
+        self.before_check = before_check
+        self.on_check = on_check
         self.max_mismatches = max_mismatches
         self.max_refusals = max_refusals
         self.module = _BrtModuleState()
@@ -719,15 +725,25 @@ class CheckTestTool(RunTestTool):
                 return ToolResult(err, is_error=True)
             self.loop.module.module = module
             code = set_brt_module(str(code), module)
+        if self.loop.before_check is not None:
+            self.loop.before_check()
         result, res = run_brt_in_session(self.session, str(code))
         out = clean_brt_output(self.session.repo, res.output)
         header = f"outcome={result.outcome}" + (
             f" failure_reason={result.failure_reason}" if result.failure_reason else "")
         body = f"{header}\n\n{_clip(out)}"
+        info = {"code": str(code), "outcome": result.outcome,
+                "failure_reason": result.failure_reason, "output": out,
+                "verdict": None, "feedback": ""}
         if not (result.outcome == "fail" and result.failure_reason != "runtime"):
+            if self.loop.on_check is not None:
+                self.loop.on_check(info)
             return ToolResult(body + "\n\nreviewer: not consulted — the test must FAIL on the buggy "
                                      "code at its assertion first.")
         verdict, feedback = self.loop.judge(str(code), out)
+        info.update(verdict=verdict, feedback=feedback)
+        if self.loop.on_check is not None:
+            self.loop.on_check(info)
         key = self.loop.key(code)
         self.loop.verdicts[key] = (verdict, feedback)
         if verdict == "match":

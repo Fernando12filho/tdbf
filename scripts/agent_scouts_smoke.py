@@ -36,6 +36,7 @@ from agent_pipeline_smoke import PipelineFakeSession  # noqa: E402
 from tdbf.agent import pipeline, scouts  # noqa: E402
 from tdbf.agent.roles import _parse_match  # noqa: E402
 from tdbf.agent.runtime import AgentResult  # noqa: E402
+from tdbf.agent.types import ToolResult  # noqa: E402
 from tdbf.agent.session import ExecResult  # noqa: E402
 from tdbf.agent.tools import (  # noqa: E402
     CheckTestTool,
@@ -469,12 +470,80 @@ def test_blackboard_flow() -> None:
     _no_leak(bb.board.log(), writer.results, judge.tasks)
 
 
+def test_reactive_hooks_and_push() -> None:
+    import threading
+    import time as _t
+    from tdbf.agent.blackboard import Board, NoticeTool, ReadBoardTool, reactive_hooks
+    b = Board()
+    before, on_check = reactive_hooks(b, soft_start=2.0)
+    # soft start: waits for the reproducer's observed+expected, only once
+    def post_repro():
+        b.post("reproducer", "observed_behaviour", "compute() -> 4", "run")
+        b.post("reproducer", "expected_behaviour", "5", "issue: 'should return 5'")
+    threading.Timer(0.3, post_repro).start()
+    t0 = _t.monotonic(); before(); waited = _t.monotonic() - t0
+    assert 0.2 < waited < 1.5, waited
+    t0 = _t.monotonic(); before(); assert _t.monotonic() - t0 < 0.1, "soft start only once"
+    assert b.soft_start_wait is not None
+    # a mismatch is auto-posted and routed to the reproducer; a crash to template + localizer
+    on_check({"code": "x", "outcome": "fail", "failure_reason": "assertion",
+              "output": "E assert 4 == 6", "verdict": "mismatch", "feedback": "issue says 5"})
+    on_check({"code": "x", "outcome": "fail", "failure_reason": "runtime",
+              "output": "ImportError: foo", "verdict": None, "feedback": ""})
+    qs = [e for e in b.entries if e.section == "questions"]
+    assert [q.to for q in qs] == ["reproducer", "template", "localizer"], [q.to for q in qs]
+    assert "issue says 5" in qs[0].text
+    assert sum(e.section == "test_status" and e.author == "system" for e in b.entries) == 2
+    for _ in range(5):  # routing is capped per role
+        on_check({"code": "x", "outcome": "fail", "failure_reason": "assertion", "output": "",
+                  "verdict": "mismatch", "feedback": "again"})
+    assert sum(q.to == "reproducer" for q in b.entries if q.section == "questions") == 3
+    # push: the writer gets the entries' text (not a count), minus its own test status
+    w = NoticeTool(ReadBoardTool(b, "x"), b, "writer", scout=False, push=True)
+    inner_dummy = type("T", (), {"name": "grep", "description": "", "input_schema": {},
+                                 "terminal": False,
+                                 "execute": lambda self, a: ToolResult("grep out")})()
+    pushed = NoticeTool(inner_dummy, b, "writer", scout=False, push=True).execute({}).content
+    assert "NEW ON THE BOARD" in pushed and "compute() -> 4" in pushed
+    assert "writer's check_test" not in pushed, "the writer must not get its own status back"
+    assert b.unseen("writer") == 0, "pushed entries are marked read"
+    # a scout sees the questions routed to it
+    sc = NoticeTool(inner_dummy, b, "reproducer", scout=True, push=True).execute({}).content
+    assert "Questions FOR YOU" in sc, sc[-300:]
+    assert b.summary()["routed"] == 5
+
+
+def test_reactive_flow() -> None:
+    from tdbf.agent import blackboard
+    _fake_gold()
+    blackboard.ContainerSession = lambda instance, keep=False: GateSession(instance.repo)
+    scouts_ = {"template": BoardScout("template", "test_conventions", "plain pytest"),
+               "localizer": BoardScout("localizer", "entry_point", "compute()"),
+               "reproducer": BoardScout("reproducer", "observed_behaviour", "compute() -> 4")}
+    writer = SlowWriter([("grep", {"pattern": "compute"}), ("check_test", {"code": _TEST_A}),
+                         ("check_test", {"code": _TEST_B}), ("submit_test", {"code": _TEST_B})])
+    judge = RoleClient("judge", [("mismatch", "The issue says 5, not 6."), ("match", "")])
+    bb, phase = blackboard.run_blackboard_brt_phase(
+        _INST, {**scouts_, "writer": writer, "judge": judge}, max_iterations=8,
+        max_total_tokens=300_000, max_tokens_per_turn=4096, scout_join_timeout=10,
+        reactive=True, soft_start=1.0)
+    assert phase.submission == _TEST_B and phase.level == 4
+    s = bb.board.summary()
+    assert s["routed"] == 1 and s["by_author"].get("system") == 3, s   # 2 statuses + 1 routed
+    assert any("NEW ON THE BOARD" in r and "compute() -> 4" in r for r in writer.results), \
+        "findings must be pushed into the writer's tool results"
+    assert "Reactive board" in writer.system
+    assert s["soft_start_wait"] is not None
+    _no_leak(bb.board.log(), writer.results, judge.tasks)
+
+
 def main() -> int:
     tests = [test_registries_gold_free, test_submit_match_and_failopen,
              test_match_retry_then_match, test_match_budget, test_fallback_to_last_gate_pass,
              test_baseline_record_unchanged, test_scouts_flow, test_scout_crash_and_no_brief,
              test_match_only_arm, test_writer_v2_registry, test_check_test_and_guarded_submit,
-             test_writer_loop_in_run_brt_phase, test_board_basics, test_blackboard_flow]
+             test_writer_loop_in_run_brt_phase, test_board_basics, test_blackboard_flow,
+             test_reactive_hooks_and_push, test_reactive_flow]
     for t in tests:
         t()
         print(f"  ok  {t.__name__}")

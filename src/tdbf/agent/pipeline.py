@@ -570,6 +570,8 @@ def run_brt_phase(
     writer_extra_tools=None,
     writer_tool_wrapper=None,
     writer_system_extra: str | None = None,
+    writer_before_check=None,
+    writer_on_check=None,
 ) -> BrtPhaseResult | None:
     """Run the BRT agent (gold-free) then score its test through the gold barrier.
 
@@ -679,7 +681,8 @@ def run_brt_phase(
     def _writer_tools():
         if writer_judge_client is None:
             return brt_agent_tools(session)  # gold-free set + assert_gold_free guard
-        state = MatchLoopState(_judge, max_mismatches=max_mismatches)
+        state = MatchLoopState(_judge, max_mismatches=max_mismatches,
+                               before_check=writer_before_check, on_check=writer_on_check)
         loop_states.append(state)
         tools = writer_v2_agent_tools(session, state)  # + assert_writer_v2_gold_free
         if writer_extra_tools is not None:

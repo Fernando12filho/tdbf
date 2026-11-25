@@ -17,6 +17,9 @@ v2 (studies/scouts/plan_v2.md): the judge (v2) runs INSIDE the writer's loop
   --arm bb      blackboard (studies/scouts/plan_blackboard.md): the three scouts and
                 the in-loop-judge writer work at the same time and share findings
                 on a board; no organizer
+  --arm rbb     reactive blackboard (plan_reactive_blackboard.md): entries pushed into
+                tool results, check_test results auto-posted, problems routed to
+                scouts, a soft start
 
 Every role gets its own client. By default all roles use --model; override one
 with --role-model ROLE=SPEC (roles: template localizer reproducer organizer
@@ -93,13 +96,13 @@ def run_one(inst, args, clients: dict, out_dir: Path) -> float | None:
     print(f"\n{'=' * 60}\n{inst.instance_id}  ({inst.repo})  arm={args.arm}", flush=True)
     t0 = time.monotonic()
     bb = None
-    if args.arm == "bb":
+    if args.arm in ("bb", "rbb"):
         from tdbf.agent.blackboard import run_blackboard_brt_phase
         sres = None
         bb, phase = run_blackboard_brt_phase(
             inst, clients, max_iterations=args.total_turns, max_total_tokens=args.max_tokens,
             max_tokens_per_turn=args.max_tokens_per_turn, scout_max_iterations=args.scout_turns,
-            max_mismatches=args.max_mismatches, verbose=args.verbose)
+            max_mismatches=args.max_mismatches, reactive=args.arm == "rbb", verbose=args.verbose)
     elif args.arm == "base":
         sres = None
         phase = run_brt_phase(inst, clients["writer"], max_iterations=args.total_turns,
@@ -119,9 +122,11 @@ def run_one(inst, args, clients: dict, out_dir: Path) -> float | None:
     flags = {"arm": args.arm, "pipeline": "scouts", "turn_budget": args.total_turns,
              "scout_turn_budget": args.scout_turns if (sres or bb) else None,
              "match_retries": args.match_retries if args.arm in ("match", "full") else None,
-             "writer_loop": args.arm in ("loop", "full2", "bb"),
-             "max_mismatches": args.max_mismatches if args.arm in ("loop", "full2", "bb") else None,
-             "blackboard": args.arm == "bb",
+             "writer_loop": args.arm in ("loop", "full2", "bb", "rbb"),
+             "max_mismatches": (args.max_mismatches if args.arm in ("loop", "full2", "bb", "rbb")
+                                else None),
+             "blackboard": args.arm in ("bb", "rbb"),
+             "reactive": args.arm == "rbb",
              "scout_max_tokens": args.scout_max_tokens if sres else None,
              "max_tokens_per_turn": args.max_tokens_per_turn,
              "max_total_tokens": args.max_tokens, "max_iterations": args.total_turns,
@@ -166,7 +171,7 @@ def run_one(inst, args, clients: dict, out_dir: Path) -> float | None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--arm", choices=["match", "full", "base", "loop", "full2", "bb"], required=True)
+    ap.add_argument("--arm", choices=["match", "full", "base", "loop", "full2", "bb", "rbb"], required=True)
     ap.add_argument("--ids", nargs="*", default=[])
     ap.add_argument("--bugs-file", type=Path, nargs="+", default=[DEFAULT_BUGS],
                     help="JSON file(s) with instance_ids (default: the 30 development bugs)")
