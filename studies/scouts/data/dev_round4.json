@@ -1,0 +1,24 @@
+{
+  "round": 4,
+  "seed": 20261112,
+  "pool": "SWT-bench Lite minus sample_tests_swt114_frozen.json",
+  "pool_size": 162,
+  "positions": [
+    30,
+    39
+  ],
+  "instance_ids": [
+    "django__django-15252",
+    "scikit-learn__scikit-learn-25570",
+    "scikit-learn__scikit-learn-10949",
+    "sympy__sympy-13437",
+    "astropy__astropy-14182",
+    "sympy__sympy-24152",
+    "sympy__sympy-12481",
+    "sympy__sympy-17630",
+    "matplotlib__matplotlib-25332",
+    "sympy__sympy-21627"
+  ],
+  "replacements": [],
+  "note": "replacements are the next positions of the same order; used only for bugs whose environment is invalid"
+}
