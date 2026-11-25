@@ -173,9 +173,13 @@ were also derived from their L3 cases, so results here are optimistic for later 
 <div class="card mb-4 border-0 bg-light"><div class="card-body small">
   <div class="fw-semibold mb-1">How to read this</div>
   <ul class="mb-0">
-    <li>No architecture so far has beaten the old single agent with the same writer model: the
-        procedure agent (strict 15, soft 20 vs 21), scouts v1 (19 vs 21) and v2 (16 vs 17) all
-        fail the rule. Every difference is within run-to-run variation.</li>
+    <li>No architecture so far has beaten the old single agent with the same writer model on clean
+        bugs: the procedure agent (strict 15, soft 20 vs 21), scouts v1 (19 vs 21), scouts v2 (16 vs
+        17) and the blackboard (15 vs 17 on the fresh bugs) all fail the rule. Every difference is
+        within run-to-run variation.</li>
+    <li>The blackboard's 23 vs 21 on the 30 development bugs passes "more L4" and "no more L3" but
+        costs 2.2× per valid test; three of its five gains are the L3 cases judge v2's rules were
+        derived from, so it most likely reflects judge v2 on its own development bugs, not the board.</li>
     <li>The judge inside the writer's loop works mechanically (it objects and the writer revises), but
         did not turn any L3 into L4. Half of the L3 tests follow the issue and fail only because the
         benchmark's fix differs from what the issue asks, which no gold-free check can see.</li>
