@@ -107,6 +107,17 @@ STUDIES: tuple[Study, ...] = (
                     "1-bug live check with scouts capped at 300K tokens; the arm runs as "
                     "v2-full-1m (1M tokens, amendment 1 of plan_v2.md). Development results."),
     Study(
+        name="blackboard-dev", purpose="development",
+        run_groups=("bb-fresh", "bb-dev30"),
+        models=(GPT_5_MINI, GPT_5_NANO), frozen=False,
+        samples=("studies/scouts/data/dev_round4.json", "studies/scouts/data/dev_round5.json",
+                 "studies/scouts/data/dev_bugs.json"),
+        description="Blackboard Phase A (studies/scouts/plan_blackboard.md): gpt-5-nano scouts "
+                    "and the gpt-5-mini in-loop-judge writer work concurrently and share "
+                    "findings on a structured board; no organizer. bb-fresh = the 20 fresh "
+                    "bugs (compared with v2-base/loop/full-1m), bb-dev30 = the 30 development "
+                    "bugs (compared with the stored v1 results). Development results."),
+    Study(
         name="dev-sonnet-gate-fix", purpose="development",
         run_groups=("gate-fix", "gate-fix-aborted"),
         models=("anthropic:claude-sonnet-4-6",), frozen=True,

@@ -959,6 +959,14 @@ _ORGANIZER_TOOL_NAMES = frozenset({"submit_brief"})
 # check_test (buggy-tree run + the gold-free match judge) and a guarded submit.
 _WRITER_V2_TOOL_NAMES = frozenset(
     {"read_file", "grep", "glob", "run_python", "check_test", "submit_test"})
+
+# Blackboard Phase A: the same scout and writer tools plus the shared-board tools
+# (agent-written text only; no environment access of their own).
+_BOARD_TOOL_NAMES = frozenset({"read_board", "post_finding", "ask_board"})
+_BB_SCOUT_TOOL_NAMES = frozenset(
+    {"read_file", "grep", "glob", "run_python", "run_test", "answer", "wait_for_board", "finish"}
+) | _BOARD_TOOL_NAMES
+_BB_WRITER_TOOL_NAMES = _WRITER_V2_TOOL_NAMES | _BOARD_TOOL_NAMES
 _MATCH_TOOL_NAMES = frozenset({"submit_match"})
 
 # The reactive baseline (RQ1 Arm A) is the fix agent WITHOUT run_brt — nothing
@@ -1066,6 +1074,16 @@ def scout_agent_tools(session: ContainerSession, role: str) -> list[Tool]:
 def assert_writer_v2_gold_free(tools: list[Tool]) -> None:
     """Guard the v2 writer: buggy-tree tools, check_test, guarded submit_test."""
     _assert_allowed(tools, _WRITER_V2_TOOL_NAMES)
+
+
+def assert_bb_scout_gold_free(tools: list[Tool]) -> None:
+    """Guard a blackboard scout: buggy-tree reads and runs, board tools, finish."""
+    _assert_allowed(tools, _BB_SCOUT_TOOL_NAMES)
+
+
+def assert_bb_writer_gold_free(tools: list[Tool]) -> None:
+    """Guard the blackboard writer: the v2 writer tools plus the board tools."""
+    _assert_allowed(tools, _BB_WRITER_TOOL_NAMES)
 
 
 def writer_v2_agent_tools(session: ContainerSession, state: MatchLoopState) -> list[Tool]:

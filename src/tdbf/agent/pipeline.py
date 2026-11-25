@@ -44,8 +44,8 @@ from .roles import (Break, Review, Selection, run_breaker, run_critic, run_match
                     run_reviewer, run_selector)
 from .runtime import Agent, AgentResult
 from .session import ContainerSession
-from .tools import (MatchLoopState, brt_agent_tools, fix_agent_tools, reactive_fix_agent_tools,
-                    run_brt_in_session, writer_v2_agent_tools)
+from .tools import (MatchLoopState, assert_bb_writer_gold_free, brt_agent_tools, fix_agent_tools,
+                    reactive_fix_agent_tools, run_brt_in_session, writer_v2_agent_tools)
 
 # Pricing lives in tdbf.pricing so this module and metrics.py cost runs
 # identically (re-exported here: callers and smokes import it from pipeline).
@@ -565,8 +565,11 @@ def run_brt_phase(
     match_retries: int = 0,
     match_max_iterations: int = 3,
     writer_judge_client: LLMClient | None = None,
-    judge_context: str | None = None,
+    judge_context=None,
     max_mismatches: int = 3,
+    writer_extra_tools=None,
+    writer_tool_wrapper=None,
+    writer_system_extra: str | None = None,
 ) -> BrtPhaseResult | None:
     """Run the BRT agent (gold-free) then score its test through the gold barrier.
 
@@ -583,6 +586,11 @@ def run_brt_phase(
     result, with `judge_context`, e.g. the brief) and submit_test accepts only code
     judged 'match' (or after `max_mismatches` mismatches, flagged). Gate 1 stays the
     final executed check; the outer match loop is not used with it.
+
+    Blackboard (with writer_judge_client): `writer_extra_tools()` adds the board
+    tools to each writer attempt, `writer_tool_wrapper(tools)` adds the board
+    notices, `writer_system_extra` extends the prompt, and `judge_context` may be a
+    callable (the board at the time of each check).
 
     `score_fixed=True` (default; used by 04/06) runs the test on BOTH the buggy and
     the gold-fixed tree and assigns an L0-L4 label. `score_fixed=False` (the
@@ -618,6 +626,8 @@ def run_brt_phase(
             raise ValueError("writer_judge_client (in-loop judge) and match_client (outer "
                              "judge loop) are alternatives; pass one")
         system = system.replace("run_test", "check_test") + WRITER_LOOP_ADDENDUM
+        if writer_system_extra:
+            system += writer_system_extra
     ctx = inst.context_safe_dict()
     task = (
         f"GitHub issue for instance `{ctx['instance_id']}` "
@@ -653,7 +663,9 @@ def run_brt_phase(
                                 max_iterations=match_max_iterations,
                                 max_total_tokens=max_total_tokens,
                                 max_tokens_per_turn=max_tokens_per_turn, verbose=verbose,
-                                version=2, context=judge_context)
+                                version=2,
+                                context=judge_context() if callable(judge_context)
+                                else judge_context)
         judge_tok[0] += check.agent.total_input_tokens
         judge_tok[1] += check.agent.total_output_tokens
         match_checks.append({"attempt": len(loop_states), "verdict": check.verdict,
@@ -669,7 +681,14 @@ def run_brt_phase(
             return brt_agent_tools(session)  # gold-free set + assert_gold_free guard
         state = MatchLoopState(_judge, max_mismatches=max_mismatches)
         loop_states.append(state)
-        return writer_v2_agent_tools(session, state)  # + assert_writer_v2_gold_free
+        tools = writer_v2_agent_tools(session, state)  # + assert_writer_v2_gold_free
+        if writer_extra_tools is not None:
+            tools = tools + list(writer_extra_tools())
+        if writer_tool_wrapper is not None:
+            tools = writer_tool_wrapper(tools)
+        if writer_extra_tools is not None or writer_tool_wrapper is not None:
+            assert_bb_writer_gold_free(tools)
+        return tools
 
     def _run_brt_agent(run_task: str):
         a = Agent(

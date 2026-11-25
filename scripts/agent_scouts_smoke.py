@@ -379,12 +379,102 @@ def test_writer_loop_in_run_brt_phase() -> None:
         pass
 
 
+# ── blackboard ──────────────────────────────────────────────────────────────
+
+def test_board_basics() -> None:
+    import threading
+    import time as _t
+    from tdbf.agent.blackboard import (Board, PostFindingTool, ReadBoardTool, WaitForBoardTool,
+                                       AnswerTool, NoticeTool, board_tools)
+    b = Board()
+    post = PostFindingTool(b, "localizer")
+    assert post.execute({"section": "locations", "text": "x"}).is_error        # evidence required
+    assert post.execute({"section": "questions", "text": "x", "evidence": "y"}).is_error
+    assert not post.execute({"section": "locations", "text": "core.py:3", "evidence": "read"}).is_error
+    assert b.unseen("writer") == 1 and b.unseen("localizer") == 0              # own posts not unread
+    r = ReadBoardTool(b, "writer").execute({})
+    assert "core.py:3" in r.content and b.unseen("writer") == 0
+    # notices: appended to non-terminal results; scouts are told when the writer is done
+    inner = ReadBoardTool(b, "reproducer")
+    b.post("writer", "questions", "what does compute() return?")
+    n = NoticeTool(inner, b, "reproducer", scout=True).execute({})
+    assert "Open questions: #2" in n.content, n.content
+    a = AnswerTool(b, "reproducer")
+    assert a.execute({"question_id": 1, "text": "x", "evidence": "y"}).is_error   # #1 is not a question
+    assert not a.execute({"question_id": 2, "text": "4", "evidence": "run"}).is_error
+    assert b.summary()["answered"] == 1
+    # wait_for_board wakes on a new post, and returns at once when the board closes
+    w = WaitForBoardTool(b, "template")
+    b.read("template")
+    threading.Timer(0.2, lambda: b.post("writer", "test_status", "fails", "run")).start()
+    t0 = _t.monotonic()
+    assert "1 new entry" in w.execute({"seconds": 5}).content and _t.monotonic() - t0 < 2
+    b.close()
+    assert "FINISHED" in NoticeTool(inner, b, "reproducer", scout=True).execute({}).content
+    names = {t.name for t in board_tools(b, "writer", scout=False)}
+    assert names == {"read_board", "post_finding", "ask_board"}, names
+
+
+class BoardScout:
+    """Fake scout: posts one finding, then finishes."""
+
+    def __init__(self, role: str, section: str, text: str) -> None:
+        self.name = f"fake:{role}"
+        self.calls = 0
+        self.section, self.text = section, text
+        self.tool_names: set[str] = set()
+
+    def run_tools(self, *, system, messages, tools, max_tokens=4096) -> ToolUseResponse:
+        self.calls += 1
+        self.tool_names = {t.name for t in tools}
+        if self.calls == 1:
+            return _resp("post_finding", {"section": self.section, "text": self.text,
+                                          "evidence": "observed"}, f"p{self.calls}", 1000, 30)
+        return _resp("finish", {"summary": "posted"}, f"f{self.calls}", 1000, 20)
+
+
+class SlowWriter(ScriptedWriter):
+    def run_tools(self, **kw):
+        import time as _t
+        if self.calls == 0:
+            _t.sleep(0.5)  # let the scouts post first (deterministic test)
+        return super().run_tools(**kw)
+
+
+def test_blackboard_flow() -> None:
+    from tdbf.agent import blackboard
+    _fake_gold()
+    blackboard.ContainerSession = lambda instance, keep=False: GateSession(instance.repo)
+    scouts_ = {"template": BoardScout("template", "test_conventions", "plain pytest"),
+               "localizer": BoardScout("localizer", "entry_point", "compute()"),
+               "reproducer": BoardScout("reproducer", "observed_behaviour", "compute() -> 4")}
+    writer = SlowWriter([("read_board", {}), ("check_test", {"code": _TEST_B}),
+                         ("submit_test", {"code": _TEST_B})])
+    judge = RoleClient("judge", [("match", "")])
+    clients = {**scouts_, "writer": writer, "judge": judge}
+    bb, phase = blackboard.run_blackboard_brt_phase(
+        _INST, clients, max_iterations=6, max_total_tokens=300_000, max_tokens_per_turn=4096,
+        scout_join_timeout=10)
+    assert phase.submission == _TEST_B and phase.level == 4
+    s = bb.board.summary()
+    assert s["entries"] == 3 and set(s["by_author"]) == {"template", "localizer", "reproducer"}, s
+    assert "compute() -> 4" in writer.results[0], "the writer must see the scouts' findings"
+    assert "compute() -> 4" in judge.tasks[0], "the judge's context is the live board"
+    assert "Shared board" in writer.system and "check_test" in writer.system
+    for sc in scouts_.values():
+        assert {"post_finding", "read_board", "answer", "wait_for_board", "finish"} <= sc.tool_names
+        assert not ({"edit_file", "run_brt", "submit_test", "check_test"} & sc.tool_names)
+    assert all(r.agent and r.agent.stop_cause == "submit" for r in bb.scouts.values())
+    assert bb.board.closed
+    _no_leak(bb.board.log(), writer.results, judge.tasks)
+
+
 def main() -> int:
     tests = [test_registries_gold_free, test_submit_match_and_failopen,
              test_match_retry_then_match, test_match_budget, test_fallback_to_last_gate_pass,
              test_baseline_record_unchanged, test_scouts_flow, test_scout_crash_and_no_brief,
              test_match_only_arm, test_writer_v2_registry, test_check_test_and_guarded_submit,
-             test_writer_loop_in_run_brt_phase]
+             test_writer_loop_in_run_brt_phase, test_board_basics, test_blackboard_flow]
     for t in tests:
         t()
         print(f"  ok  {t.__name__}")

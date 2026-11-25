@@ -14,6 +14,9 @@ v2 (studies/scouts/plan_v2.md): the judge (v2) runs INSIDE the writer's loop
   --arm loop    the BRT agent with the in-loop judge, no scouts
   --arm full2   scouts + organizer, then the BRT agent with the in-loop judge
                 (give the scouts and organizer a cheaper model with --role-model)
+  --arm bb      blackboard (studies/scouts/plan_blackboard.md): the three scouts and
+                the in-loop-judge writer work at the same time and share findings
+                on a board; no organizer
 
 Every role gets its own client. By default all roles use --model; override one
 with --role-model ROLE=SPEC (roles: template localizer reproducer organizer
@@ -89,7 +92,15 @@ def run_one(inst, args, clients: dict, out_dir: Path) -> float | None:
 
     print(f"\n{'=' * 60}\n{inst.instance_id}  ({inst.repo})  arm={args.arm}", flush=True)
     t0 = time.monotonic()
-    if args.arm == "base":
+    bb = None
+    if args.arm == "bb":
+        from tdbf.agent.blackboard import run_blackboard_brt_phase
+        sres = None
+        bb, phase = run_blackboard_brt_phase(
+            inst, clients, max_iterations=args.total_turns, max_total_tokens=args.max_tokens,
+            max_tokens_per_turn=args.max_tokens_per_turn, scout_max_iterations=args.scout_turns,
+            max_mismatches=args.max_mismatches, verbose=args.verbose)
+    elif args.arm == "base":
         sres = None
         phase = run_brt_phase(inst, clients["writer"], max_iterations=args.total_turns,
                               max_total_tokens=args.max_tokens,
@@ -103,12 +114,14 @@ def run_one(inst, args, clients: dict, out_dir: Path) -> float | None:
             max_mismatches=args.max_mismatches, verbose=args.verbose)
     if phase is None:
         return None
-    total = _total(phase.cost_usd, phase.match_cost_usd, sres.cost_usd if sres else None)
+    total = _total(phase.cost_usd, phase.match_cost_usd, sres.cost_usd if sres else None,
+                   bb.scouts_cost_usd if bb else None)
     flags = {"arm": args.arm, "pipeline": "scouts", "turn_budget": args.total_turns,
-             "scout_turn_budget": args.scout_turns if sres else None,
+             "scout_turn_budget": args.scout_turns if (sres or bb) else None,
              "match_retries": args.match_retries if args.arm in ("match", "full") else None,
-             "writer_loop": args.arm in ("loop", "full2"),
-             "max_mismatches": args.max_mismatches if args.arm in ("loop", "full2") else None,
+             "writer_loop": args.arm in ("loop", "full2", "bb"),
+             "max_mismatches": args.max_mismatches if args.arm in ("loop", "full2", "bb") else None,
+             "blackboard": args.arm == "bb",
              "scout_max_tokens": args.scout_max_tokens if sres else None,
              "max_tokens_per_turn": args.max_tokens_per_turn,
              "max_total_tokens": args.max_tokens, "max_iterations": args.total_turns,
@@ -122,11 +135,20 @@ def run_one(inst, args, clients: dict, out_dir: Path) -> float | None:
                          "organizer": sres.organizer.record(), "brief_chars": len(sres.brief or ""),
                          "cost_usd": sres.cost_usd, "seconds": round(sres.seconds, 1),
                          "notes": sres.notes}
+    if bb is not None:
+        rec["blackboard"] = {"board": bb.board.summary(),
+                             "roles": [r.record() for r in bb.scouts.values()],
+                             "cost_usd": bb.scouts_cost_usd, "seconds": round(bb.seconds, 1)}
     save_run(rec)
 
     tr = brt_transcript_dict(inst, clients["writer"].name, phase)
     tr["match_checks"] = phase.match_checks
     tr["match_loop"] = phase.match_loop
+    if bb is not None:
+        tr["board"] = bb.board.log()
+        tr["bb_scouts"] = {r.role: {"error": r.error,
+                                    "messages": serialise_messages(r.agent.messages) if r.agent else []}
+                           for r in bb.scouts.values()}
     if sres is not None:
         tr["scouts"] = {r.role: {"report": r.report, "error": r.error,
                                  "messages": serialise_messages(r.agent.messages) if r.agent else []}
@@ -144,7 +166,7 @@ def run_one(inst, args, clients: dict, out_dir: Path) -> float | None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--arm", choices=["match", "full", "base", "loop", "full2"], required=True)
+    ap.add_argument("--arm", choices=["match", "full", "base", "loop", "full2", "bb"], required=True)
     ap.add_argument("--ids", nargs="*", default=[])
     ap.add_argument("--bugs-file", type=Path, nargs="+", default=[DEFAULT_BUGS],
                     help="JSON file(s) with instance_ids (default: the 30 development bugs)")
