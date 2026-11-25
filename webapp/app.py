@@ -15,6 +15,7 @@ from flask import (
     url_for,
 )
 
+import architectures as arch_data
 import db
 import glossary
 import research_data
@@ -172,6 +173,13 @@ def development():
             not in tdbf_metrics.EXPERIMENT_RUN_GROUPS]
     return render_template("development.html", rep=tdbf_metrics.build_report(recs),
                            glossary_sections=glossary.DEVELOPMENT_SECTIONS)
+
+
+@app.route("/architectures")
+def architectures():
+    """Every Phase A architecture tried in development, against the old single
+    BRT agent on the same bugs (webapp/architectures.py; live from results.jsonl)."""
+    return render_template("architectures.html", res=arch_data.build(RESULTS_FILE))
 
 
 @app.route("/status")

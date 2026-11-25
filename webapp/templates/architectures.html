@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}Architectures — TDBF{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h1 class="h3 mb-0">Test-writing architectures</h1>
+  <span class="text-muted small">development studies · Phase A only</span>
+</div>
+<div class="alert alert-secondary small mb-4">
+  Every architecture we tried for the <strong>test-writing phase</strong> (Phase A), on the same
+  bugs, against the <strong>old agent</strong>: TDBF's single test-writing agent. These are
+  <strong>development</strong> results on small bug sets, used to choose an architecture;
+  <strong>this is not the evaluation.</strong> A test is <span class="badge bg-success">L4</span>
+  (valid) if it fails on the buggy code and passes once the real fix is applied, and
+  <span class="badge bg-info text-dark">L3</span> if it fails on both (it checks the wrong thing).
+  Each study fixed its <strong>rule</strong> before running: an architecture is adopted only with
+  more L4 than the old agent, no more L3, and cost per valid test at most 1.5× the old agent's.
+  Rows still running show how many bugs are done.
+</div>
+
+{% macro money(x) -%}{% if x is not none %}${{ '%.2f'|format(x) }}{% else %}—{% endif %}{%- endmacro %}
+{% macro pv(x) -%}{% if x is not none %}${{ '%.3f'|format(x) }}{% else %}—{% endif %}{%- endmacro %}
+{% macro lvl(v) -%}
+  {%- if v == 4 -%}<span class="badge bg-success">4</span>
+  {%- elif v == 3 -%}<span class="badge bg-info text-dark">3</span>
+  {%- elif v is none -%}<span class="text-muted">·</span>
+  {%- else -%}<span class="badge bg-secondary">{{ v }}</span>{%- endif -%}
+{%- endmacro %}
+
+{% macro arm_table(block, procedure=None) %}
+<div class="table-responsive mb-2">
+<table class="table table-sm align-middle small">
+  <thead class="table-light">
+    <tr><th>Architecture</th><th>Models</th><th class="text-end">Bugs</th>
+        <th class="text-end">L4 (valid)</th><th class="text-end">L3</th><th class="text-end">Other</th>
+        <th class="text-end">Cost</th><th class="text-end">$ per valid test</th>
+        <th>vs old agent (same bugs)</th><th>Rule</th></tr>
+  </thead>
+  <tbody>
+  {% for r in block.rows %}
+    <tr {% if r.key == 'base' %}class="table-warning"{% endif %}>
+      <td class="fw-semibold">{{ r.label }}</td>
+      <td class="text-muted">{{ r.models }}</td>
+      <td class="text-end">{{ r.n }}{% if r.n < r.total %}<span class="text-muted">/{{ r.total }}</span>{% endif %}</td>
+      <td class="text-end fw-semibold">{{ r.l4 }}</td>
+      <td class="text-end">{{ r.l3 }}</td>
+      <td class="text-end">{{ r.other }}</td>
+      <td class="text-end">{{ money(r.cost) }}</td>
+      <td class="text-end">{{ pv(r.per_valid) }}{% if r.ratio %} <span class="text-muted">({{ '%.1f'|format(r.ratio) }}×)</span>{% endif %}</td>
+      <td>
+        {% if r.key == 'base' %}<span class="text-muted">reference</span>
+        {% elif r.n %}
+          <span class="text-success">+{{ r.gain|length }}</span> /
+          <span class="text-danger">−{{ r.loss|length }}</span>
+          <span class="text-muted">(old agent {{ r.base_l4_same }} on these; McNemar p={{ '%.2f'|format(r.p) if r.p is not none else '—' }})</span>
+        {% else %}<span class="text-muted">not run yet</span>{% endif %}
+      </td>
+      <td>
+        {% if r.key == 'base' %}—
+        {% elif r.n < r.total %}<span class="badge bg-light text-dark border">running</span>
+        {% elif r.adopted %}<span class="badge bg-success">adopted</span>
+        {% else %}<span class="badge bg-secondary">not adopted</span>{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  {% if procedure %}
+    {% for p in procedure %}
+    <tr class="text-muted">
+      <td>{{ p.label }} <span class="small">(quoted)</span></td><td>{{ p.models }}</td>
+      <td class="text-end">30</td><td class="text-end">{{ p.l4 }}</td><td class="text-end">{{ p.l3 }}</td>
+      <td class="text-end">{{ p.other }}</td><td class="text-end">${{ '%.2f'|format(p.cost) }}</td>
+      <td class="text-end">${{ '%.3f'|format(p.cost / p.l4) }}</td>
+      <td>per-bug records on branch agent/procedure</td>
+      <td><span class="badge bg-secondary">not adopted</span></td>
+    </tr>
+    {% endfor %}
+  {% endif %}
+  </tbody>
+</table>
+</div>
+{% endmacro %}
+
+<!-- ── how each works ─────────────────────────────────────────────── -->
+<h2 class="h5 mb-3">The architectures</h2>
+<div class="row g-3 mb-4 small">
+  {% set seen = [] %}
+  {% for arms in [res.fresh.arms, res.dev30.arms] %}{% for key, label, group, desc, models in arms %}
+    {% if label not in seen %}{% set _ = seen.append(label) %}
+    <div class="col-md-6 col-lg-4">
+      <div class="card h-100"><div class="card-body py-2">
+        <div class="fw-semibold">{{ label }}</div>
+        <div class="text-muted mb-1">{{ models }}</div>
+        <div>{{ desc }}</div>
+      </div></div>
+    </div>
+    {% endif %}
+  {% endfor %}{% endfor %}
+  <div class="col-md-6 col-lg-4">
+    <div class="card h-100"><div class="card-body py-2">
+      <div class="fw-semibold">Procedure agent (strict / soft)</div>
+      <div class="text-muted mb-1">gpt-5-mini</div>
+      <div>Test writing split into phases (understand, pin the expected value, locate, write) with
+      separate contexts and gates (strict), or the same steps as one prompt (soft).</div>
+    </div></div>
+  </div>
+</div>
+
+<!-- ── 20 fresh bugs ─────────────────────────────────────────────── -->
+<h2 class="h5 mb-1">1 · 20 fresh bugs <span class="text-muted fw-normal small">primary comparison</span></h2>
+<p class="small text-muted mb-2">Rounds 4–5 of the development order; none was used to design anything;
+all 20 environments pass the gold check. All arms use gpt-5-mini for the test writer.</p>
+{{ arm_table(res.fresh) }}
+
+<!-- ── 30 development bugs ───────────────────────────────────────── -->
+<h2 class="h5 mb-1 mt-4">2 · 30 development bugs <span class="text-muted fw-normal small">secondary</span></h2>
+<p class="small text-muted mb-2">The bugs the procedure agent and scouts v1 were developed on; judge v2's rules
+were also derived from their L3 cases, so results here are optimistic for later designs.</p>
+{{ arm_table(res.dev30, res.dev30.procedure) }}
+
+<!-- ── judge and board ───────────────────────────────────────────── -->
+<h2 class="h5 mb-2 mt-4">3 · The judge and the board</h2>
+<div class="table-responsive mb-4">
+<table class="table table-sm small align-middle">
+  <thead class="table-light"><tr><th>Architecture</th><th>Bugs</th>
+    <th class="text-end">Judge checks</th><th class="text-end">Mismatches</th>
+    <th class="text-end">Bugs with a mismatch</th><th class="text-end">…ended 'match'</th>
+    <th>Board (blackboard only)</th></tr></thead>
+  <tbody>
+  {% for name, block in [('20 fresh', res.fresh), ('30 dev', res.dev30)] %}
+    {% for r in block.rows if r.judge or r.board %}
+    <tr>
+      <td>{{ r.label }}</td><td class="text-muted">{{ name }}</td>
+      {% if r.judge %}
+        <td class="text-end">{{ r.judge.checks }}</td><td class="text-end">{{ r.judge.mismatches }}</td>
+        <td class="text-end">{{ r.judge.bugs_with_mismatch }}</td><td class="text-end">{{ r.judge.ended_match }}</td>
+      {% else %}<td colspan="4"></td>{% endif %}
+      <td>
+        {% if r.board %}
+          {{ '%.1f'|format(r.board.entries_per_bug) }} entries per bug
+          ({% for a, v in r.board.by_author.items() %}{{ a }} {{ '%.1f'|format(v) }}{% if not loop.last %}, {% endif %}{% endfor %});
+          questions {{ r.board.questions }}, answered {{ r.board.answered }};
+          writer read the board {{ '%.1f'|format(r.board.writer_reads_per_bug) }}× per bug
+        {% else %}—{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<!-- ── per-bug matrices ──────────────────────────────────────────── -->
+<h2 class="h5 mb-2">4 · Bug by bug</h2>
+<div class="row g-4 mb-4">
+  {% for name, block in [('20 fresh bugs', res.fresh), ('30 development bugs', res.dev30)] %}
+  <div class="col-lg-6">
+    <div class="fw-semibold small mb-1">{{ name }}</div>
+    <table class="table table-sm small align-middle mb-0">
+      <thead class="table-light"><tr><th>Bug</th>
+        {% for a in block.arms %}<th class="text-center" title="{{ a[1] }}">{{ a[0] }}</th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for row in block.matrix %}
+        <tr><td class="text-nowrap">{{ row.id }}</td>
+          {% for v in row.cells %}<td class="text-center">{{ lvl(v) }}</td>{% endfor %}</tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- ── reading ───────────────────────────────────────────────────── -->
+<div class="card mb-4 border-0 bg-light"><div class="card-body small">
+  <div class="fw-semibold mb-1">How to read this</div>
+  <ul class="mb-0">
+    <li>No architecture so far has beaten the old single agent with the same writer model: the
+        procedure agent (strict 15, soft 20 vs 21), scouts v1 (19 vs 21) and v2 (16 vs 17) all
+        fail the rule. Every difference is within run-to-run variation.</li>
+    <li>The judge inside the writer's loop works mechanically (it objects and the writer revises), but
+        did not turn any L3 into L4. Half of the L3 tests follow the issue and fail only because the
+        benchmark's fix differs from what the issue asks, which no gold-free check can see.</li>
+    <li>On the fresh bugs the old agent already reaches 17/20, so small sets leave little to win.
+        The final evaluation (SWT-bench Lite, against ReProAgent with the same model) and the bugs the
+        single agent fails there are where multi-agent designs get a fair test.</li>
+  </ul>
+  <div class="text-muted mt-2">Plans and analyses (rules fixed before each run): studies/scouts/plan.md,
+    plan_v2.md, plan_blackboard.md; results/dev_comparison.md, v2_comparison.md,
+    gate2_l3_match_arm.md (branch agent/scouts).</div>
+</div></div>
+
+{% endblock %}
