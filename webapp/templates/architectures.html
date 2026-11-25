@@ -138,7 +138,8 @@ were also derived from their L3 cases, so results here are optimistic for later 
         {% if r.board %}
           {{ '%.1f'|format(r.board.entries_per_bug) }} entries per bug
           ({% for a, v in r.board.by_author.items() %}{{ a }} {{ '%.1f'|format(v) }}{% if not loop.last %}, {% endif %}{% endfor %});
-          questions {{ r.board.questions }}, answered {{ r.board.answered }};
+          questions {{ r.board.questions }}, answered {{ r.board.answered }}{% if r.board.routed %}
+          (routed to scouts {{ r.board.routed }}, answered {{ r.board.routed_answered }}){% endif %};
           writer read the board {{ '%.1f'|format(r.board.writer_reads_per_bug) }}× per bug
         {% else %}—{% endif %}
       </td>

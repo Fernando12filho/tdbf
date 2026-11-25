@@ -34,6 +34,10 @@ ARMS_DEV30 = [
     ("bb", "Blackboard", "bb-dev30",
      "Scouts and writer work at the same time and share findings on a structured board; "
      "writer with the in-loop judge v2; no organizer.", "nano scouts · mini writer/judge"),
+    ("rbb", "Reactive blackboard", "rbb-dev30",
+     "The blackboard with an automatic flow: new findings pushed into each agent's tool results, "
+     "the writer's test results auto-posted, rejections and crashes routed to the right scout as "
+     "questions, a 90 s soft start.", "nano scouts · mini writer/judge"),
 ]
 ARMS_FRESH = [
     ("base", "Old agent (single BRT agent)", "v2-base", ARMS_DEV30[0][3], "gpt-5-mini"),
@@ -44,6 +48,7 @@ ARMS_FRESH = [
      "Scouts v1's structure with gpt-5-nano scouts and organizer, then the writer loop.",
      "nano scouts · mini writer/judge"),
     ("bb", "Blackboard", "bb-fresh", ARMS_DEV30[3][3], "nano scouts · mini writer/judge"),
+    ("rbb", "Reactive blackboard", "rbb-fresh", ARMS_DEV30[4][3], "nano scouts · mini writer/judge"),
 ]
 
 # Quoted from agent/procedure@c797b2f studies/issue-info-tests/results/dev_comparison.md.
@@ -149,7 +154,10 @@ def _board_stats(recs: dict[str, dict]) -> dict | None:
         for k, v in b["board"]["by_author"].items():
             by_author[k] = by_author.get(k, 0) + v
     writer_reads = sum(b["board"]["reads"].get("writer", 0) for b in bbs)
+    routed = sum(b["board"].get("routed", 0) for b in bbs)
+    routed_ans = sum(b["board"].get("routed_answered", 0) for b in bbs)
     return {"bugs": n, "entries_per_bug": ent / n, "questions": q, "answered": ans,
+            "routed": routed, "routed_answered": routed_ans,
             "by_author": {k: v / n for k, v in sorted(by_author.items())},
             "writer_reads_per_bug": writer_reads / n,
             "scouts_cost": sum((b.get("cost_usd") or 0) for b in bbs)}
