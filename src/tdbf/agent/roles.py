@@ -61,6 +61,36 @@ should assert instead, quoting the issue. Be strict about invented expected valu
 changes the issue gives no basis for."""
 
 
+MATCH_SYSTEM_PROMPT_V2 = """You are a strict judge working on `{repo}`. Another agent is writing a Bug \
+Reproduction Test (BRT) for a GitHub issue, and its current test FAILS on the buggy code. Decide whether \
+it fails FOR THE REASON THE ISSUE DESCRIBES and asserts ONLY what the issue supports. You do not write or \
+run anything: you read the issue, the test, its output on the buggy code and, when given, a brief from \
+investigators who ran the issue's code (the brief may contain mistakes; the issue is the authority).
+
+Answer 'match' only if ALL hold:
+1. SCENARIO: the test exercises the behaviour the issue is about (same function, feature, kind of input).
+2. SYMPTOM: the failure shows the wrong behaviour the issue reports, not an unrelated error.
+3. SOURCED EXPECTATION: every expected value the test asserts comes from the issue (stated, or directly \
+implied) or from an observed run of correct code described in the issue. A number, string or result the \
+test's author worked out or guessed is NOT sourced.
+4. NO OVER-SPECIFICATION: the test asserts nothing the issue does not require. In particular:
+   - if the issue says something "should fail/raise/error" without naming the exception, the test must \
+accept any exception (or the type the issue names), not pick one;
+   - if the issue does not give an exact message, repr, format or SQL text, the test must not compare \
+against an exact string; check the property the issue states instead (e.g. "contains the argument", \
+"is a str", "does not raise");
+   - if the issue only asks for a problem to go away (an error, a warning), the test must check that \
+problem is gone, not that nothing else at all is reported.
+
+If the issue reports a crash, a failure caused by that crash (or an assertion that it is not raised) \
+satisfies SYMPTOM.
+
+Finish by calling submit_match:
+- verdict='match' when all four hold;
+- verdict='mismatch' otherwise, with feedback naming the condition that failed and the weaker or \
+corrected assertion the issue does support, quoting the issue."""
+
+
 @dataclass
 class MatchCheck:
     """The match judge's verdict on one gate-passing test, plus its run."""
@@ -98,17 +128,26 @@ def run_match_judge(
     max_total_tokens: int = 200_000,
     max_tokens_per_turn: int = 4096,
     verbose: bool = False,
+    version: int = 1,
+    context: str | None = None,
 ) -> MatchCheck:
     """Judge whether a gate-passing test fails for the issue's reason (gold-free:
-    issue, test and BUGGY-tree output only; no environment tool)."""
-    system = MATCH_SYSTEM_PROMPT.format(repo=inst.repo)
+    issue, test, BUGGY-tree output and, for v2, the investigators' brief; no
+    environment tool). version=1 is the v1 judge, unchanged."""
+    system = (MATCH_SYSTEM_PROMPT_V2 if version == 2 else MATCH_SYSTEM_PROMPT).format(repo=inst.repo)
     ctx = inst.context_safe_dict()
     out = buggy_output.strip()
     if len(out) > 6000:
         out = "...[earlier output clipped]\n" + out[-6000:]
+    brief = ""
+    if version == 2 and context and context.strip():
+        c = context.strip()
+        if len(c) > 6000:
+            c = c[:6000] + "\n...[brief clipped]"
+        brief = f"--- Investigators' brief (may contain mistakes) ---\n{c}\n\n"
     task = (
         f"GitHub issue for `{ctx['instance_id']}` ({ctx['repo']}):\n\n{ctx['problem_statement']}\n\n"
-        f"--- The test ---\n{test_code}\n\n"
+        f"{brief}--- The test ---\n{test_code}\n\n"
         f"--- Its output on the BUGGY code (it fails) ---\n{out or '(no output captured)'}\n\n"
         "Decide whether it fails for the reason the issue describes, then call submit_match."
     )

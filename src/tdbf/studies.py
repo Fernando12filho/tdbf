@@ -31,6 +31,7 @@ from dataclasses import dataclass
 NEMOTRON_FREE = "openrouter:nvidia/nemotron-3-super-120b-a12b:free"
 GPT_4O_MINI = "openrouter:openai/gpt-4o-mini-2024-07-18@openai"
 GPT_5_MINI = "openrouter:openai/gpt-5-mini@openai"
+GPT_5_NANO = "openrouter:openai/gpt-5-nano@openai"
 
 PURPOSES = ("experiment", "pilot", "development")
 
@@ -93,6 +94,16 @@ STUDIES: tuple[Study, ...] = (
                     "capped at 20 turns (most hit the cap); scouts-dev-full-s100 re-runs "
                     "the full arm on all 30 with scouts capped at 100 turns (user decision "
                     "2026-11-24). Development results, reported as such."),
+    Study(
+        name="scouts-dev-v2", purpose="development",
+        run_groups=("v2-base", "v2-loop", "v2-full"),
+        models=(GPT_5_MINI, GPT_5_NANO), frozen=False,
+        samples=("studies/scouts/data/dev_round4.json", "studies/scouts/data/dev_round5.json"),
+        description="Scouts v2 (studies/scouts/plan_v2.md) on 20 fresh development bugs "
+                    "(rounds 4-5 of the procedure study's order): v2-base = the old BRT agent; "
+                    "v2-loop = the BRT agent with judge v2 inside its loop (check_test + "
+                    "guarded submit_test); v2-full = gpt-5-nano scouts and organizer, then the "
+                    "same writer loop. Writer and judge gpt-5-mini. Development results."),
     Study(
         name="dev-sonnet-gate-fix", purpose="development",
         run_groups=("gate-fix", "gate-fix-aborted"),

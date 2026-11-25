@@ -235,7 +235,8 @@ def run_organizer(inst: SWEBenchInstance, client: LLMClient, scouts: dict[str, R
 
 def run_scouts(inst: SWEBenchInstance, clients: dict[str, LLMClient], *,
                scout_max_iterations: int = 20, max_total_tokens: int = 1_000_000,
-               max_tokens_per_turn: int = 8192, verbose: bool = False) -> ScoutsResult:
+               max_tokens_per_turn: int = 8192, scout_max_tokens: int | None = None,
+               verbose: bool = False) -> ScoutsResult:
     """Run the three scouts in parallel, then the organizer. If the organizer
     produces no brief, the scouts' raw reports are passed on instead, so the test
     writer is never left with less than the scouts found."""
@@ -244,7 +245,7 @@ def run_scouts(inst: SWEBenchInstance, clients: dict[str, LLMClient], *,
     with ThreadPoolExecutor(max_workers=len(SCOUT_ROLES)) as pool:
         futs = {role: pool.submit(run_scout, inst, role, clients[role],
                                   max_iterations=scout_max_iterations,
-                                  max_total_tokens=max_total_tokens,
+                                  max_total_tokens=scout_max_tokens or max_total_tokens,
                                   max_tokens_per_turn=max_tokens_per_turn, verbose=verbose)
                 for role in SCOUT_ROLES}
         scouts = {role: f.result() for role, f in futs.items()}
@@ -270,19 +271,33 @@ def run_scouts_brt_phase(inst: SWEBenchInstance, clients: dict[str, LLMClient], 
                          max_iterations: int, max_total_tokens: int, max_tokens_per_turn: int,
                          scout_max_iterations: int = 20, match_retries: int = 3,
                          brt_retries: int = 2, use_scouts: bool = True,
-                         verbose: bool = False):
+                         writer_loop: bool = False, scout_max_tokens: int | None = None,
+                         max_mismatches: int = 3, verbose: bool = False):
     """The new Phase A. `use_scouts=False` is the match-only arm: the unchanged BRT
     agent plus gate 2, no scouts and no brief (separates the two changes).
+
+    `writer_loop=True` is v2: the judge (v2) runs INSIDE the writer's loop
+    (check_test + guarded submit_test, with the brief as the judge's context)
+    instead of the v1 outer retry loop.
 
     Returns (ScoutsResult | None, BrtPhaseResult | None)."""
     scouts = run_scouts(inst, clients, scout_max_iterations=scout_max_iterations,
                         max_total_tokens=max_total_tokens,
                         max_tokens_per_turn=max_tokens_per_turn,
+                        scout_max_tokens=scout_max_tokens,
                         verbose=verbose) if use_scouts else None
-    phase = run_brt_phase(
-        inst, clients["writer"], max_iterations=max_iterations,
-        max_total_tokens=max_total_tokens, max_tokens_per_turn=max_tokens_per_turn,
-        brt_retries=brt_retries, verbose=verbose,
-        brief=scouts.brief if scouts else None,
-        match_client=clients["judge"], match_retries=match_retries)
+    brief = scouts.brief if scouts else None
+    if writer_loop:
+        phase = run_brt_phase(
+            inst, clients["writer"], max_iterations=max_iterations,
+            max_total_tokens=max_total_tokens, max_tokens_per_turn=max_tokens_per_turn,
+            brt_retries=brt_retries, verbose=verbose, brief=brief,
+            writer_judge_client=clients["judge"], judge_context=brief,
+            max_mismatches=max_mismatches)
+    else:
+        phase = run_brt_phase(
+            inst, clients["writer"], max_iterations=max_iterations,
+            max_total_tokens=max_total_tokens, max_tokens_per_turn=max_tokens_per_turn,
+            brt_retries=brt_retries, verbose=verbose, brief=brief,
+            match_client=clients["judge"], match_retries=match_retries)
     return scouts, phase

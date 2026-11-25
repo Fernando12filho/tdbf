@@ -38,8 +38,14 @@ from tdbf.agent.roles import _parse_match  # noqa: E402
 from tdbf.agent.runtime import AgentResult  # noqa: E402
 from tdbf.agent.session import ExecResult  # noqa: E402
 from tdbf.agent.tools import (  # noqa: E402
+    CheckTestTool,
     EditFileTool,
+    GuardedSubmitTestTool,
+    MatchLoopState,
     RunBrtTool,
+    RunTestTool,
+    assert_writer_v2_gold_free,
+    writer_v2_agent_tools,
     SubmitMatchTool,
     assert_match_gold_free,
     assert_organizer_gold_free,
@@ -217,7 +223,8 @@ def test_baseline_record_unchanged() -> None:
     assert "match_checks" not in rec["attempts"][0] and "match_cost_usd" not in rec["attempts"][0]
     assert "brt_retries" not in rec
     assert pipeline.BRIEF_HEADER.strip()[:20] not in writer.tasks[0]
-    assert phase.match_checks == [] and phase.match_cost_usd is None
+    assert phase.match_checks == [] and phase.match_cost_usd is None and phase.match_loop is None
+    assert "match_loop" not in rec["attempts"][0]
 
 
 # ── the full scouts flow ──────────────────────────────────────────────────────
@@ -286,11 +293,98 @@ def test_match_only_arm() -> None:
     assert [c["verdict"] for c in phase.match_checks] == ["match"]
 
 
+# ── v2: the judge inside the writer's loop ───────────────────────────────────
+
+class ScriptedWriter:
+    """Writer that makes the given tool calls in order (name, args)."""
+
+    name = "fake:writer"
+
+    def __init__(self, steps: list) -> None:
+        self.steps = steps
+        self.calls = 0
+        self.system = ""
+        self.results: list[str] = []
+
+    def run_tools(self, *, system, messages, tools, max_tokens=4096) -> ToolUseResponse:
+        self.system = system
+        if messages and messages[-1].role == "tool":
+            self.results.append(str(messages[-1].content))
+        name, args = self.steps[min(self.calls, len(self.steps) - 1)]
+        self.calls += 1
+        assert name in {t.name for t in tools}, (name, sorted(t.name for t in tools))
+        return _resp(name, args, f"s{self.calls}", 5000, 100)
+
+
+def test_writer_v2_registry() -> None:
+    sess = PipelineFakeSession()
+    st = MatchLoopState(lambda c, o: ("match", ""))
+    names = {t.name for t in writer_v2_agent_tools(sess, st)}
+    assert names == {"read_file", "grep", "glob", "run_python", "check_test", "submit_test"}, names
+    for bad in (RunTestTool(sess), RunBrtTool(sess, "x"), EditFileTool(sess)):
+        try:
+            assert_writer_v2_gold_free([bad])
+            raise AssertionError(f"writer v2 guard must reject {bad.name}")
+        except ValueError:
+            pass
+
+
+def test_check_test_and_guarded_submit() -> None:
+    sess = GateSession()
+    verdicts = iter([("mismatch", "the issue says 5")])
+    st = MatchLoopState(lambda code, out: next(verdicts, ("match", "")), max_mismatches=3)
+    check, submit = CheckTestTool(sess, st), GuardedSubmitTestTool(sess, st)
+    r = check.execute({"code": _TEST_A})
+    assert "verdict=MISMATCH (1/3)" in r.content and "the issue says 5" in r.content, r.content
+    refused = submit.execute({"code": _TEST_A})
+    assert refused.is_error and "MISMATCH" in refused.content
+    r = check.execute({"code": _TEST_B})
+    assert "verdict=match" in r.content
+    ok = submit.execute({"code": _TEST_B})
+    assert not ok.is_error and ok.content == _TEST_B and not st.submitted_unverified
+    # a test that passes on buggy code is never shown to the judge
+    seen = []
+    st2 = MatchLoopState(lambda c, o: seen.append(c) or ("match", ""))
+    r = CheckTestTool(sess, st2).execute({"code": _TEST_PASSES})
+    assert "not consulted" in r.content and not seen
+    # refusals are bounded so forced closing turns can still submit (flagged)
+    st3 = MatchLoopState(lambda c, o: ("match", ""), max_refusals=2)
+    sub3 = GuardedSubmitTestTool(sess, st3)
+    assert sub3.execute({"code": _TEST_A}).is_error and sub3.execute({"code": _TEST_A}).is_error
+    assert not sub3.execute({"code": _TEST_A}).is_error and st3.submitted_unverified
+
+
+def test_writer_loop_in_run_brt_phase() -> None:
+    _fake_gold()
+    writer = ScriptedWriter([("check_test", {"code": _TEST_A}), ("check_test", {"code": _TEST_B}),
+                             ("submit_test", {"code": _TEST_B})])
+    judge = RoleClient("judge", [("mismatch", "The issue says 5, not 6."), ("match", "")])
+    phase = pipeline.run_brt_phase(_INST, writer, max_iterations=6, max_total_tokens=300_000,
+                                   writer_judge_client=judge, judge_context="BRIEF: expect 5")
+    assert phase.submission == _TEST_B and phase.level == 4
+    assert [c["verdict"] for c in phase.match_checks] == ["mismatch", "match"]
+    assert phase.match_loop == {"attempts": 1, "checks": 2, "mismatches": 1, "refusals": 0,
+                                "final_matched": True, "submitted_unverified": False}, phase.match_loop
+    assert "check_test" in writer.system and "run_test" not in writer.system
+    assert "Investigators' brief" in judge.tasks[0] and "BRIEF: expect 5" in judge.tasks[0]
+    assert "The issue says 5, not 6." in writer.results[0], "the verdict must reach the writer"
+    rec = pipeline.brt_run_record(_INST, writer.name, split="lite", flags={}, phase=phase)
+    assert rec["attempts"][0]["match_loop"]["final_matched"] is True
+    _no_leak(rec, judge.tasks, writer.results)
+    try:
+        pipeline.run_brt_phase(_INST, writer, max_iterations=2, max_total_tokens=1000,
+                               writer_judge_client=judge, match_client=judge)
+        raise AssertionError("in-loop and outer judge together must be refused")
+    except ValueError:
+        pass
+
+
 def main() -> int:
     tests = [test_registries_gold_free, test_submit_match_and_failopen,
              test_match_retry_then_match, test_match_budget, test_fallback_to_last_gate_pass,
              test_baseline_record_unchanged, test_scouts_flow, test_scout_crash_and_no_brief,
-             test_match_only_arm]
+             test_match_only_arm, test_writer_v2_registry, test_check_test_and_guarded_submit,
+             test_writer_loop_in_run_brt_phase]
     for t in tests:
         t()
         print(f"  ok  {t.__name__}")

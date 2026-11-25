@@ -7,6 +7,14 @@ gold-free, retried with the judge's feedback):
   --arm full    Template Generator, Edit Localizer and Issue Reproducer in
                 parallel, the Organizer's brief, then the BRT agent + gate 2
 
+v2 (studies/scouts/plan_v2.md): the judge (v2) runs INSIDE the writer's loop
+(check_test + guarded submit_test) instead of the outer retry loop:
+
+  --arm base    the old BRT agent, unchanged (the reference on new bugs)
+  --arm loop    the BRT agent with the in-loop judge, no scouts
+  --arm full2   scouts + organizer, then the BRT agent with the in-loop judge
+                (give the scouts and organizer a cheaper model with --role-model)
+
 Every role gets its own client. By default all roles use --model; override one
 with --role-model ROLE=SPEC (roles: template localizer reproducer organizer
 writer judge). The run group must be registered in src/tdbf/studies.py, and every
@@ -77,18 +85,32 @@ def run_one(inst, args, clients: dict, out_dir: Path) -> float | None:
     from tdbf.agent.pipeline import brt_run_record, brt_transcript_dict, serialise_messages
     from tdbf.agent.scouts import run_scouts_brt_phase
 
+    from tdbf.agent.pipeline import run_brt_phase
+
     print(f"\n{'=' * 60}\n{inst.instance_id}  ({inst.repo})  arm={args.arm}", flush=True)
     t0 = time.monotonic()
-    sres, phase = run_scouts_brt_phase(
-        inst, clients, max_iterations=args.total_turns, max_total_tokens=args.max_tokens,
-        max_tokens_per_turn=args.max_tokens_per_turn, scout_max_iterations=args.scout_turns,
-        match_retries=args.match_retries, use_scouts=(args.arm == "full"), verbose=args.verbose)
+    if args.arm == "base":
+        sres = None
+        phase = run_brt_phase(inst, clients["writer"], max_iterations=args.total_turns,
+                              max_total_tokens=args.max_tokens,
+                              max_tokens_per_turn=args.max_tokens_per_turn, verbose=args.verbose)
+    else:
+        sres, phase = run_scouts_brt_phase(
+            inst, clients, max_iterations=args.total_turns, max_total_tokens=args.max_tokens,
+            max_tokens_per_turn=args.max_tokens_per_turn, scout_max_iterations=args.scout_turns,
+            match_retries=args.match_retries, use_scouts=args.arm in ("full", "full2"),
+            writer_loop=args.arm in ("loop", "full2"), scout_max_tokens=args.scout_max_tokens,
+            max_mismatches=args.max_mismatches, verbose=args.verbose)
     if phase is None:
         return None
     total = _total(phase.cost_usd, phase.match_cost_usd, sres.cost_usd if sres else None)
     flags = {"arm": args.arm, "pipeline": "scouts", "turn_budget": args.total_turns,
              "scout_turn_budget": args.scout_turns if sres else None,
-             "match_retries": args.match_retries, "max_tokens_per_turn": args.max_tokens_per_turn,
+             "match_retries": args.match_retries if args.arm in ("match", "full") else None,
+             "writer_loop": args.arm in ("loop", "full2"),
+             "max_mismatches": args.max_mismatches if args.arm in ("loop", "full2") else None,
+             "scout_max_tokens": args.scout_max_tokens if sres else None,
+             "max_tokens_per_turn": args.max_tokens_per_turn,
              "max_total_tokens": args.max_tokens, "max_iterations": args.total_turns,
              "submit_nudge_limit": phase.submit_nudge_limit,
              "role_models": {r: c.name for r, c in clients.items()}}
@@ -104,6 +126,7 @@ def run_one(inst, args, clients: dict, out_dir: Path) -> float | None:
 
     tr = brt_transcript_dict(inst, clients["writer"].name, phase)
     tr["match_checks"] = phase.match_checks
+    tr["match_loop"] = phase.match_loop
     if sres is not None:
         tr["scouts"] = {r.role: {"report": r.report, "error": r.error,
                                  "messages": serialise_messages(r.agent.messages) if r.agent else []}
@@ -121,10 +144,10 @@ def run_one(inst, args, clients: dict, out_dir: Path) -> float | None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--arm", choices=["match", "full"], required=True)
+    ap.add_argument("--arm", choices=["match", "full", "base", "loop", "full2"], required=True)
     ap.add_argument("--ids", nargs="*", default=[])
-    ap.add_argument("--bugs-file", type=Path, default=DEFAULT_BUGS,
-                    help="JSON with instance_ids (default: the 30 development bugs)")
+    ap.add_argument("--bugs-file", type=Path, nargs="+", default=[DEFAULT_BUGS],
+                    help="JSON file(s) with instance_ids (default: the 30 development bugs)")
     ap.add_argument("--limit", type=int, default=0, help="only the first N instances to do")
     ap.add_argument("--model", required=True, help="default model spec for every role")
     ap.add_argument("--role-model", action="append", default=[], metavar="ROLE=SPEC")
@@ -132,7 +155,11 @@ def main() -> int:
     ap.add_argument("--split", default="lite")
     ap.add_argument("--total-turns", type=int, default=50, help="turns per writer attempt")
     ap.add_argument("--scout-turns", type=int, default=20, help="turns per scout")
-    ap.add_argument("--match-retries", type=int, default=3)
+    ap.add_argument("--match-retries", type=int, default=3, help="v1 outer judge loop")
+    ap.add_argument("--max-mismatches", type=int, default=3,
+                    help="v2: judge mismatches after which submit_test is accepted (flagged)")
+    ap.add_argument("--scout-max-tokens", type=int, default=None,
+                    help="token ceiling per scout (default: --max-tokens)")
     ap.add_argument("--max-tokens", type=int, default=1_000_000)
     ap.add_argument("--max-tokens-per-turn", type=int, default=8192)
     ap.add_argument("--max-usd", type=float, default=6.0)
@@ -140,7 +167,10 @@ def main() -> int:
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
-    ids = list(args.ids) or json.loads(args.bugs_file.read_text())["instance_ids"]
+    ids = list(args.ids)
+    if not ids:
+        for f in args.bugs_file:
+            ids += json.loads(f.read_text())["instance_ids"]
     specs = role_specs(args.model, args.role_model)
     clients = {role: build_client(spec) for role, spec in specs.items()}  # one object per role
     use_run_group(args.run_group, clients["writer"].name)  # refuses before any model call

@@ -658,6 +658,126 @@ class SubmitReviewTool(Tool):
         return ToolResult(json.dumps({"verdict": verdict, "feedback": feedback}))
 
 
+class MatchLoopState:
+    """Shared by check_test and the guarded submit_test in ONE writer attempt.
+
+    `judge(code, buggy_output) -> (verdict, feedback)` is injected by the caller
+    (pipeline), so the tool layer never holds a model client. Codes are compared
+    after strip(): the exact code a 'match' was given for is what may be submitted."""
+
+    def __init__(self, judge, *, max_mismatches: int = 3, max_refusals: int = 2) -> None:
+        self.judge = judge
+        self.max_mismatches = max_mismatches
+        self.max_refusals = max_refusals
+        self.module = _BrtModuleState()
+        self.matched: set[str] = set()
+        self.verdicts: dict[str, tuple[str, str]] = {}
+        self.mismatches = 0
+        self.refusals = 0
+        self.submitted_unverified = False
+
+    @staticmethod
+    def key(code: str) -> str:
+        return str(code).strip()
+
+
+class CheckTestTool(RunTestTool):
+    """run_test, and when the test fails at an assertion (or, Django, with the
+    code under test raising), the match judge's verdict in the same result. The
+    writer refines inside its own conversation until the verdict is 'match'."""
+
+    name = "check_test"
+    description = (
+        "Write the given pytest test into the repository, run it against the BUGGY code and, if it "
+        "fails at its assertion, have a reviewer check that the failure matches the issue. Returns "
+        "the outcome (fail/pass/error), the pytest output and, for an assertion failure, the "
+        "reviewer's verdict: 'match' (it fails for the issue's reason and asserts only what the "
+        "issue supports) or 'mismatch' with what to change. Iterate until the verdict is 'match'. "
+        "The test is NOT run against any fixed code."
+    )
+    DJANGO_DESCRIPTION = (
+        "Write the given test module to tests/<module>/test_brt.py, run it with Django's own test "
+        "runner (./tests/runtests.py <module>.test_brt) against the BUGGY code and, if it fails with "
+        "failure_reason 'assertion' or 'exception', have a reviewer check that the failure matches "
+        "the issue. Returns outcome, failure_reason, the output and the reviewer's verdict: 'match' "
+        "or 'mismatch' with what to change. Iterate until the verdict is 'match'. The test is NOT "
+        "run against any fixed code."
+    )
+
+    def __init__(self, session: ContainerSession, state: MatchLoopState) -> None:
+        super().__init__(session, state.module)
+        self.loop = state
+
+    def execute(self, arguments: dict) -> ToolResult:
+        code = arguments.get("code", "")
+        if not str(code).strip():
+            return ToolResult("check_test requires non-empty 'code'.", is_error=True)
+        if native_brt(self.session.repo):
+            module, err = _resolve_module(self.session, arguments.get("module"), str(code),
+                                          self.loop.module)
+            if err:
+                return ToolResult(err, is_error=True)
+            self.loop.module.module = module
+            code = set_brt_module(str(code), module)
+        result, res = run_brt_in_session(self.session, str(code))
+        out = clean_brt_output(self.session.repo, res.output)
+        header = f"outcome={result.outcome}" + (
+            f" failure_reason={result.failure_reason}" if result.failure_reason else "")
+        body = f"{header}\n\n{_clip(out)}"
+        if not (result.outcome == "fail" and result.failure_reason != "runtime"):
+            return ToolResult(body + "\n\nreviewer: not consulted — the test must FAIL on the buggy "
+                                     "code at its assertion first.")
+        verdict, feedback = self.loop.judge(str(code), out)
+        key = self.loop.key(code)
+        self.loop.verdicts[key] = (verdict, feedback)
+        if verdict == "match":
+            self.loop.matched.add(key)
+            return ToolResult(body + "\n\nreviewer: verdict=match — this exact test may be "
+                                     "submitted with submit_test.")
+        self.loop.mismatches += 1
+        return ToolResult(body + f"\n\nreviewer: verdict=MISMATCH ({self.loop.mismatches}/"
+                                 f"{self.loop.max_mismatches}) — {feedback}\nRevise the test and "
+                                 "run check_test again.")
+
+
+class GuardedSubmitTestTool(SubmitTestTool):
+    """submit_test that accepts only code a check_test judged 'match'. After
+    `max_mismatches` mismatches, or `max_refusals` refusals (so the runtime's
+    forced-submit closing turns can still end the run), it accepts and flags it."""
+
+    description = (
+        "Submit your final Bug Reproduction Test and finish. Accepted only for the exact code that "
+        "check_test last judged 'match'. Provide the complete test module source."
+    )
+    DJANGO_DESCRIPTION = (
+        "Submit your final Bug Reproduction Test and finish. Accepted only for the exact code that "
+        "check_test judged 'match'. Provide the complete test module source and the same `module` "
+        "you ran it in."
+    )
+
+    def __init__(self, session: ContainerSession, state: MatchLoopState) -> None:
+        super().__init__(session, state.module)
+        self.loop = state
+
+    def execute(self, arguments: dict) -> ToolResult:
+        res = super().execute(arguments)
+        if res.is_error:
+            return res
+        key = self.loop.key(res.content)
+        if key in self.loop.matched:
+            return res
+        if (self.loop.mismatches >= self.loop.max_mismatches
+                or self.loop.refusals >= self.loop.max_refusals):
+            self.loop.submitted_unverified = True
+            return res
+        self.loop.refusals += 1
+        last = self.loop.verdicts.get(key)
+        why = (f"the reviewer said MISMATCH for this code: {last[1]}" if last
+               else "check_test has not judged this exact code")
+        return ToolResult(f"submit_test refused: {why}. Run check_test on the test and submit the "
+                          "exact code it judges 'match'.", is_error=True)
+
+
 class SubmitMatchTool(Tool):
     """Terminal tool for the match judge: does the test's failure match the issue?"""
 
@@ -834,6 +954,11 @@ _SCOUT_TOOL_NAMES = frozenset(
 # The organizer and the match judge reason over text they are given: no
 # environment tool at all, only their terminal tool.
 _ORGANIZER_TOOL_NAMES = frozenset({"submit_brief"})
+
+# Scouts v2 test writer: the BRT agent's tools with run_test replaced by
+# check_test (buggy-tree run + the gold-free match judge) and a guarded submit.
+_WRITER_V2_TOOL_NAMES = frozenset(
+    {"read_file", "grep", "glob", "run_python", "check_test", "submit_test"})
 _MATCH_TOOL_NAMES = frozenset({"submit_match"})
 
 # The reactive baseline (RQ1 Arm A) is the fix agent WITHOUT run_brt — nothing
@@ -935,6 +1060,26 @@ def scout_agent_tools(session: ContainerSession, role: str) -> list[Tool]:
         tools.append(RunTestTool(session, _BrtModuleState()))
     tools.append(SubmitReportTool(name, desc))
     assert_scout_gold_free(tools)
+    return tools
+
+
+def assert_writer_v2_gold_free(tools: list[Tool]) -> None:
+    """Guard the v2 writer: buggy-tree tools, check_test, guarded submit_test."""
+    _assert_allowed(tools, _WRITER_V2_TOOL_NAMES)
+
+
+def writer_v2_agent_tools(session: ContainerSession, state: MatchLoopState) -> list[Tool]:
+    """The v2 test writer's toolset: run_test becomes check_test, submit_test is
+    guarded by the judge's verdict. One `state` per writer attempt."""
+    tools: list[Tool] = [
+        ReadFileTool(session),
+        GrepTool(session),
+        GlobTool(session),
+        RunPythonTool(session),
+        CheckTestTool(session, state),
+        GuardedSubmitTestTool(session, state),
+    ]
+    assert_writer_v2_gold_free(tools)
     return tools
 
 

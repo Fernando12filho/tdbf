@@ -44,7 +44,8 @@ from .roles import (Break, Review, Selection, run_breaker, run_critic, run_match
                     run_reviewer, run_selector)
 from .runtime import Agent, AgentResult
 from .session import ContainerSession
-from .tools import brt_agent_tools, fix_agent_tools, reactive_fix_agent_tools, run_brt_in_session
+from .tools import (MatchLoopState, brt_agent_tools, fix_agent_tools, reactive_fix_agent_tools,
+                    run_brt_in_session, writer_v2_agent_tools)
 
 # Pricing lives in tdbf.pricing so this module and metrics.py cost runs
 # identically (re-exported here: callers and smokes import it from pipeline).
@@ -209,6 +210,8 @@ def brt_run_record(
     if phase.match_checks:  # scouts architecture only — other records stay byte-identical
         attempt["match_checks"] = phase.match_checks
         attempt["match_cost_usd"] = phase.match_cost_usd
+    if phase.match_loop is not None:
+        attempt["match_loop"] = phase.match_loop
     rec = {
         "instance_id": inst.instance_id,
         "repo": inst.repo,
@@ -427,6 +430,8 @@ class BrtPhaseResult:
     # match_client), and the judge's own cost (not in `cost_usd`, the writer's).
     match_checks: list = None  # type: ignore[assignment]
     match_cost_usd: float | None = None
+    # Scouts v2 in-loop judge summary (None unless writer_judge_client was set).
+    match_loop: dict | None = None
 
     @property
     def level(self) -> int:
@@ -504,6 +509,17 @@ def _brt_retry_feedback(outcome_buggy, submission: str | None, failure_reason: s
             f"{why}\n\nTry again.")
 
 
+WRITER_LOOP_ADDENDUM = """
+
+Reviewer loop (this run):
+- check_test runs your test on the buggy code like a normal test run and, when it fails at its \
+assertion, a reviewer compares the failure with the issue. It answers verdict=match, or MISMATCH with \
+what to change: usually an expected value the issue does not support, or an assertion stricter than \
+the issue (a specific exception type, an exact message or format the issue never states).
+- Revise and run check_test again until the verdict is match. submit_test accepts only the exact code \
+that check_test judged match."""
+
+
 BRIEF_HEADER = (
     "\n\n--- Test brief from the investigators ---\n"
     "Three agents investigated this issue in this repository before you (how tests are written "
@@ -548,6 +564,9 @@ def run_brt_phase(
     match_client: LLMClient | None = None,
     match_retries: int = 0,
     match_max_iterations: int = 3,
+    writer_judge_client: LLMClient | None = None,
+    judge_context: str | None = None,
+    max_mismatches: int = 3,
 ) -> BrtPhaseResult | None:
     """Run the BRT agent (gold-free) then score its test through the gold barrier.
 
@@ -558,6 +577,12 @@ def run_brt_phase(
     'mismatch' the agent re-runs with the judge's feedback, up to `match_retries`
     times. Gate failures keep their own `brt_retries` budget. If a retry ends on a
     test that fails gate 1, the most recent gate-passing test is kept instead.
+
+    Scouts v2 (default off): `writer_judge_client` puts the judge INSIDE the
+    writer's loop. run_test becomes check_test (buggy run + judge v2 verdict in one
+    result, with `judge_context`, e.g. the brief) and submit_test accepts only code
+    judged 'match' (or after `max_mismatches` mismatches, flagged). Gate 1 stays the
+    final executed check; the outer match loop is not used with it.
 
     `score_fixed=True` (default; used by 04/06) runs the test on BOTH the buggy and
     the gold-fixed tree and assigns an L0-L4 label. `score_fixed=False` (the
@@ -588,6 +613,11 @@ def run_brt_phase(
     )
     if prompt_harden:
         system += PROMPT_HARDEN
+    if writer_judge_client is not None:
+        if match_client is not None:
+            raise ValueError("writer_judge_client (in-loop judge) and match_client (outer "
+                             "judge loop) are alternatives; pass one")
+        system = system.replace("run_test", "check_test") + WRITER_LOOP_ADDENDUM
     ctx = inst.context_safe_dict()
     task = (
         f"GitHub issue for instance `{ctx['instance_id']}` "
@@ -613,9 +643,37 @@ def run_brt_phase(
     failure_reason_buggy = None
     classification = None
 
+    loop_states: list = []
+    judge_bill0 = billed_mark(writer_judge_client) if writer_judge_client is not None else None
+    judge_tok = [0, 0]
+
+    def _judge(code: str, buggy_out: str):
+        # In-loop judge v2 (gold-free: issue, brief, test, BUGGY output).
+        check = run_match_judge(inst, writer_judge_client, test_code=code, buggy_output=buggy_out,
+                                max_iterations=match_max_iterations,
+                                max_total_tokens=max_total_tokens,
+                                max_tokens_per_turn=max_tokens_per_turn, verbose=verbose,
+                                version=2, context=judge_context)
+        judge_tok[0] += check.agent.total_input_tokens
+        judge_tok[1] += check.agent.total_output_tokens
+        match_checks.append({"attempt": len(loop_states), "verdict": check.verdict,
+                             "feedback": check.feedback, "stop_cause": check.agent.stop_cause,
+                             "input_tokens": check.agent.total_input_tokens,
+                             "output_tokens": check.agent.total_output_tokens})
+        print(f"    [check_test] judge: {check.verdict}"
+              + (f" — {check.feedback[:200]}" if check.feedback else ""))
+        return check.verdict, check.feedback
+
+    def _writer_tools():
+        if writer_judge_client is None:
+            return brt_agent_tools(session)  # gold-free set + assert_gold_free guard
+        state = MatchLoopState(_judge, max_mismatches=max_mismatches)
+        loop_states.append(state)
+        return writer_v2_agent_tools(session, state)  # + assert_writer_v2_gold_free
+
     def _run_brt_agent(run_task: str):
         a = Agent(
-            client, brt_agent_tools(session), system,  # gold-free set + assert_gold_free guard
+            client, _writer_tools(), system,
             max_iterations=max_iterations,
             max_total_tokens=max_total_tokens,
             max_tokens_per_turn=max_tokens_per_turn,
@@ -718,8 +776,11 @@ def run_brt_phase(
                        else "L0 (no usable test)")
                 print(f"  BRT does not reproduce the bug — {bad}. "
                       f"Retrying with feedback ({gate_used}/{brt_retries}).")
-                run_task = task + _brt_retry_feedback(
-                    outcome_buggy, submission, failure_reason_buggy, native=native)
+                fb = _brt_retry_feedback(outcome_buggy, submission, failure_reason_buggy,
+                                         native=native)
+                if writer_judge_client is not None:
+                    fb = fb.replace("run_test", "check_test")
+                run_task = task + fb
                 continue
             break
         if last_good is not None and not (outcome_buggy == "fail"
@@ -841,7 +902,18 @@ def run_brt_phase(
         total_cache_read_tokens=tot_cr,
         match_checks=match_checks,
         match_cost_usd=(phase_cost(match_client, match_bill0, match_tok[0], match_tok[1])
-                        if match_client is not None and match_checks else None),
+                        if match_client is not None and match_checks else
+                        phase_cost(writer_judge_client, judge_bill0, judge_tok[0], judge_tok[1])
+                        if writer_judge_client is not None and match_checks else None),
+        match_loop=({"attempts": len(loop_states),
+                     "checks": len(match_checks),
+                     "mismatches": sum(st.mismatches for st in loop_states),
+                     "refusals": sum(st.refusals for st in loop_states),
+                     "final_matched": bool(loop_states) and bool(submission) and
+                                      loop_states[-1].key(submission) in loop_states[-1].matched,
+                     "submitted_unverified": bool(loop_states) and
+                                             loop_states[-1].submitted_unverified}
+                    if writer_judge_client is not None else None),
     )
 
 
