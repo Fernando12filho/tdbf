@@ -44,3 +44,12 @@ after 3 mismatches). 20 bugs is small; these are development results.
 `v2-base` ≈ $0.50 (the old agent cost $0.025 per bug); `v2-loop` ≈ $0.04 per bug ≈ $0.80; `v2-full`
 ≈ $0.05–0.06 per bug ≈ $1.20. Total ≈ $2.50, with a `--max-usd` cap per arm. Images: 20 pulls
 (prebuilt, `--platform linux/amd64`), 82 GB free.
+
+## Amendment 1 (2026-11-25, after the 1-bug live check, before the arms)
+
+- The live check (django-15252, `v2-full`) ran end to end at $0.047: the in-loop judge caught a test
+  failing at a setup assertion instead of the bug, and the writer fixed it in the same conversation.
+- The gpt-5-nano Localizer hit the 300K-token scout ceiling and returned no report: a token cap,
+  unlike a turn cap, does not force a final submission. The scout ceiling goes back to 1M tokens
+  (the user asked earlier for scouts to run until done; at nano prices 1M input tokens is ~$0.05).
+  Turns stay capped at 50. The full arm runs as `v2-full-1m`; `v2-full` keeps only the live check.

@@ -96,14 +96,16 @@ STUDIES: tuple[Study, ...] = (
                     "2026-11-24). Development results, reported as such."),
     Study(
         name="scouts-dev-v2", purpose="development",
-        run_groups=("v2-base", "v2-loop", "v2-full"),
+        run_groups=("v2-base", "v2-loop", "v2-full", "v2-full-1m"),
         models=(GPT_5_MINI, GPT_5_NANO), frozen=False,
         samples=("studies/scouts/data/dev_round4.json", "studies/scouts/data/dev_round5.json"),
         description="Scouts v2 (studies/scouts/plan_v2.md) on 20 fresh development bugs "
                     "(rounds 4-5 of the procedure study's order): v2-base = the old BRT agent; "
                     "v2-loop = the BRT agent with judge v2 inside its loop (check_test + "
                     "guarded submit_test); v2-full = gpt-5-nano scouts and organizer, then the "
-                    "same writer loop. Writer and judge gpt-5-mini. Development results."),
+                    "same writer loop. Writer and judge gpt-5-mini. v2-full holds only the "
+                    "1-bug live check with scouts capped at 300K tokens; the arm runs as "
+                    "v2-full-1m (1M tokens, amendment 1 of plan_v2.md). Development results."),
     Study(
         name="dev-sonnet-gate-fix", purpose="development",
         run_groups=("gate-fix", "gate-fix-aborted"),
