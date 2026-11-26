@@ -70,3 +70,7 @@ thesisproposal/
 # Study folders are versioned: their plans and data are the pre-registration record.
 !studies/**/*.md
 !studies/**/*.json
+
+# final evaluation: regenerated predictions and logs
+runs/final/
+studies/final-eval/data/clean_ids.json

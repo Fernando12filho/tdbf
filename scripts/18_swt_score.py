@@ -106,6 +106,10 @@ def main() -> None:
     ap.add_argument("--skip-gold", action="store_true", help="no gold run (no coverage, no image check)")
     ap.add_argument("--rm-image", action="store_true", help="delete the prebuilt image after each instance")
     ap.add_argument("--max-workers", type=int, default=1)
+    ap.add_argument("--also", action="append", default=[], metavar="PREDICTIONS=RUN_ID",
+                    help="score another predictions file on the same image and gold run, under its "
+                         "own run id (repeatable). A system with no prediction for an instance is "
+                         "skipped for it.")
     ap.add_argument("--ingest", action="store_true",
                     help="after each instance, store its verdict in the tdbf repo's swt_results.jsonl "
                          "(17_swt_predictions.py ingest), so the webapp /swt page updates during the run")
@@ -123,6 +127,15 @@ def main() -> None:
 
     preds = [json.loads(l) for l in args.predictions.read_text().splitlines() if l.strip()]
     ids = args.ids or [p["instance_id"] for p in preds]
+    # (predictions path, run id, instance ids it has) for every system scored per image
+    systems = [(args.predictions, args.run_id, {p["instance_id"] for p in preds})]
+    for item in args.also:
+        path, sep, rid = item.partition("=")
+        if not sep or not rid:
+            raise SystemExit(f"--also expects PREDICTIONS=RUN_ID, got {item!r}")
+        path = Path(path)
+        has = {json.loads(l)["instance_id"] for l in path.read_text().splitlines() if l.strip()}
+        systems.append((path, rid, has))
     dataset = {i["instance_id"]: i for i in load_swebench_dataset(DATASET, "test", filter_swt=True)}
     missing = [i for i in ids if i not in dataset]
     if missing:
@@ -155,20 +168,28 @@ def main() -> None:
             for t in tags:
                 sh(["docker", "tag", src_image, t], check=True)
             gold = None if args.skip_gold else harness("gold", iid, GOLD_RUN_ID, args.max_workers)
-            pred = harness(str(args.predictions.resolve()), iid, args.run_id, args.max_workers)
-            summary[iid] = f"gold exit {gold}, prediction exit {pred}"
-            # read by `17_swt_predictions.py ingest`: which image graded this
-            # instance, and when, so a report older than this run is refused
-            meta = Path(META_DIR) / args.run_id / f"{iid}.json"
-            meta.parent.mkdir(parents=True, exist_ok=True)
-            meta.write_text(json.dumps({
-                "instance_id": iid, "run_id": args.run_id, "image": src_image,
-                "repo_digests": json.loads(digest or "[]"), "tags": tags,
-                "gold_exit": gold, "prediction_exit": pred, "started": started,
-                "finished": datetime.now(timezone.utc).isoformat(),
-                "harness_commit": sh(["git", "rev-parse", "--short", "HEAD"],
-                                     capture_output=True, text=True).stdout.strip(),
-            }, indent=1))
+            parts = [f"gold exit {gold}"]
+            for path, rid, has in systems:
+                if iid not in has:
+                    parts.append(f"{rid}: no prediction")
+                    continue
+                started = datetime.now(timezone.utc).isoformat()
+                pred = harness(str(path.resolve()), iid, rid, args.max_workers)
+                parts.append(f"{rid} exit {pred}")
+                # read by `17_swt_predictions.py ingest` and 20_final_eval.py: which
+                # image graded this instance, and when, so an older report is refused
+                meta = Path(META_DIR) / rid / f"{iid}.json"
+                meta.parent.mkdir(parents=True, exist_ok=True)
+                meta.write_text(json.dumps({
+                    "instance_id": iid, "run_id": rid, "image": src_image,
+                    "repo_digests": json.loads(digest or "[]"), "tags": tags,
+                    "gold_exit": gold, "prediction_exit": pred, "started": started,
+                    "finished": datetime.now(timezone.utc).isoformat(),
+                    "predictions": str(path.resolve()),
+                    "harness_commit": sh(["git", "rev-parse", "--short", "HEAD"],
+                                         capture_output=True, text=True).stdout.strip(),
+                }, indent=1))
+            summary[iid] = ", ".join(parts)
             if args.ingest:
                 ingest(args, iid)
         finally:
