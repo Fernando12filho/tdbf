@@ -61,7 +61,11 @@ SYSTEMS = {
                ["final-single", "v2-base", "proc-dev-baseline"]),
     "rbb": ("final-rbb-v1", "tdbf__rbb-gpt-5-mini", ["final-rbb", "rbb-fresh", "rbb-dev30"]),
     "reproagent": ("final-reproagent-v1", "ReProAgent", []),
+    # studies/multi-test: the multi-test BRTs, scored with the same harness on the dev bugs
+    "multi": ("mt-multi-v1", "tdbf__multi-gpt-5-mini", ["mt-brt"]),
 }
+OURS = ("single", "rbb", "multi")
+DEFAULT_SYSTEMS = ("single", "rbb", "reproagent")
 _PROC_REF = "agent/procedure:results.jsonl"  # proc-dev-baseline lives on that branch
 
 
@@ -132,12 +136,12 @@ def prediction(repo: str, test_code: str, model_name: str, iid: str) -> dict:
     return {"instance_id": iid, "model_name_or_path": model_name, "model_patch": patch}
 
 
-def write_predictions(ids: list[str]) -> dict[str, Path]:
+def write_predictions(ids: list[str], systems=DEFAULT_SYSTEMS) -> dict[str, Path]:
     """(Re)write each system's predictions file for `ids` from the stored tests."""
     PRED_DIR.mkdir(parents=True, exist_ok=True)
     recs = _records()
     paths = {}
-    for system in ("single", "rbb"):
+    for system in [s for s in systems if s in OURS]:
         _, model, _ = SYSTEMS[system]
         tests = tests_of(system, recs)
         path = PRED_DIR / f"{system}.jsonl"
@@ -147,6 +151,8 @@ def write_predictions(ids: list[str]) -> dict[str, Path]:
                 if t and t["test_code"].strip():
                     f.write(json.dumps(prediction(t["repo"], t["test_code"], model, iid)) + "\n")
         paths[system] = path
+    if "reproagent" not in systems:
+        return paths
     frozen = json.loads(SAMPLE.read_text())["reproagent_predictions"]["sha256"]
     raw = REPRO_SRC.read_bytes()
     if hashlib.sha256(raw).hexdigest() != frozen:
@@ -254,11 +260,12 @@ def score(iid: str, preds: dict[str, Path]) -> float:
         if old.exists():
             shutil.rmtree(old)
     started = time.time()
+    names = list(preds)
     cmd = [str(SWT_PY), str(ROOT / "scripts" / "18_swt_score.py"),
-           "--predictions", str(preds["single"]), "--run-id", SYSTEMS["single"][0],
-           "--also", f"{preds['rbb']}={SYSTEMS['rbb'][0]}",
-           "--also", f"{preds['reproagent']}={SYSTEMS['reproagent'][0]}",
-           "--ids", iid]
+           "--predictions", str(preds[names[0]]), "--run-id", SYSTEMS[names[0]][0]]
+    for name in names[1:]:
+        cmd += ["--also", f"{preds[name]}={SYSTEMS[name][0]}"]
+    cmd += ["--ids", iid]
     res = sh(cmd, cwd=str(SWT_DIR), capture_output=True, text=True)
     log = PRED_DIR / "logs" / f"{iid}.score.log"
     log.parent.mkdir(parents=True, exist_ok=True)
@@ -282,7 +289,7 @@ def do_bug(iid: str, args, dev: set[str]) -> None:
     try:
         if iid not in dev:
             run_agents(iid, args)
-        preds = write_predictions([iid])
+        preds = write_predictions([iid], args.systems)
         started = score(iid, preds)
         verdicts = collect(iid, started, preds)
         with STORE.open("a") as f:
@@ -297,8 +304,8 @@ def do_bug(iid: str, args, dev: set[str]) -> None:
                 sh(["docker", "rmi", registry_image(iid)], capture_output=True)
 
 
-def done(iid: str, have: dict, preds_have: set[str]) -> bool:
-    need = ["gold", "single", "rbb", "reproagent"]
+def done(iid: str, have: dict, systems) -> bool:
+    need = ["gold", *systems]
     return all((iid, s) in have and have[(iid, s)].get("S") is not None for s in need)
 
 
@@ -311,6 +318,8 @@ def main() -> int:
     ap.add_argument("--max-usd", type=float, default=30.0, help="agents' total cost cap")
     ap.add_argument("--min-free-gb", type=float, default=20.0)
     ap.add_argument("--keep-images", action="store_true")
+    ap.add_argument("--systems", nargs="+", default=list(DEFAULT_SYSTEMS),
+                    choices=list(SYSTEMS), help="systems to score (default: the evaluation's three)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -320,7 +329,7 @@ def main() -> int:
     pool = sample["clean_ids"] if args.set == "clean" else sample["development_ids"]
     ids = [i for i in (args.ids or pool) if i in pool]
     have = stored()
-    todo = [i for i in ids if not done(i, have, set())]
+    todo = [i for i in ids if not done(i, have, args.systems)]
     # images already on disk first
     todo.sort(key=lambda i: not image_exists(registry_image(i)))
     if args.limit:

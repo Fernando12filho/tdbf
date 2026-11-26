@@ -1,18 +1,11 @@
 """Multi-test reproduction tests study (studies/multi-test/plan.md), on the 50
-development bugs with gpt-5-mini.
-
-  --phase brt                the single agent told to write a main test plus related
-                             cases (run group mt-brt), offline L0-L4 label
-  --phase fix --arm single   the unchanged fix agent with the stored one-test BRT
-                             (proc-dev-baseline / v2-base)          -> mt-fix-single
-  --phase fix --arm multi    the same fix agent with the multi-test BRT -> mt-fix-multi
-
-A fix runs only for a test that passed the gate (it fails on the buggy code at an
-assertion), as in the deployable pipeline; analysis counts the others as unresolved.
+development bugs with gpt-5-mini: the single agent told to write a main test plus as
+many related-case tests as it judges the bug needs (run group mt-brt), with the
+offline L0-L4 label. Test writing only: no fix runs (user decision). Scoring against
+the stored one-test tests: scripts/20_final_eval.py --set dev --systems ... multi.
 Resumes by run group; stops at --max-usd.
 
-    python3 scripts/multitest.py --phase brt --limit 1
-    python3 scripts/multitest.py --phase fix --arm single
+    python3 scripts/multitest.py --limit 1
 """
 
 from __future__ import annotations
@@ -88,39 +81,16 @@ def run_brt(inst, client, args, out_dir: Path) -> float | None:
     return phase.cost_usd
 
 
-def run_fix(inst, client, brt: dict, args, out_dir: Path) -> float | None:
-    from tdbf.agent.pipeline import fix_run_record, fix_transcript_dict, run_fix_phase
-    code = metrics._best_attempt(brt).get("test_code") or ""
-    phase = run_fix_phase(inst, code, client, split="lite", max_iterations=50,
-                          max_total_tokens=1_000_000, max_tokens_per_turn=8192,
-                          run_dir=out_dir, verbose=args.verbose)
-    if phase is None:
-        return None
-    flags = {"arm": args.arm, "max_iterations": 50, "max_total_tokens": 1_000_000,
-             "max_tokens_per_turn": 8192, "run_group": args.run_group,
-             "brt_group": (brt.get("flags") or {}).get("run_group"),
-             "brt_level": brt.get("best_level")}
-    save_run(fix_run_record(inst, client.name, split="lite", flags=flags, phase=phase))
-    (out_dir / f"{inst.instance_id}.transcript.json").write_text(
-        json.dumps(fix_transcript_dict(inst, client.name, phase), indent=2, default=str))
-    print(f"-> resolved={phase.resolved} cost=${phase.cost_usd}"
-          + (f" scoring_error={phase.scoring_error}" if phase.scoring_error else ""), flush=True)
-    return phase.cost_usd
-
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--phase", choices=["brt", "fix"], required=True)
-    ap.add_argument("--arm", choices=["single", "multi"])
     ap.add_argument("--ids", nargs="*", default=[])
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--max-usd", type=float, default=4.0)
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
-    if args.phase == "fix" and not args.arm:
-        raise SystemExit("--phase fix needs --arm single|multi")
-    args.run_group = "mt-brt" if args.phase == "brt" else f"mt-fix-{args.arm}"
+    args.run_group = "mt-brt"
 
     client = build_client(MODEL)
     use_run_group(args.run_group, client.name)
@@ -128,19 +98,9 @@ def main() -> int:
     ids = args.ids or dev_ids()
     done = set(latest(recs, (args.run_group,)))
     todo = [i for i in ids if i not in done]
-    tests = {}
-    if args.phase == "fix":
-        tests = latest(recs, ("mt-brt",) if args.arm == "multi" else SINGLE_GROUPS)
-        no_test = [i for i in todo if i not in tests]
-        gated_out = [i for i in todo if i in tests and not gate_ok(tests[i])]
-        if no_test:
-            print(f"no Phase A test yet ({len(no_test)}): {' '.join(no_test)}")
-        if gated_out:
-            print(f"test did not pass the gate, no fix run (counted unresolved): {len(gated_out)}")
-        todo = [i for i in todo if i in tests and gate_ok(tests[i])]
     if args.limit:
         todo = todo[:args.limit]
-    print(f"phase={args.phase} arm={args.arm} group={args.run_group} todo={len(todo)}/{len(ids)} "
+    print(f"group={args.run_group} todo={len(todo)}/{len(ids)} "
           f"max_usd={args.max_usd}", flush=True)
     store = InstanceStore("lite")
     out_dir = ROOT / "runs" / "multitest" / args.run_group
@@ -153,9 +113,7 @@ def main() -> int:
         print(f"\n{'=' * 60}\n{iid}", flush=True)
         try:
             inst = store.get(iid)
-            c = (run_brt(inst, client, args, out_dir) if args.phase == "brt"
-                 else run_fix(inst, client, tests[iid], args, out_dir))
-            spent += c or 0.0
+            spent += run_brt(inst, client, args, out_dir) or 0.0
         except Exception as exc:  # noqa: BLE001
             msg = str(exc)
             print(f"{iid}: CRASH {type(exc).__name__}: {msg[:300]}", flush=True)
