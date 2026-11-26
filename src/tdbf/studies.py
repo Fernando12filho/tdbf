@@ -120,6 +120,16 @@ STUDIES: tuple[Study, ...] = (
                     "blackboard (plan_reactive_blackboard.md) on the same bugs. Development "
                     "results."),
     Study(
+        name="final-swt-lite", purpose="experiment",
+        run_groups=("final-single", "final-rbb"),
+        models=(GPT_5_MINI, GPT_5_NANO), frozen=False,
+        samples=("studies/final-eval/data/sample_swt_lite_final.json",),
+        description="Final evaluation (studies/final-eval/plan.md): TDBF's single test-writing "
+                    "agent (final-single) and the reactive blackboard (final-rbb) on the 226 "
+                    "clean SWT-bench Lite bugs, scored with the official SWT-bench harness next "
+                    "to ReProAgent's re-scored GPT-5-mini predictions. The 50 development bugs "
+                    "reuse proc-dev-baseline/v2-base and rbb-dev30/rbb-fresh."),
+    Study(
         name="dev-sonnet-gate-fix", purpose="development",
         run_groups=("gate-fix", "gate-fix-aborted"),
         models=("anthropic:claude-sonnet-4-6",), frozen=True,
