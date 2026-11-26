@@ -537,13 +537,42 @@ def test_reactive_flow() -> None:
     _no_leak(bb.board.log(), writer.results, judge.tasks)
 
 
+def test_multi_test_prompt() -> None:
+    _fake_gold()
+    pipeline.run_brt_in_container = lambda instance, code, gold_patch=None, **kw: (
+        ContainerResult("pass", output="ok") if gold_patch else
+        ContainerResult("fail", failure_reason="assertion", output="AssertionError"))
+    for repo in ("demo/pkg", "django/django"):
+        inst = SWEBenchInstance(instance_id="demo__pkg-2", repo=repo, base_commit="abc",
+                                gold_patch="GOLD MUST NOT BE USED",
+                                test_patch="TEST_PATCH MUST NOT BE USED",
+                                problem_statement="compute() returns 4 but should return 5.")
+        one = RoleClient("writer", [_TEST_B])
+        pipeline.run_brt_phase(inst, one, max_iterations=3, max_total_tokens=100_000)
+        many = RoleClient("writer", [_TEST_B])
+        captured = {}
+        orig = many.run_tools
+        def spy(*, system, **kw):
+            captured["system"] = system
+            return orig(system=system, **kw)
+        many.run_tools = spy
+        pipeline.run_brt_phase(inst, many, max_iterations=3, max_total_tokens=100_000,
+                               multi_test=True)
+        sys_multi = captured["system"]
+        assert "main test plus related cases" in sys_multi and "Test module (this run)" in sys_multi, repo
+        assert "one pytest test that reproduces" not in sys_multi
+        assert "one Django test that reproduces" not in sys_multi
+    # off: the unchanged prompt text
+    assert "one pytest test that reproduces" in pipeline.BRT_SYSTEM_PROMPT
+
+
 def main() -> int:
     tests = [test_registries_gold_free, test_submit_match_and_failopen,
              test_match_retry_then_match, test_match_budget, test_fallback_to_last_gate_pass,
              test_baseline_record_unchanged, test_scouts_flow, test_scout_crash_and_no_brief,
              test_match_only_arm, test_writer_v2_registry, test_check_test_and_guarded_submit,
              test_writer_loop_in_run_brt_phase, test_board_basics, test_blackboard_flow,
-             test_reactive_hooks_and_push, test_reactive_flow]
+             test_reactive_hooks_and_push, test_reactive_flow, test_multi_test_prompt]
     for t in tests:
         t()
         print(f"  ok  {t.__name__}")

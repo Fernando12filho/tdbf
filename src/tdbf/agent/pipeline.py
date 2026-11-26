@@ -509,6 +509,22 @@ def _brt_retry_feedback(outcome_buggy, submission: str | None, failure_reason: s
             f"{why}\n\nTry again.")
 
 
+MULTI_TEST_ADDENDUM = """
+
+Test module (this run):
+- Write a MAIN test first: the issue's own scenario, the one that must fail on this buggy code.
+- Then add as many tests as YOU judge this bug needs for the closely related cases a correct fix must \
+also handle: other inputs the issue mentions, edge cases (empty, one, many; boundaries), the inverse \
+or round-trip operation, another call path to the same behaviour. They make a fix that only \
+special-cases the main scenario fail. There is no fixed number: a narrow bug may need none beyond the \
+main test, a broad one several. Decide from the issue and the code, and add a test only when it checks \
+something the others do not.
+- Every test asserts only behaviour the issue states or directly implies, and must REACH its \
+assertions (no import, setup or API errors). Related tests should fail on the buggy code too when they \
+exercise the bug; a test may pass now only if it guards behaviour that must stay correct after the fix.
+- Run the whole module with run_test, fix anything that crashes, and submit the whole module."""
+
+
 WRITER_LOOP_ADDENDUM = """
 
 Reviewer loop (this run):
@@ -572,6 +588,7 @@ def run_brt_phase(
     writer_system_extra: str | None = None,
     writer_before_check=None,
     writer_on_check=None,
+    multi_test: bool = False,
 ) -> BrtPhaseResult | None:
     """Run the BRT agent (gold-free) then score its test through the gold barrier.
 
@@ -623,6 +640,12 @@ def run_brt_phase(
     )
     if prompt_harden:
         system += PROMPT_HARDEN
+    if multi_test:  # studies/multi-test/plan.md; off = byte-identical prompt
+        system = (system.replace("one pytest test that reproduces", "a small pytest test module (a "
+                                 "main test plus related cases) that reproduces")
+                        .replace("one Django test that reproduces", "a small Django test module (a "
+                                 "main test plus related cases) that reproduces")
+                  + MULTI_TEST_ADDENDUM)
     if writer_judge_client is not None:
         if match_client is not None:
             raise ValueError("writer_judge_client (in-loop judge) and match_client (outer "
