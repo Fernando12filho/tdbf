@@ -181,6 +181,10 @@ were also derived from their L3 cases, so results here are optimistic for later 
     <li>The blackboard's 23 vs 21 on the 30 development bugs passes "more L4" and "no more L3" but
         costs 2.2× per valid test; three of its five gains are the L3 cases judge v2's rules were
         derived from, so it most likely reflects judge v2 on its own development bugs, not the board.</li>
+    <li>The reactive blackboard is the first design with more L4 and fewer L3 than the old agent on the
+        fresh bugs (18 vs 17), but costs 2.2× per valid test, and on the harder development bugs it
+        fell to 20 (vs 21): pushing the board makes the writer inherit the gpt-5-nano scouts' mistakes.
+        Over all 50 bugs the old agent, the blackboard and the reactive blackboard each write 38 valid tests.</li>
     <li>The judge inside the writer's loop works mechanically (it objects and the writer revises), but
         did not turn any L3 into L4. Half of the L3 tests follow the issue and fail only because the
         benchmark's fix differs from what the issue asks, which no gold-free check can see.</li>
