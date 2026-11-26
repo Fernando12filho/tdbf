@@ -21,10 +21,11 @@ more bugs than the one-test BRT, and what does it cost in valid tests and money?
 | **multi** | new run of the same agent with the multi-test instruction | new fix run with that test module |
 
 - **Multi-test instruction** (the only Phase A change): write a test module with (1) the main
-  reproduction test, the issue's own scenario, and (2) 2–4 more tests of closely related cases the
-  issue implies the fix must handle (other inputs it mentions, edge cases, the inverse or round-trip
-  operation, another call path), each asserting only what the issue supports and reaching its
-  assertions. The main test must fail on the buggy code; the others should fail now too where they
+  reproduction test, the issue's own scenario, and (2) **as many further tests as the agent judges
+  the bug needs** for closely related cases the issue implies the fix must handle (other inputs it
+  mentions, edge cases, the inverse or round-trip operation, another call path), each asserting only
+  what the issue supports and reaching its assertions. No fixed number (user decision, revised before
+  any run): a narrow bug may need only the main test. The number of tests per module is reported. The main test must fail on the buggy code; the others should fail now too where they
   exercise the bug, and may pass if they guard behaviour that must stay correct.
 - **Phase A budget:** 50 turns per attempt, 2 gate retries, 1M tokens, 8192 per turn (as the stored).
   Gate unchanged (the module fails on the buggy code at an assertion).

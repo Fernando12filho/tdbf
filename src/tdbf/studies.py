@@ -130,6 +130,16 @@ STUDIES: tuple[Study, ...] = (
                     "to ReProAgent's re-scored GPT-5-mini predictions. The 50 development bugs "
                     "reuse proc-dev-baseline/v2-base and rbb-dev30/rbb-fresh."),
     Study(
+        name="multitest-dev", purpose="development",
+        run_groups=("mt-brt", "mt-fix-single", "mt-fix-multi"),
+        models=(GPT_5_MINI,), frozen=False,
+        samples=("studies/scouts/data/dev_bugs.json", "studies/scouts/data/dev_round4.json",
+                 "studies/scouts/data/dev_round5.json"),
+        description="Multi-test BRTs (studies/multi-test/plan.md) on the 50 development bugs, "
+                    "gpt-5-mini: mt-brt = the single agent told to write a main test plus "
+                    "related cases; mt-fix-single / mt-fix-multi = the unchanged fix agent with "
+                    "the stored one-test BRT / the multi-test BRT. Development results."),
+    Study(
         name="dev-sonnet-gate-fix", purpose="development",
         run_groups=("gate-fix", "gate-fix-aborted"),
         models=("anthropic:claude-sonnet-4-6",), frozen=True,
