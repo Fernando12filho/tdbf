@@ -68,5 +68,9 @@ One run per bug (pass@1), like ReProAgent. The code is tagged before the run sta
   `flags.offline_label: false`. The first 92 clean bugs keep their labels.
 - **Disk:** the run's free-disk stop was lowered from 20 to 12 GB (restart at bug 79): Colima's Docker
   disk file grows to at most 100 GB and does not shrink, so 20 GB would have stopped the run early.
-- Measured pace before this change: ~18 minutes per bug (single agent 4.1, reactive blackboard 6.9,
-  scoring 6.7, all sequential).
+- **The two agents run at the same time** for each bug from the same restart on (user decision; each
+  has its own containers; `--sequential-agents` restores the old order). Scoring stays one bug at a
+  time (the harness shares one base image name). A busier machine can make an agent's test run hit
+  its time limit slightly more often; this applies to both of our systems alike, not to ReProAgent.
+- Measured pace before these changes: ~18 minutes per bug (single agent 4.1, reactive blackboard
+  6.9, scoring 6.7, all sequential).

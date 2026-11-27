@@ -230,16 +230,30 @@ def run_agents(iid: str, args) -> None:
                                   "--role-model", f"template={NANO}",
                                   "--role-model", f"localizer={NANO}",
                                   "--role-model", f"reproducer={NANO}"])]
-    for arm, group, extra in arms:
-        res = sh([sys.executable, str(ROOT / "scripts" / "scouts_brt.py"), "--arm", arm,
-                  "--run-group", group, *common, *extra], capture_output=True, text=True)
+    (PRED_DIR / "logs").mkdir(parents=True, exist_ok=True)
+    cmds = {arm: [sys.executable, str(ROOT / "scripts" / "scouts_brt.py"), "--arm", arm,
+                  "--run-group", group, *common, *extra] for arm, group, extra in arms}
+    outs = {}
+    if args.sequential_agents:
+        for arm, cmd in cmds.items():
+            res = sh(cmd, capture_output=True, text=True)
+            outs[arm] = (res.returncode, res.stdout + res.stderr)
+    else:  # both agents at the same time (plan amendment 1); each has its own containers
+        procs = {}
+        for arm, cmd in cmds.items():
+            print("+", " ".join(str(c) for c in cmd), flush=True)
+            procs[arm] = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                          text=True)
+        for arm, proc in procs.items():
+            out, _ = proc.communicate()
+            outs[arm] = (proc.returncode, out or "")
+    for arm, (rc, text) in outs.items():
         log = PRED_DIR / "logs" / f"{iid}.{arm}.log"
-        log.parent.mkdir(parents=True, exist_ok=True)
-        log.write_text(res.stdout + res.stderr)
-        tail = (res.stdout + res.stderr)[-3000:]
+        log.write_text(text)
+        tail = text[-3000:]
         if "Error code: 402" in tail or "Error code: 403" in tail:
             raise Stop(f"{iid} {arm}: OpenRouter credits or key limit exhausted (see {log})")
-        if "CRASH" in tail or res.returncode != 0:
+        if "CRASH" in tail or rc != 0:
             print(f"  [warn] {iid} {arm}: crashed or failed (see {log}); its test counts as missing")
 
 
@@ -318,6 +332,8 @@ def main() -> int:
     ap.add_argument("--max-usd", type=float, default=30.0, help="agents' total cost cap")
     ap.add_argument("--min-free-gb", type=float, default=20.0)
     ap.add_argument("--keep-images", action="store_true")
+    ap.add_argument("--sequential-agents", action="store_true",
+                    help="run the two agents one after the other (default: at the same time)")
     ap.add_argument("--no-label", action="store_true",
                     help="skip our offline L0-L4 label after the agents (plan amendment 1)")
     ap.add_argument("--systems", nargs="+", default=list(DEFAULT_SYSTEMS),
