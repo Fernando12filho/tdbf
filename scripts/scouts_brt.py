@@ -102,12 +102,14 @@ def run_one(inst, args, clients: dict, out_dir: Path) -> float | None:
         bb, phase = run_blackboard_brt_phase(
             inst, clients, max_iterations=args.total_turns, max_total_tokens=args.max_tokens,
             max_tokens_per_turn=args.max_tokens_per_turn, scout_max_iterations=args.scout_turns,
-            max_mismatches=args.max_mismatches, reactive=args.arm == "rbb", verbose=args.verbose)
+            max_mismatches=args.max_mismatches, reactive=args.arm == "rbb",
+            score_fixed=not args.no_label, verbose=args.verbose)
     elif args.arm == "base":
         sres = None
         phase = run_brt_phase(inst, clients["writer"], max_iterations=args.total_turns,
                               max_total_tokens=args.max_tokens,
-                              max_tokens_per_turn=args.max_tokens_per_turn, verbose=args.verbose)
+                              max_tokens_per_turn=args.max_tokens_per_turn,
+                              score_fixed=not args.no_label, verbose=args.verbose)
     else:
         sres, phase = run_scouts_brt_phase(
             inst, clients, max_iterations=args.total_turns, max_total_tokens=args.max_tokens,
@@ -133,6 +135,11 @@ def run_one(inst, args, clients: dict, out_dir: Path) -> float | None:
              "submit_nudge_limit": phase.submit_nudge_limit,
              "role_models": {r: c.name for r, c in clients.items()}}
     rec = brt_run_record(inst, clients["writer"].name, split=args.split, flags=flags, phase=phase)
+    if args.no_label:  # no offline L0-L4 label: record None, never a misleading L0
+        flags["offline_label"] = False
+        rec["best_level"] = None
+        for a in rec["attempts"]:
+            a["level"] = None
     rec["cost_total_usd"] = total
     rec["seconds"] = round(time.monotonic() - t0, 1)
     if sres is not None:
@@ -190,6 +197,9 @@ def main() -> int:
     ap.add_argument("--max-tokens", type=int, default=1_000_000)
     ap.add_argument("--max-tokens-per-turn", type=int, default=8192)
     ap.add_argument("--max-usd", type=float, default=6.0)
+    ap.add_argument("--no-label", action="store_true",
+                    help="skip the offline L0-L4 label (gold-fixed run) after the agents; the "
+                         "level is recorded as None")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()

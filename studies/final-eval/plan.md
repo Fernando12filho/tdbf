@@ -58,3 +58,15 @@ One run per bug (pass@1), like ReProAgent. The code is tagged before the run sta
   the development bugs). Resumable; unattended under `caffeinate`.
 - About 12–15 minutes per bug → ~45–55 hours for 226 bugs, over several nights.
 - Model cost: single ≈ $0.025 per bug, reactive ≈ $0.06 → **≈ $20** for 226 bugs; capped at $30.
+
+## Amendment 1 (2026-11-27, during the run, user decision)
+
+- **Our offline L0–L4 label is skipped for the clean bugs scored from the restart at bug 93 on**
+  (`--no-label`): it ran each new test on the buggy and gold-fixed code in extra containers after the
+  agents, ~2 minutes per bug, and it is a secondary metric. The agents' behaviour, the gate and the
+  SWT-bench scoring (the primary metric S) are unchanged; such records carry `best_level: null` and
+  `flags.offline_label: false`. The first 92 clean bugs keep their labels.
+- **Disk:** the run's free-disk stop was lowered from 20 to 12 GB (restart at bug 79): Colima's Docker
+  disk file grows to at most 100 GB and does not shrink, so 20 GB would have stopped the run early.
+- Measured pace before this change: ~18 minutes per bug (single agent 4.1, reactive blackboard 6.9,
+  scoring 6.7, all sequential).

@@ -224,7 +224,7 @@ class Stop(Exception):
 
 def run_agents(iid: str, args) -> None:
     common = ["--bugs-file", str(SAMPLE.parent / "clean_ids.json"), "--ids", iid,
-              "--model", MINI, "--max-usd", "1"]
+              "--model", MINI, "--max-usd", "1"] + (["--no-label"] if args.no_label else [])
     arms = [("base", "final-single", []),
             ("rbb", "final-rbb", ["--scout-turns", "50",
                                   "--role-model", f"template={NANO}",
@@ -318,6 +318,8 @@ def main() -> int:
     ap.add_argument("--max-usd", type=float, default=30.0, help="agents' total cost cap")
     ap.add_argument("--min-free-gb", type=float, default=20.0)
     ap.add_argument("--keep-images", action="store_true")
+    ap.add_argument("--no-label", action="store_true",
+                    help="skip our offline L0-L4 label after the agents (plan amendment 1)")
     ap.add_argument("--systems", nargs="+", default=list(DEFAULT_SYSTEMS),
                     choices=list(SYSTEMS), help="systems to score (default: the evaluation's three)")
     ap.add_argument("--dry-run", action="store_true")

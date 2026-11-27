@@ -528,7 +528,7 @@ def run_blackboard_brt_phase(inst: SWEBenchInstance, clients: dict[str, LLMClien
                              scout_max_iterations: int = 50, brt_retries: int = 2,
                              max_mismatches: int = 3, scout_join_timeout: float = 300.0,
                              reactive: bool = False, soft_start: float = 90.0,
-                             verbose: bool = False):
+                             score_fixed: bool = True, verbose: bool = False):
     """Scouts and writer concurrently around one board. `reactive=True` is the
     reactive blackboard: entries pushed into tool results, check_test results
     auto-posted, problems routed to scouts, a soft start. Returns
@@ -562,7 +562,8 @@ def run_blackboard_brt_phase(inst: SWEBenchInstance, clients: dict[str, LLMClien
             writer_tool_wrapper=lambda tools: with_notices(tools, board, "writer", scout=False,
                                                            push=reactive),
             writer_system_extra=WRITER_BOARD_ADDENDUM + (REACTIVE_WRITER_ADDENDUM if reactive else ""),
-            writer_before_check=before_check, writer_on_check=on_check)
+            writer_before_check=before_check, writer_on_check=on_check,
+            score_fixed=score_fixed)
     finally:
         board.close()
         deadline = time.monotonic() + scout_join_timeout
